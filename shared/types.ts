@@ -127,6 +127,8 @@ export interface DesignSummary {
   id: string;
   code: string;
   name: string;
+  /** A special one-word name for the saree, e.g. "Kadhua". Empty when it has none. */
+  nickname: string;
   fabric: string;
   hsnCode: string;
   description: string;
@@ -143,6 +145,8 @@ export interface DesignDetail extends DesignSummary {
 export interface DesignInput {
   code: string;
   name: string;
+  /** Optional. One word. */
+  nickname?: string;
   fabric: string;
   hsnCode: string;
   description: string;
@@ -170,6 +174,8 @@ export interface VariantInput {
  */
 export interface BulkSareeRow {
   name: string;
+  /** The special one-word name. Optional; taken from the first row that has one in each design. */
+  nickname?: string;
   /** The Saree ID. Left blank to generate one from the design code, colour and size. */
   sku: string;
   color: string;
@@ -462,6 +468,7 @@ export interface SaleVariant {
   designId: string;
   designCode: string;
   designName: string;
+  designNickname: string;
   hsn: string;
   color: string;
   size: string;

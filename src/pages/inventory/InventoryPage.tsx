@@ -91,7 +91,7 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
       ) : (
         <>
           <div className="mb-4 flex items-center justify-between gap-4">
-            <SearchInput value={search} onChange={setSearch} placeholder="Search design, code, color or SKU" />
+            <SearchInput value={search} onChange={setSearch} placeholder="Search name, short name, code, color or SKU" />
             <Segmented
               label="Stock filter"
               value={filter}
@@ -147,7 +147,11 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
                     >
                       <td className="td">
                         <div>{d.name}</div>
-                        <div className="text-xs text-ink-muted">{d.code}</div>
+                        <div className="text-xs text-ink-muted">
+                          {d.nickname && <span className="text-ink">{d.nickname}</span>}
+                          {d.nickname && ' · '}
+                          {d.code}
+                        </div>
                       </td>
                       <td className="td text-ink-muted">{d.fabric || '—'}</td>
                       <td className="td num text-right">{d.variantCount}</td>

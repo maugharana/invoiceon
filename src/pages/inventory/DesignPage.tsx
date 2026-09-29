@@ -68,7 +68,7 @@ export function DesignPage({ id }: { id: string }) {
             <StockPill status={d.status} />
           </span>
         }
-        subtitle={[d.code, d.fabric, d.hsnCode && `HSN ${d.hsnCode}`].filter(Boolean).join(' · ')}
+        subtitle={[d.nickname, d.code, d.fabric, d.hsnCode && `HSN ${d.hsnCode}`].filter(Boolean).join(' · ')}
         actions={
           <>
             <Button icon={<Pencil className="h-4 w-4" />} onClick={() => setDialog({ kind: 'edit-design' })}>

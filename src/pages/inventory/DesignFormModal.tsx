@@ -22,6 +22,7 @@ export function DesignFormModal({ design, suggestedCode = '', onClose, onSaved }
   const refresh = useRefresh();
   const [code, setCode] = useState(design?.code ?? suggestedCode);
   const [name, setName] = useState(design?.name ?? '');
+  const [nickname, setNickname] = useState(design?.nickname ?? '');
   const [fabric, setFabric] = useState(design?.fabric ?? '');
   const [hsn, setHsn] = useState(design?.hsnCode ?? '');
   const [price, setPrice] = useState(design?.defaultPricePaise ?? 0);
@@ -33,7 +34,7 @@ export function DesignFormModal({ design, suggestedCode = '', onClose, onSaved }
     e.preventDefault();
     setSaving(true);
     setError(null);
-    const input = { code, name, fabric, hsnCode: hsn, description, defaultPricePaise: price };
+    const input = { code, name, nickname: nickname.trim(), fabric, hsnCode: hsn, description, defaultPricePaise: price };
     try {
       const saved = design ? await api.designUpdate(design.id, input) : await api.designCreate(input);
       refresh();
@@ -64,9 +65,12 @@ export function DesignFormModal({ design, suggestedCode = '', onClose, onSaved }
             <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="MG-001" />
           </Field>
           <Field label="Design name">
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Mau Silk Butidar" data-autofocus />
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Banarasi Katan Kadhua" data-autofocus />
           </Field>
         </div>
+        <Field label="Short name" hint="A special one-word name for this saree, like “Kadhua”. Optional. Search finds it." error={/\s/.test(nickname.trim()) ? 'Use one word, with no spaces' : undefined}>
+          <Input value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="Kadhua" maxLength={20} className="max-w-[12rem]" />
+        </Field>
         <div className="grid grid-cols-2 gap-4">
           <Field label="Fabric">
             <Input value={fabric} onChange={(e) => setFabric(e.target.value)} list="fabric-options" placeholder="Pure silk" />

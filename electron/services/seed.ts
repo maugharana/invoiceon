@@ -59,27 +59,27 @@ export function loadSampleData(db: Db): void {
 
     const designs = [
       {
-        name: 'Mau Silk Butidar', fabric: 'Pure silk', hsn: '5007', price: 9800, base: 1800,
+        name: 'Mau Silk Butidar', nickname: 'Butidar', fabric: 'Pure silk', hsn: '5007', price: 9800, base: 1800,
         bom: [[silk.id, 0.62], [zari.id, 0.07], [dye.id, 1], [blouse.id, 0.8], [pack.id, 1]],
         variants: [['Maroon', '6.3 m', 6], ['Emerald', '6.3 m', 4], ['Royal blue', '6.3 m', 1], ['Mustard', '5.5 m', 0]],
       },
       {
-        name: 'Banarasi Katan Kadhua', fabric: 'Katan silk', hsn: '5007', price: 14500, base: 2600,
+        name: 'Banarasi Katan Kadhua', nickname: 'Kadhua', fabric: 'Katan silk', hsn: '5007', price: 14500, base: 2600,
         bom: [[silk.id, 0.78], [zari.id, 0.12], [dye.id, 1], [blouse.id, 0.8], [pack.id, 1]],
         variants: [['Wine', '6.3 m', 3], ['Ivory', '6.3 m', 2], ['Rani pink', '6.3 m', 5]],
       },
       {
-        name: 'Tanchoi Jamawar', fabric: 'Silk blend', hsn: '5007', price: 7200, base: 1400,
+        name: 'Tanchoi Jamawar', nickname: 'Jamawar', fabric: 'Silk blend', hsn: '5007', price: 7200, base: 1400,
         bom: [[silk.id, 0.4], [cotton.id, 0.25], [zari.id, 0.03], [dye.id, 1], [pack.id, 1]],
         variants: [['Peacock green', '5.5 m', 8], ['Onion pink', '5.5 m', 7]],
       },
       {
-        name: 'Cotton Silk Chanderi', fabric: 'Cotton silk', hsn: '5208', price: 3400, base: 650,
+        name: 'Cotton Silk Chanderi', nickname: 'Chanderi', fabric: 'Cotton silk', hsn: '5208', price: 3400, base: 650,
         bom: [[cotton.id, 0.45], [silk.id, 0.1], [dye.id, 1], [pack.id, 1]],
         variants: [['Sky blue', '5.5 m', 12], ['Lemon', '5.5 m', 9], ['Peach', '5.5 m', 2]],
       },
       {
-        name: 'Organza Floral Jaal', fabric: 'Organza', hsn: '5407', price: 5600, base: 900,
+        name: 'Organza Floral Jaal', nickname: 'Jaal', fabric: 'Organza', hsn: '5407', price: 5600, base: 900,
         bom: [[silk.id, 0.22], [zari.id, 0.02], [dye.id, 1], [pack.id, 1]],
         variants: [['Blush', '5.5 m', 0], ['Sage', '5.5 m', 0]],
       },
@@ -89,6 +89,7 @@ export function loadSampleData(db: Db): void {
       const design = createDesign(db, {
         code: nextDesignCode(db),
         name: d.name,
+        nickname: d.nickname,
         fabric: d.fabric,
         hsnCode: d.hsn,
         description: '',

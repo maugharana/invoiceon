@@ -124,3 +124,38 @@ describe('bulk add sarees', () => {
     expect(() => inventory.updateVariant(db, v.id, { color: 'Red', size: '6 m', sellPricePaise: 100, mrpPaise: -1, baseCostPaise: 50, reorderLevel: 0, bom: [] })).toThrow(/MRP/);
   });
 });
+
+describe('short (one-word) names', () => {
+  const designNamed = (name: string) => inventory.listDesigns(db).find((d) => d.name === name)!;
+
+  it('are stored on the design, taken from the first row that has one, and searchable', () => {
+    inventory.bulkAddSarees(db, [row({ name: 'Banarasi Katan Kadhua', nickname: '' }), row({ name: 'Banarasi Katan Kadhua', color: 'Wine', nickname: 'Kadhua' }), row({ name: 'Banarasi Katan Kadhua', color: 'Ivory', nickname: 'Other' })]);
+    expect(designNamed('Banarasi Katan Kadhua').nickname).toBe('Kadhua');
+    expect(inventory.listDesigns(db, { search: 'kadhua' })).toHaveLength(1);
+    expect(inventory.listDesigns(db, { search: 'nothing' })).toHaveLength(0);
+  });
+
+  it('must be one word', () => {
+    const result = inventory.bulkAddSarees(db, [row({ nickname: 'Two words' })]);
+    expect(result.errors[0]!.message).toMatch(/one word/);
+    expect(() => inventory.createDesign(db, { code: 'X-1', name: 'X', nickname: 'a b', fabric: '', hsnCode: '', description: '', defaultPricePaise: 1 })).toThrow(/one word/);
+    expect(() => inventory.createDesign(db, { code: 'X-2', name: 'X', nickname: 'x'.repeat(21), fabric: '', hsnCode: '', description: '', defaultPricePaise: 1 })).toThrow(/too long/);
+  });
+
+  it('are optional, and a design that already has one keeps it', () => {
+    inventory.bulkAddSarees(db, [row({ name: 'Plain' })]);
+    expect(designNamed('Plain').nickname).toBe('');
+    // A design with no short name yet takes the first one typed…
+    inventory.bulkAddSarees(db, [row({ name: 'Plain', color: 'Red', nickname: 'Simple' })]);
+    expect(designNamed('Plain').nickname).toBe('Simple');
+    // …but one it already has is never overwritten by a sheet.
+    inventory.bulkAddSarees(db, [row({ name: 'Plain', color: 'Blue', nickname: 'Different' })]);
+    expect(designNamed('Plain').nickname).toBe('Simple');
+  });
+
+  it('can be set and changed on a single design', () => {
+    const d = inventory.createDesign(db, { code: 'X-1', name: 'X', nickname: 'Ex', fabric: '', hsnCode: '', description: '', defaultPricePaise: 1 });
+    expect(d.nickname).toBe('Ex');
+    expect(inventory.updateDesign(db, d.id, { code: 'X-1', name: 'X', nickname: '', fabric: '', hsnCode: '', description: '', defaultPricePaise: 1 }).nickname).toBe('');
+  });
+});

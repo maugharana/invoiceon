@@ -285,6 +285,11 @@ const V5 = `
 ALTER TABLE variants ADD COLUMN mrp_paise INTEGER NOT NULL DEFAULT 0;
 `;
 
+// Stage 8: a one-word short name for each design ("Kadhua" for Banarasi Katan Kadhua), used to find and call out a saree quickly.
+const V6 = `
+ALTER TABLE designs ADD COLUMN nickname TEXT NOT NULL DEFAULT '';
+`;
+
 // Append new migrations to the end; never edit one that has shipped.
 const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 1, sql: V1 },
@@ -292,6 +297,7 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 3, sql: V3 },
   { version: 4, sql: V4 },
   { version: 5, sql: V5 },
+  { version: 6, sql: V6 },
 ];
 
 export function migrate(db: DatabaseSync): void {

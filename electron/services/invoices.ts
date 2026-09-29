@@ -154,6 +154,7 @@ export function variantsForSale(db: Db): SaleVariant[] {
     design_id: string;
     code: string;
     design_name: string;
+    design_nickname: string;
     hsn_code: string;
     color: string;
     size: string;
@@ -162,7 +163,7 @@ export function variantsForSale(db: Db): SaleVariant[] {
     sell_price_paise: number;
   }>(
     db,
-    `SELECT v.id, v.design_id, d.code, d.name AS design_name, d.hsn_code, v.color, v.size, v.sku, v.stock, v.sell_price_paise
+    `SELECT v.id, v.design_id, d.code, d.name AS design_name, d.nickname AS design_nickname, d.hsn_code, v.color, v.size, v.sku, v.stock, v.sell_price_paise
      FROM variants v JOIN designs d ON d.id = v.design_id
      WHERE v.deleted_at IS NULL AND d.deleted_at IS NULL
      ORDER BY d.name COLLATE NOCASE, v.color COLLATE NOCASE, v.size COLLATE NOCASE`,
@@ -171,6 +172,7 @@ export function variantsForSale(db: Db): SaleVariant[] {
     designId: r.design_id,
     designCode: r.code,
     designName: r.design_name,
+    designNickname: r.design_nickname,
     hsn: r.hsn_code,
     color: r.color,
     size: r.size,

@@ -28,6 +28,7 @@ interface DesignRow {
   id: string;
   code: string;
   name: string;
+  nickname: string;
   fabric: string;
   hsn_code: string;
   description: string;
@@ -121,6 +122,7 @@ function summarise(d: DesignRow, variants: Variant[]): DesignSummary {
     id: d.id,
     code: d.code,
     name: d.name,
+    nickname: d.nickname,
     fabric: d.fabric,
     hsnCode: d.hsn_code,
     description: d.description,
@@ -150,7 +152,7 @@ export function listDesigns(db: Db, query: DesignQuery = {}): DesignSummary[] {
   return designs
     .filter((d) => {
       const vs = byDesign.get(d.id) ?? [];
-      return matchesAll([d.code, d.name, d.fabric, ...vs.flatMap((v) => [v.sku, v.color])].join(' '), query.search);
+      return matchesAll([d.code, d.name, d.nickname, d.fabric, ...vs.flatMap((v) => [v.sku, v.color])].join(' '), query.search);
     })
     .map((d) => summarise(d, byDesign.get(d.id) ?? []))
     .filter((s) => {
@@ -178,10 +180,18 @@ export function nextDesignCode(db: Db, prefix = 'MG'): string {
   return `${prefix}-${String(highest + 1).padStart(3, '0')}`;
 }
 
+/** The special short name: optional, and one word, so it can be said, typed and searched in a moment. */
+function validateNickname(value: unknown): string {
+  const nickname = optionalText(value, 'Short name', 20);
+  if (/\s/.test(nickname)) throw new UserError('The short name must be one word, like "Kadhua".');
+  return nickname;
+}
+
 function validateDesign(input: DesignInput) {
   return {
     code: requireText(input.code, 'Design code', 30),
     name: requireText(input.name, 'Design name'),
+    nickname: validateNickname(input.nickname ?? ''),
     fabric: optionalText(input.fabric, 'Fabric', 60),
     hsn: optionalText(input.hsnCode, 'HSN code', 12),
     description: optionalText(input.description, 'Description', 500),
@@ -194,7 +204,7 @@ export function createDesign(db: Db, input: DesignInput): DesignDetail {
   const id = newId();
   const now = nowIso();
   try {
-    run(db, 'INSERT INTO designs (id, code, name, fabric, hsn_code, description, default_price_paise, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', id, v.code, v.name, v.fabric, v.hsn, v.description, v.price, now, now);
+    run(db, 'INSERT INTO designs (id, code, name, nickname, fabric, hsn_code, description, default_price_paise, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', id, v.code, v.name, v.nickname, v.fabric, v.hsn, v.description, v.price, now, now);
   } catch (err) {
     if (isUniqueViolation(err)) throw new UserError(`Design code "${v.code}" is already in use.`);
     throw err;
@@ -206,7 +216,7 @@ export function updateDesign(db: Db, id: string, input: DesignInput): DesignDeta
   const v = validateDesign(input);
   getDesign(db, id);
   try {
-    run(db, 'UPDATE designs SET code = ?, name = ?, fabric = ?, hsn_code = ?, description = ?, default_price_paise = ?, updated_at = ? WHERE id = ?', v.code, v.name, v.fabric, v.hsn, v.description, v.price, nowIso(), id);
+    run(db, 'UPDATE designs SET code = ?, name = ?, nickname = ?, fabric = ?, hsn_code = ?, description = ?, default_price_paise = ?, updated_at = ? WHERE id = ?', v.code, v.name, v.nickname, v.fabric, v.hsn, v.description, v.price, nowIso(), id);
   } catch (err) {
     if (isUniqueViolation(err)) throw new UserError(`Design code "${v.code}" is already in use.`);
     throw err;
@@ -348,6 +358,7 @@ export function bulkAddSarees(db: Db, rows: BulkSareeRow[]): BulkAddResult {
       return {
         i,
         name: requireText(r.name, 'Saree name', 120).replace(/\s+/g, ' '),
+        nickname: validateNickname(r.nickname ?? ''),
         sku: optionalText(r.sku, 'Saree ID', 40),
         color: requireText(r.color, 'Colour', 40),
         size: requireText(r.size, 'Size', 30),
@@ -420,10 +431,14 @@ export function bulkAddSarees(db: Db, rows: BulkSareeRow[]): BulkAddResult {
       if (existing) {
         designId = existing.id;
         designsExtended += 1;
+        // A design that has no short name yet takes the first one typed; one it already has is left alone.
+        const typed = group.find((r) => r.nickname)?.nickname;
+        if (typed && !existing.nickname) run(db, 'UPDATE designs SET nickname = ?, updated_at = ? WHERE id = ?', typed, nowIso(), existing.id);
       } else {
         designId = createDesign(db, {
           code: nextDesignCode(db),
           name: first.name,
+          nickname: group.find((r) => r.nickname)?.nickname ?? '',
           fabric: group.find((r) => r.fabric)?.fabric ?? '',
           hsnCode: group.find((r) => r.hsn)?.hsn ?? '',
           description: '',

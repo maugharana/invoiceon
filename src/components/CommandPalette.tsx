@@ -106,7 +106,7 @@ function Palette({ onClose }: { onClose: () => void }) {
       ...(rec?.customers ?? []).map((c): Command => ({ id: `c-${c.id}`, group: 'Customers', label: c.name, hint: [c.phone, c.city].filter(Boolean).join(' · '), icon: UserRound, keywords: c.gstin, run: go(paths.customer(c.id)) })),
       ...(rec?.invoices ?? []).map((i): Command => ({ id: `i-${i.id}`, group: 'Invoices', label: i.number, hint: i.buyerName, icon: FileText, run: go(paths.invoice(i.id)) })),
       ...(rec?.proformas ?? []).map((p): Command => ({ id: `p-${p.id}`, group: 'Proformas', label: p.number, hint: p.buyerName, icon: ClipboardList, run: go(paths.proforma(p.id)) })),
-      ...(rec?.designs ?? []).map((d): Command => ({ id: `d-${d.id}`, group: 'Designs', label: d.name, hint: `${d.code} · ${d.fabric}`, icon: Shirt, run: go(paths.design(d.id)) })),
+      ...(rec?.designs ?? []).map((d): Command => ({ id: `d-${d.id}`, group: 'Designs', label: d.name, hint: [d.nickname, d.code, d.fabric].filter(Boolean).join(' · '), icon: Shirt, run: go(paths.design(d.id)) })),
     ];
   }, [records, start]);
 
