@@ -1,0 +1,160 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-canvas font-sans text-sm text-ink antialiased;
+    font-feature-settings: 'cv11', 'ss03';
+    -webkit-font-smoothing: antialiased;
+  }
+  /* Brand rule: weights 400 and 500 only. Headings inherit instead of going bold. */
+  h1, h2, h3, h4, th, strong, b {
+    font-weight: inherit;
+  }
+  ::selection {
+    background: rgba(15, 110, 86, 0.18);
+  }
+  :focus-visible {
+    outline: 2px solid rgba(15, 110, 86, 0.5);
+    outline-offset: 2px;
+  }
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: none;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #d9d8d0;
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #bdbcb3;
+    background-clip: content-box;
+    border: 3px solid transparent;
+  }
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type='number'] {
+    -moz-appearance: textfield;
+  }
+}
+
+@layer components {
+  /* Money and counts line up in columns. */
+  .num {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum', 'cv11', 'ss03';
+  }
+  .th {
+    @apply whitespace-nowrap px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-ink-muted first:pl-4 last:pr-4;
+  }
+  .td {
+    @apply px-3 py-3 align-middle first:pl-4 last:pr-4;
+  }
+}
+
+/* Table rows ease in one after another (first eight only, so a long list never feels slow). */
+tbody > tr.animate-fade-in:nth-child(2) { animation-delay: 22ms; }
+tbody > tr.animate-fade-in:nth-child(3) { animation-delay: 44ms; }
+tbody > tr.animate-fade-in:nth-child(4) { animation-delay: 66ms; }
+tbody > tr.animate-fade-in:nth-child(5) { animation-delay: 88ms; }
+tbody > tr.animate-fade-in:nth-child(6) { animation-delay: 110ms; }
+tbody > tr.animate-fade-in:nth-child(7) { animation-delay: 132ms; }
+tbody > tr.animate-fade-in:nth-child(n + 8) { animation-delay: 154ms; }
+
+/* Chart columns grow up from the baseline. */
+@keyframes bar-grow {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(1); }
+}
+.chart-bar {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation: bar-grow 420ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+/* Lines draw themselves from left to right (the path sets pathLength="1"), then their fill fades in. */
+@keyframes draw-line {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+.draw-line {
+  stroke-dasharray: 1;
+  animation: draw-line 1100ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+/* Horizontal bars grow out from the left. */
+@keyframes bar-run {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+.chart-hbar {
+  transform-origin: 0 50%;
+  animation: bar-run 620ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+/* Donut arcs sweep round. */
+@keyframes arc-sweep {
+  from { stroke-dashoffset: var(--len); }
+  to { stroke-dashoffset: 0; }
+}
+.chart-arc {
+  animation: arc-sweep 760ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+/* Things that arrive as a group come in one after another: set --i on each child. */
+.stagger { animation-delay: calc(var(--i, 0) * 55ms); }
+
+/* Cards that can be clicked rise a touch under the pointer. */
+.card-hover {
+  transition: transform 180ms cubic-bezier(0.2, 0.7, 0.2, 1), box-shadow 180ms ease, border-color 180ms ease;
+}
+.card-hover:hover {
+  transform: translateY(-2px);
+  border-color: rgba(15, 110, 86, 0.35);
+  box-shadow: 0 10px 28px -14px rgba(6, 42, 34, 0.28);
+}
+
+/* A dialog that has just been closed: Modal leaves a copy of itself behind to fade out (see Modal.tsx). */
+.modal-exit { pointer-events: none; }
+.modal-exit > .modal-backdrop { animation: fade-out 140ms ease-in both; }
+.modal-exit > [role='dialog'] { animation: pop-out 140ms ease-in both; }
+
+/* Paper output for invoices (print dialog and PDF export). The page margin lives here so it repeats on every sheet. */
+@page {
+  size: A4;
+  margin: 12mm;
+}
+@media print {
+  html,
+  body,
+  #root {
+    height: auto;
+    background: #fff;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

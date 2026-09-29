@@ -1,0 +1,131 @@
+import { localDateOf, todayIso } from '../../shared/gst';
+import { PAYMENT_METHOD_LABEL, type DuesBuckets, type DuesReport, type DuesRow, type Ledger, type LedgerEntry, type PaymentMethod, type PaymentsSummary } from '../../shared/types';
+import { all, type Db } from '../db/connection';
+import { getCustomer, listCustomers } from './customers';
+import { listInvoices } from './invoices';
+import { getPayment } from './payments';
+
+// ── Customer ledger ─────────────────────────────────────────────────────────
+interface Event {
+  date: string;
+  /** Tie-break inside a day: when it was actually entered. */
+  at: string;
+  kind: LedgerEntry['kind'];
+  description: string;
+  invoiceId?: string;
+  debit: number;
+  credit: number;
+}
+
+/**
+ * A running statement: invoices are debits (what they owe), payments are credits. Cancelled invoices and voided
+ * payments stay visible with a matching reversal, so the trail shows what happened rather than quietly rewriting it.
+ */
+export function customerLedger(db: Db, customerId: string): Ledger {
+  const customer = getCustomer(db, customerId);
+  const events: Event[] = [];
+
+  const invoices = all<{ id: string; number: string; total_paise: number; issue_date: string; created_at: string; status: string; cancelled_at: string | null; cancel_reason: string }>(
+    db,
+    'SELECT id, number, total_paise, issue_date, created_at, status, cancelled_at, cancel_reason FROM invoices WHERE customer_id = ?',
+    customerId,
+  );
+  for (const i of invoices) {
+    events.push({ date: i.issue_date, at: i.created_at, kind: 'invoice', description: `Invoice ${i.number}`, invoiceId: i.id, debit: i.total_paise, credit: 0 });
+    if (i.status === 'cancelled' && i.cancelled_at) {
+      events.push({ date: localDateOf(i.cancelled_at), at: i.cancelled_at, kind: 'invoice-cancelled', description: `Invoice ${i.number} cancelled${i.cancel_reason ? ` — ${i.cancel_reason}` : ''}`, invoiceId: i.id, debit: 0, credit: i.total_paise });
+    }
+  }
+
+  const payments = all<{ id: string; voided_at: string | null; void_reason: string; received_on: string; created_at: string; amount_paise: number; method: PaymentMethod; reference: string }>(
+    db,
+    'SELECT id, voided_at, void_reason, received_on, created_at, amount_paise, method, reference FROM payments WHERE customer_id = ?',
+    customerId,
+  );
+  for (const p of payments) {
+    const detail = getPayment(db, p.id);
+    const via = [PAYMENT_METHOD_LABEL[p.method], p.reference].filter(Boolean).join(' · ');
+    const invoicesPaid = detail.allocations.map((a) => a.invoiceNumber).join(', ');
+    const where = detail.voided ? '' : detail.allocations.length === 0 ? ' — advance' : detail.advancePaise > 0 ? ` — ${invoicesPaid} + advance` : ` — ${invoicesPaid}`;
+    events.push({ date: p.received_on, at: p.created_at, kind: 'payment', description: `Payment received (${via})${where}`, debit: 0, credit: p.amount_paise });
+    if (p.voided_at) {
+      events.push({ date: localDateOf(p.voided_at), at: p.voided_at, kind: 'payment-voided', description: `Payment reversed (${via})${p.void_reason ? ` — ${p.void_reason}` : ''}`, debit: p.amount_paise, credit: 0 });
+    }
+  }
+
+  events.sort((a, b) => (a.date === b.date ? a.at.localeCompare(b.at) : a.date.localeCompare(b.date)));
+  let balance = 0;
+  const entries: LedgerEntry[] = events.map((e) => {
+    balance += e.debit - e.credit;
+    return { date: e.date, kind: e.kind, description: e.description, invoiceId: e.invoiceId, debitPaise: e.debit, creditPaise: e.credit, balancePaise: balance };
+  });
+
+  const received = payments.filter((p) => !p.voided_at).reduce((s, p) => s + p.amount_paise, 0);
+  return { customer, entries, billedPaise: customer.billedPaise, receivedPaise: received, balancePaise: customer.billedPaise - received };
+}
+
+// ── Dues ────────────────────────────────────────────────────────────────────
+const DAY = 86_400_000;
+const daysBetween = (fromIso: string, toIso: string): number => Math.round((Date.parse(toIso) - Date.parse(fromIso)) / DAY);
+
+const emptyBuckets = (): DuesBuckets => ({ currentPaise: 0, days1to30Paise: 0, days31to60Paise: 0, days61plusPaise: 0 });
+
+function addToBucket(b: DuesBuckets, daysPastDue: number, amount: number): void {
+  if (daysPastDue <= 0) b.currentPaise += amount;
+  else if (daysPastDue <= 30) b.days1to30Paise += amount;
+  else if (daysPastDue <= 60) b.days31to60Paise += amount;
+  else b.days61plusPaise += amount;
+}
+
+/** Everyone who owes money, aged by how far past their due date each invoice is (issue date if no due date was set). */
+export function duesReport(db: Db): DuesReport {
+  const today = todayIso();
+  const customers = new Map(listCustomers(db).map((c) => [c.id, c]));
+  const rows = new Map<string, DuesRow>();
+  const totals = emptyBuckets();
+
+  for (const inv of listInvoices(db, { status: 'open' })) {
+    const owed = inv.totalPaise - inv.paidPaise;
+    if (owed <= 0) continue;
+    const key = inv.customerId ?? 'walk-in';
+    let row = rows.get(key);
+    if (!row) {
+      const c = inv.customerId ? customers.get(inv.customerId) : undefined;
+      row = { customerId: inv.customerId, customerName: c?.name ?? (inv.customerId ? inv.buyerName : 'Walk-in customers'), phone: c?.phone ?? '', openInvoices: 0, outstandingPaise: 0, overduePaise: 0, oldestDueDate: null, advancePaise: c?.advancePaise ?? 0, ...emptyBuckets() };
+      rows.set(key, row);
+    }
+    const due = inv.dueDate ?? inv.issueDate;
+    const past = daysBetween(due, today);
+    row.openInvoices += 1;
+    row.outstandingPaise += owed;
+    if (past > 0) row.overduePaise += owed;
+    if (!row.oldestDueDate || due < row.oldestDueDate) row.oldestDueDate = due;
+    addToBucket(row, past, owed);
+    addToBucket(totals, past, owed);
+  }
+
+  const list = [...rows.values()].sort((a, b) => b.overduePaise - a.overduePaise || b.outstandingPaise - a.outstandingPaise);
+  return {
+    rows: list,
+    ...totals,
+    outstandingPaise: list.reduce((s, r) => s + r.outstandingPaise, 0),
+    overduePaise: list.reduce((s, r) => s + r.overduePaise, 0),
+    advanceHeldPaise: [...customers.values()].reduce((s, c) => s + Math.max(c.advancePaise, 0), 0),
+  };
+}
+
+// ── Summary ─────────────────────────────────────────────────────────────────
+export function paymentsSummary(db: Db): PaymentsSummary {
+  const month = todayIso().slice(0, 7);
+  const monthPayments = all<{ amount_paise: number }>(db, "SELECT amount_paise FROM payments WHERE voided_at IS NULL AND received_on LIKE ? || '%'", month);
+  const dues = duesReport(db);
+  const withAdvance = listCustomers(db).filter((c) => c.advancePaise > 0);
+  return {
+    receivedThisMonthPaise: monthPayments.reduce((s, p) => s + p.amount_paise, 0),
+    paymentsThisMonth: monthPayments.length,
+    advanceHeldPaise: dues.advanceHeldPaise,
+    customersWithAdvance: withAdvance.length,
+    outstandingPaise: dues.outstandingPaise,
+    overduePaise: dues.overduePaise,
+  };
+}

@@ -1,0 +1,50 @@
+{
+  "name": "invoiceon",
+  "productName": "InvoiceOn",
+  "version": "0.1.0",
+  "description": "InvoiceOn — simple, always on. Invoicing and inventory for small businesses.",
+  "private": true,
+  "type": "module",
+  "main": "dist-electron/main.cjs",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:web": "node scripts/dev-web.mjs",
+    "demo": "node scripts/dev-web.mjs --demo",
+    "build": "npm run typecheck && vite build && node scripts/build-electron.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "start": "electron .",
+    "dist": "npm run build && electron-builder --win nsis",
+    "pack": "npm run build && electron-builder --win --dir"
+  },
+  "dependencies": {
+    "@fontsource/inter": "^5.3.0",
+    "lucide-react": "^1.31.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^24.9.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.4",
+    "autoprefixer": "^10.5.4",
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2",
+    "postcss": "^8.5.26",
+    "tailwindcss": "^3.4.19",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.0",
+    "vitest": "^5.0.2"
+  },
+  "build": {
+    "appId": "com.maugharana.invoiceon",
+    "productName": "InvoiceOn",
+    "directories": { "output": "release" },
+    "electronDist": "node_modules/electron/dist",
+    "files": ["dist/**/*", "dist-electron/**/*", "package.json"],
+    "win": { "target": ["nsis"], "icon": "build/icon.ico" },
+    "nsis": { "oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true }
+  }
+}
