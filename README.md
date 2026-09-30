@@ -15,6 +15,7 @@ Windows desktop app, offline-first: your data lives in a local SQLite file, no i
 | 6 | Dashboard, proformas, expenses, quick-create, command palette | **Done** |
 | 8 | Credit notes and sales returns | **Done** |
 | 9 | Restore from backup | **Done** |
+| 10 | Several GST rates (per design, and by price step) | **Done** |
 
 **New here? Start with [`docs/TOUR.md`](docs/TOUR.md)** — a ten-minute guided tour (see it, generate a PDF, see what the PDF looks
 like, customise it). Sample PDFs are in [`sample-pdfs/`](sample-pdfs). If packaging fails on Windows, see
@@ -192,6 +193,15 @@ The period lives in the URL, so switching tabs keeps it.
 - **It is safe by construction.** The backup is copied aside, brought up to the current schema (so an older backup restores fine), checked for damage and for having been made by a newer app, and only then is the live database refilled from it in **one transaction**: a failure leaves your data exactly as it was. Foreign keys are checked before committing.
 - **A restore can be undone.** Just before anything changes, the current data is saved as `invoiceon-before-restore-<time>.db`. It appears in the same list (marked "Before a restore") and is never cleaned up automatically, like copies you make yourself.
 - The connection stays open, so no restart is needed (`restoreBackup` in `electron/backup.ts`). Two backups in the same second get a counter on the file name rather than colliding.
+
+## Several GST rates (stage 10)
+
+- **Which rate a piece gets** (`resolveGstRate` in `shared/gst.ts`, used by the server and the invoice screen's live preview): the design's own rate if it has one, otherwise the **price step** it falls in (when the shop turns steps on in Settings, Tax Profiles: e.g. up to ₹2,500 at 5%, above that at 18%), otherwise the shop's single rate. The price used is the piece's selling price before GST, as typed on the invoice. `0%` is a real rate, not "unset".
+- **Nothing changes until you use it.** With no design rates and steps off, every piece gets the shop rate and the totals come out exactly as before (a test compares the two code paths).
+- **Documents record their rates.** Each line stores the rate it was taxed at, and the document stores its tax by rate (`tax_summary_json`). The printed invoice shows a GST column and one CGST/SGST (or IGST) row per rate when rates differ, plus a total row in the tax summary. Proformas work the same way; converting one re-applies today's rates, since tax follows the invoice date. Documents issued before this read as one rate for the whole document, exactly as they always did.
+- **The discount is shared across the pieces** in proportion to their value before each rate's tax is worked out. Tax is rounded once per rate, and the invoice total to the whole rupee, as before.
+- **Reports.** The GST report's HSN table and its B2B register have one row per HSN and rate (register rows per invoice and rate, with the round-off on the invoice's last row so rows add to the invoice total), and the retail summary is by state and rate. In the HSN CSV the rate is the last column, so existing columns keep their places. Credit notes on a mixed invoice credit each piece at the rate it was sold at.
+- Schema migration 7 adds nullable rate columns and `tax_summary_json`. `tests/helpers/oldSchema.ts` holds the SQL that rewinds a database to an old shape for the upgrade tests: every migration adds its undo there.
 
 ## Brand
 

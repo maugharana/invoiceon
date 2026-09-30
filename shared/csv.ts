@@ -66,8 +66,9 @@ const b2cRows = (r: GstReport): Row[] => [
 ];
 
 const hsnRows = (r: GstReport): Row[] => [
-  ['HSN', 'Quantity', 'Taxable value', 'CGST', 'SGST', 'IGST', 'Total tax'],
-  ...r.hsn.map((h): Row => [h.hsn, h.qty, rs(h.taxablePaise), rs(h.cgstPaise), rs(h.sgstPaise), rs(h.igstPaise), rs(h.taxPaise)]),
+  // The rate is the last column, so the columns that were always there keep their places for anyone who imports this file.
+  ['HSN', 'Quantity', 'Taxable value', 'CGST', 'SGST', 'IGST', 'Total tax', 'GST rate %'],
+  ...r.hsn.map((h): Row => [h.hsn, h.qty, rs(h.taxablePaise), rs(h.cgstPaise), rs(h.sgstPaise), rs(h.igstPaise), rs(h.taxPaise), h.ratePercent]),
 ];
 
 /** Credit and debit note register: one row per credit note and GST rate, with the invoice it corrects. */

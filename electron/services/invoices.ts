@@ -1,4 +1,4 @@
-import { computeTotals, financialYear, formatInvoiceNumber, invoiceStatus, isIsoDate, todayIso } from '../../shared/gst';
+import { computeTotalsMulti, financialYear, formatInvoiceNumber, invoiceStatus, isIsoDate, resolveGstRate, todayIso, type RateGroup } from '../../shared/gst';
 import { matchesAll } from '../../shared/search';
 import { formatMoney } from '../../shared/money';
 import { sameState } from '../../shared/states';
@@ -34,6 +34,7 @@ interface InvoiceRow {
   igst_paise: number;
   round_off_paise: number;
   total_paise: number;
+  tax_summary_json: string | null;
   notes: string;
   status: 'issued' | 'cancelled';
   cancelled_at: string | null;
@@ -52,7 +53,20 @@ interface LineRow {
   qty: number;
   unit_price_paise: number;
   amount_paise: number;
+  gst_rate_percent: number | null;
 }
+
+/**
+ * Tax by rate for a stored document. Ones issued since rates could differ carry their own summary; older ones have a single rate
+ * for the whole document, so their summary is that one row.
+ */
+export function taxSummaryOf(r: { tax_summary_json: string | null; gst_rate_percent: number; taxable_paise: number; cgst_paise: number; sgst_paise: number; igst_paise: number }): RateGroup[] {
+  if (r.tax_summary_json) return JSON.parse(r.tax_summary_json) as RateGroup[];
+  return [{ ratePercent: r.gst_rate_percent, taxablePaise: r.taxable_paise, cgstPaise: r.cgst_paise, sgstPaise: r.sgst_paise, igstPaise: r.igst_paise }];
+}
+
+/** The rate with the most value on the document, for places that show a single rate. */
+export const mainRateOf = (groups: RateGroup[], fallback: number): number => [...groups].sort((a, b) => b.taxablePaise - a.taxablePaise)[0]?.ratePercent ?? fallback;
 
 export function brandingOf(db: Db): InvoiceBranding {
   const s = getSettings(db);
@@ -98,6 +112,7 @@ function toInvoice(db: Db, r: InvoiceRow): Invoice {
       unitPricePaise: l.unit_price_paise,
       amountPaise: l.amount_paise,
       creditedQty: credited.get(l.id) ?? 0,
+      gstRatePercent: l.gst_rate_percent ?? r.gst_rate_percent,
     }),
   );
   const payments = paymentsOnInvoice(db, r.id);
@@ -113,6 +128,7 @@ function toInvoice(db: Db, r: InvoiceRow): Invoice {
     buyer: JSON.parse(r.buyer_json),
     placeOfSupply: r.place_of_supply,
     gstRatePercent: r.gst_rate_percent,
+    taxSummary: taxSummaryOf(r),
     intraState: r.intra_state === 1,
     subtotalPaise: r.subtotal_paise,
     discountPaise: r.discount_paise,
@@ -172,9 +188,10 @@ export function variantsForSale(db: Db): SaleVariant[] {
     sku: string;
     stock: number;
     sell_price_paise: number;
+    gst_rate_percent: number | null;
   }>(
     db,
-    `SELECT v.id, v.design_id, d.code, d.name AS design_name, d.hsn_code, v.color, v.size, v.sku, v.stock, v.sell_price_paise
+    `SELECT v.id, v.design_id, d.code, d.name AS design_name, d.hsn_code, v.color, v.size, v.sku, v.stock, v.sell_price_paise, d.gst_rate_percent
      FROM variants v JOIN designs d ON d.id = v.design_id
      WHERE v.deleted_at IS NULL AND d.deleted_at IS NULL
      ORDER BY d.name COLLATE NOCASE, v.color COLLATE NOCASE, v.size COLLATE NOCASE`,
@@ -189,6 +206,7 @@ export function variantsForSale(db: Db): SaleVariant[] {
     sku: r.sku,
     stock: r.stock,
     sellPricePaise: r.sell_price_paise,
+    designGstRatePercent: r.gst_rate_percent,
   }));
 }
 
@@ -252,12 +270,14 @@ export function sellerSnapshot(settings: Settings, terms: string) {
 export function priceLines(db: Db, settings: Settings, lines: DocumentInput['lines'], discount: number, intraState: boolean) {
   const items = lines.map((l, index) => {
     const variant = getVariant(db, l.variantId);
-    const design = get<{ name: string; hsn_code: string }>(db, 'SELECT name, hsn_code FROM designs WHERE id = ?', variant.designId)!;
-    return { l, variant, design, index, amount: l.qty * l.unitPricePaise };
+    const design = get<{ name: string; hsn_code: string; gst_rate_percent: number | null }>(db, 'SELECT name, hsn_code, gst_rate_percent FROM designs WHERE id = ?', variant.designId)!;
+    // Each piece is taxed at its design's rate, else by its price slab, else at the shop's rate (see resolveGstRate).
+    const ratePercent = resolveGstRate(settings, design.gst_rate_percent, l.unitPricePaise);
+    return { l, variant, design, index, amount: l.qty * l.unitPricePaise, ratePercent };
   });
   const subtotal = items.reduce((s, i) => s + i.amount, 0);
   if (discount > subtotal) throw new UserError("The discount can't be more than the invoice subtotal.");
-  const totals = computeTotals({ lineAmounts: items.map((i) => i.amount), discountPaise: discount, ratePercent: settings.gstRatePercent, intraState });
+  const totals = computeTotalsMulti({ lines: items.map((i) => ({ amountPaise: i.amount, ratePercent: i.ratePercent })), discountPaise: discount, intraState });
   return { items, totals };
 }
 
@@ -287,10 +307,10 @@ export function createInvoice(db: Db, input: InvoiceInput): Invoice {
       run(
         db,
         `INSERT INTO invoices (id, number, fy, seq, type, customer_id, seller_json, buyer_json, place_of_supply, issue_date, due_date, gst_rate_percent, intra_state,
-           subtotal_paise, discount_paise, taxable_paise, cgst_paise, sgst_paise, igst_paise, round_off_paise, total_paise, notes, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        id, number, fy, seq, type, customer?.id ?? null, JSON.stringify(seller), JSON.stringify(buyer), placeOfSupply, input.issueDate, input.dueDate, settings.gstRatePercent, intraState ? 1 : 0,
-        totals.subtotalPaise, totals.discountPaise, totals.taxablePaise, totals.cgstPaise, totals.sgstPaise, totals.igstPaise, totals.roundOffPaise, totals.totalPaise, notes, now, now,
+           subtotal_paise, discount_paise, taxable_paise, cgst_paise, sgst_paise, igst_paise, round_off_paise, total_paise, tax_summary_json, notes, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        id, number, fy, seq, type, customer?.id ?? null, JSON.stringify(seller), JSON.stringify(buyer), placeOfSupply, input.issueDate, input.dueDate, mainRateOf(totals.groups, settings.gstRatePercent), intraState ? 1 : 0,
+        totals.subtotalPaise, totals.discountPaise, totals.taxablePaise, totals.cgstPaise, totals.sgstPaise, totals.igstPaise, totals.roundOffPaise, totals.totalPaise, JSON.stringify(totals.groups), notes, now, now,
       );
     } catch (err) {
       if (isUniqueViolation(err)) throw new UserError('Another invoice took that number a moment ago. Please try again.');
@@ -300,8 +320,8 @@ export function createInvoice(db: Db, input: InvoiceInput): Invoice {
     for (const i of items) {
       run(
         db,
-        'INSERT INTO invoice_lines (id, invoice_id, variant_id, position, design_name, color, size, sku, hsn, qty, unit_price_paise, amount_paise, unit_cost_paise) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        newId(), id, i.variant.id, i.index, i.design.name, i.variant.color, i.variant.size, i.variant.sku, i.design.hsn_code, i.l.qty, i.l.unitPricePaise, i.amount, i.variant.unitCostPaise,
+        'INSERT INTO invoice_lines (id, invoice_id, variant_id, position, design_name, color, size, sku, hsn, qty, unit_price_paise, amount_paise, unit_cost_paise, gst_rate_percent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        newId(), id, i.variant.id, i.index, i.design.name, i.variant.color, i.variant.size, i.variant.sku, i.design.hsn_code, i.l.qty, i.l.unitPricePaise, i.amount, i.variant.unitCostPaise, i.ratePercent,
       );
       // Throws "Not enough stock" if short, which rolls back the whole invoice.
       recordMovement(db, i.variant.id, -i.l.qty, 'sale', `Invoice ${number}`, { type: 'invoice', id });

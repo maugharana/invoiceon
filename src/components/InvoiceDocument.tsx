@@ -26,8 +26,10 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
   const tax = inv.type === 'B2B';
   const cancelled = inv.status === 'cancelled';
   const totalTax = inv.cgstPaise + inv.sgstPaise + inv.igstPaise;
-  const half = inv.gstRatePercent / 2;
   const rateLabel = (r: number) => `${+r.toFixed(2)}%`; // 2.5%, 6%, 9%
+  // One tax row per rate. Most invoices have one; a mixed one (say silk at 5% and a brocade at 18%) shows each on its own.
+  const rateGroups = inv.taxSummary;
+  const mixed = rateGroups.length > 1;
 
   return (
     <article
@@ -98,6 +100,7 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
             <th className="py-2 pr-2">Description</th>
             {tax && <th className="w-16 py-2 pr-2">HSN</th>}
             <th className="w-12 py-2 pr-2 text-right">Qty</th>
+            {mixed && <th className="w-12 py-2 pr-2 text-right">GST</th>}
             <th className="w-24 py-2 pr-2 text-right">Rate (₹)</th>
             <th className="w-28 py-2 text-right">Amount (₹)</th>
           </tr>
@@ -112,6 +115,7 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
               </td>
               {tax && <td className="num py-2 pr-2">{l.hsn || '—'}</td>}
               <td className="num py-2 pr-2 text-right">{l.qty}</td>
+              {mixed && <td className="num py-2 pr-2 text-right">{rateLabel(l.gstRatePercent ?? inv.gstRatePercent)}</td>}
               <td className="num py-2 pr-2 text-right">{amount(l.unitPricePaise)}</td>
               <td className="num py-2 text-right">{amount(l.amountPaise)}</td>
             </tr>
@@ -135,15 +139,17 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
           <Row label="Subtotal" value={formatMoney(inv.subtotalPaise)} />
           {inv.discountPaise > 0 && <Row label="Discount" value={`− ${formatMoney(inv.discountPaise)}`} />}
           {inv.discountPaise > 0 && <Row label="Taxable value" value={formatMoney(inv.taxablePaise)} />}
-          {tax && inv.intraState ? (
-            <>
-              <Row label={`CGST @ ${rateLabel(half)}`} value={formatMoney(inv.cgstPaise)} />
-              <Row label={`SGST @ ${rateLabel(half)}`} value={formatMoney(inv.sgstPaise)} />
-            </>
-          ) : tax ? (
-            <Row label={`IGST @ ${rateLabel(inv.gstRatePercent)}`} value={formatMoney(inv.igstPaise)} />
-          ) : (
-            <Row label={`GST @ ${rateLabel(inv.gstRatePercent)}`} value={formatMoney(totalTax)} />
+          {rateGroups.map((g) =>
+            tax && inv.intraState ? (
+              <div key={g.ratePercent}>
+                <Row label={`CGST @ ${rateLabel(g.ratePercent / 2)}`} value={formatMoney(g.cgstPaise)} />
+                <Row label={`SGST @ ${rateLabel(g.ratePercent / 2)}`} value={formatMoney(g.sgstPaise)} />
+              </div>
+            ) : tax ? (
+              <Row key={g.ratePercent} label={`IGST @ ${rateLabel(g.ratePercent)}`} value={formatMoney(g.igstPaise)} />
+            ) : (
+              <Row key={g.ratePercent} label={`GST @ ${rateLabel(g.ratePercent)}`} value={formatMoney(g.cgstPaise + g.sgstPaise + g.igstPaise)} />
+            ),
           )}
           {inv.roundOffPaise !== 0 && <Row muted label="Round off" value={`${inv.roundOffPaise < 0 ? '− ' : '+ '}${formatMoney(Math.abs(inv.roundOffPaise))}`} />}
           <Row strong label="Total" value={formatMoney(inv.totalPaise)} />
@@ -171,14 +177,26 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
             </tr>
           </thead>
           <tbody>
-            <tr className="num">
-              <td className="py-1.5 pr-2">GST @ {rateLabel(inv.gstRatePercent)}</td>
-              <td className="py-1.5 pr-2 text-right">{amount(inv.taxablePaise)}</td>
-              <td className="py-1.5 pr-2 text-right">{amount(inv.cgstPaise)}</td>
-              <td className="py-1.5 pr-2 text-right">{amount(inv.sgstPaise)}</td>
-              <td className="py-1.5 pr-2 text-right">{amount(inv.igstPaise)}</td>
-              <td className="py-1.5 text-right">{amount(totalTax)}</td>
-            </tr>
+            {rateGroups.map((g) => (
+              <tr key={g.ratePercent} className="num">
+                <td className="py-1.5 pr-2">GST @ {rateLabel(g.ratePercent)}</td>
+                <td className="py-1.5 pr-2 text-right">{amount(g.taxablePaise)}</td>
+                <td className="py-1.5 pr-2 text-right">{amount(g.cgstPaise)}</td>
+                <td className="py-1.5 pr-2 text-right">{amount(g.sgstPaise)}</td>
+                <td className="py-1.5 pr-2 text-right">{amount(g.igstPaise)}</td>
+                <td className="py-1.5 text-right">{amount(g.cgstPaise + g.sgstPaise + g.igstPaise)}</td>
+              </tr>
+            ))}
+            {mixed && (
+              <tr className="num border-t border-line font-medium">
+                <td className="py-1.5 pr-2">Total</td>
+                <td className="py-1.5 pr-2 text-right">{amount(inv.taxablePaise)}</td>
+                <td className="py-1.5 pr-2 text-right">{amount(inv.cgstPaise)}</td>
+                <td className="py-1.5 pr-2 text-right">{amount(inv.sgstPaise)}</td>
+                <td className="py-1.5 pr-2 text-right">{amount(inv.igstPaise)}</td>
+                <td className="py-1.5 text-right">{amount(totalTax)}</td>
+              </tr>
+            )}
           </tbody>
         </table>
       )}

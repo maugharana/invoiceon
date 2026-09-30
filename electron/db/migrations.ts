@@ -359,6 +359,19 @@ ALTER TABLE payments ADD COLUMN credit_note_id TEXT;
 INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES ('credit_note_prefix', 'CN', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
 `;
 
+// Several GST rates. A design can carry its own rate; a shop can also charge by price slab (e.g. 5% up to ₹2,500, 18% above).
+//  • Every line of a new invoice or proforma records the rate it was taxed at, and the document records its tax by rate.
+//  • Documents from before this have NULL in both places and read as one rate, the document's own, exactly as they always did.
+const V7 = `
+ALTER TABLE designs ADD COLUMN gst_rate_percent REAL;
+ALTER TABLE invoice_lines ADD COLUMN gst_rate_percent REAL;
+ALTER TABLE proforma_lines ADD COLUMN gst_rate_percent REAL;
+ALTER TABLE invoices ADD COLUMN tax_summary_json TEXT;
+ALTER TABLE proformas ADD COLUMN tax_summary_json TEXT;
+
+INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES ('gst_slabs_enabled', '0', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
+`;
+
 // Append new migrations to the end; never edit one that has shipped.
 const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 1, sql: V1 },
@@ -367,6 +380,7 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 4, sql: V4 },
   { version: 5, sql: V5 },
   { version: 6, sql: V6 },
+  { version: 7, sql: V7 },
 ];
 
 export function migrate(db: DatabaseSync): void {

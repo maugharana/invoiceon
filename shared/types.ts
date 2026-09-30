@@ -1,7 +1,7 @@
 import type { Paise } from './money';
 import type { StockStatus } from './stock';
 
-import type { InvoiceStatus, RateGroup } from './gst';
+import type { GstSlab, InvoiceStatus, RateGroup } from './gst';
 
 export const DEFAULT_EXPENSE_CATEGORIES = ['Raw materials', 'Rent', 'Salaries & wages', 'Transport & freight', 'Packaging', 'Electricity & utilities', 'Marketing', 'Other'];
 
@@ -31,8 +31,11 @@ export interface Settings {
   pincode: string;
   phone: string;
   email: string;
-  /** Single GST rate applied to every invoice (not multi-slab). */
+  /** The shop's usual GST rate. A design can have its own, and price slabs can override this too (see resolveGstRate). */
   gstRatePercent: number;
+  /** When on, a piece with no rate of its own is taxed by its price: e.g. 5% up to ₹2,500 and 18% above. */
+  gstSlabsEnabled: boolean;
+  gstSlabs: GstSlab[];
   invoicePrefix: string;
   /** Days until a B2B invoice falls due. B2C is due on the day. */
   defaultDueDays: number;
@@ -134,6 +137,8 @@ export interface DesignSummary {
   hsnCode: string;
   description: string;
   defaultPricePaise: Paise;
+  /** This design's own GST rate, or null to use the shop's rate / price slabs. */
+  gstRatePercent: number | null;
   variantCount: number;
   totalStock: number;
   stockValuePaise: Paise;
@@ -150,6 +155,8 @@ export interface DesignInput {
   hsnCode: string;
   description: string;
   defaultPricePaise: Paise;
+  /** This design's own GST rate. Leave out (or null) to use the shop's rate / price slabs. */
+  gstRatePercent?: number | null;
 }
 
 export interface VariantInput {
@@ -425,7 +432,10 @@ export interface Invoice extends InvoiceSummary {
   branding: InvoiceBranding;
   buyer: Party;
   placeOfSupply: string;
+  /** The rate with the most value on the document. When rates differ, `taxSummary` has the whole picture. */
   gstRatePercent: number;
+  /** Tax by rate. One row for most documents; one per rate when pieces are taxed differently. */
+  taxSummary: RateGroup[];
   intraState: boolean;
   subtotalPaise: Paise;
   discountPaise: Paise;
@@ -482,6 +492,8 @@ export interface SaleVariant {
   sku: string;
   stock: number;
   sellPricePaise: Paise;
+  /** The design's own GST rate, or null to use the shop's rate / slabs. */
+  designGstRatePercent: number | null;
 }
 
 export interface DashboardSummary {
@@ -552,7 +564,7 @@ export interface GstReport {
   totals: GstTotals;
   b2b: GstTotals;
   b2c: GstTotals;
-  hsn: { hsn: string; qty: number; taxablePaise: Paise; cgstPaise: Paise; sgstPaise: Paise; igstPaise: Paise; taxPaise: Paise }[];
+  hsn: { hsn: string; ratePercent: number; qty: number; taxablePaise: Paise; cgstPaise: Paise; sgstPaise: Paise; igstPaise: Paise; taxPaise: Paise }[];
   b2bRegister: {
     invoiceId: string;
     number: string;
@@ -715,6 +727,7 @@ export interface Proforma extends ProformaSummary {
   buyer: Party;
   placeOfSupply: string;
   gstRatePercent: number;
+  taxSummary: RateGroup[];
   intraState: boolean;
   subtotalPaise: Paise;
   discountPaise: Paise;

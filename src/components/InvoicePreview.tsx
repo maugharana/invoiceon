@@ -30,6 +30,7 @@ export function sampleInvoice(s: Settings): Invoice {
     buyer: { name: 'Kanchan Sarees & Fabrics', gstin: '09AABCK1234M1ZI', address: 'Chowk Bazaar', city: 'Varanasi', state: 'Uttar Pradesh', pincode: '221001', phone: '9876500022' },
     placeOfSupply: 'Uttar Pradesh',
     gstRatePercent: s.gstRatePercent,
+    taxSummary: [{ ratePercent: s.gstRatePercent, taxablePaise: t.taxablePaise, cgstPaise: t.cgstPaise, sgstPaise: t.sgstPaise, igstPaise: 0 }],
     intraState: true,
     subtotalPaise: t.subtotalPaise,
     discountPaise: 0,

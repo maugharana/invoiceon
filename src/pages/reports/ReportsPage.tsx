@@ -403,6 +403,7 @@ function GstTab({ period }: { period: PeriodSpec }) {
                 <thead>
                   <tr className="border-b border-line">
                     <th className="th">HSN</th>
+                    <th className="th text-right">Rate</th>
                     <th className="th text-right">Pieces</th>
                     <th className="th text-right">Taxable value</th>
                     <th className="th text-right">CGST</th>
@@ -413,8 +414,9 @@ function GstTab({ period }: { period: PeriodSpec }) {
                 </thead>
                 <tbody>
                   {r.hsn.map((h) => (
-                    <tr key={h.hsn} className="border-b border-line/70 last:border-0">
+                    <tr key={`${h.hsn}|${h.ratePercent}`} className="border-b border-line/70 last:border-0">
                       <td className="td num">{h.hsn}</td>
+                      <td className="td num text-right">{+h.ratePercent.toFixed(2)}%</td>
                       <td className="td num text-right">{h.qty}</td>
                       <td className="td text-right"><Money paise={h.taxablePaise} /></td>
                       <td className="td text-right"><Money paise={h.cgstPaise} /></td>

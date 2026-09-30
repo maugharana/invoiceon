@@ -1,4 +1,4 @@
-import { isValidGstin } from '../../shared/gst';
+import { isValidGstin, type GstSlab } from '../../shared/gst';
 import { STATE_NAMES } from '../../shared/states';
 import { DEFAULT_EXPENSE_CATEGORIES, PAYMENT_ACCOUNT_KINDS, type PaymentAccount, type Settings } from '../../shared/types';
 import { all, run, tx, type Db } from '../db/connection';
@@ -27,6 +27,11 @@ const json = <T>(key: string, fallback: T): Field<any> => ({
 });
 
 export const DEFAULT_ACCENT = '#0F6E56';
+/** Offered when slabs are switched on: the usual apparel split. Editable, and only used if the shop turns slabs on. */
+export const DEFAULT_GST_SLABS: GstSlab[] = [
+  { upToPaise: 250000, ratePercent: 5 },
+  { upToPaise: null, ratePercent: 18 },
+];
 /** InvoiceOn's tax logic (GST) is India's, so India is the only country for now. */
 export const COUNTRIES = ['India'];
 /** A logo is embedded in every PDF, so keep it small. The app downsizes uploads well below this. */
@@ -44,6 +49,8 @@ const FIELDS: { [K in keyof Settings]: Field<K> } = {
   phone: text('phone'),
   email: text('email'),
   gstRatePercent: num('gst_rate_percent', 5),
+  gstSlabsEnabled: bool('gst_slabs_enabled', false),
+  gstSlabs: json<GstSlab[]>('gst_slabs', DEFAULT_GST_SLABS),
   invoicePrefix: text('invoice_prefix', 'INV'),
   defaultDueDays: num('default_due_days', 15),
   defaultReorderLevel: num('default_reorder_level', 2),
@@ -96,6 +103,23 @@ function validate(patch: Partial<Settings>): Partial<Settings> {
     const rate = patch.gstRatePercent;
     if (typeof rate !== 'number' || !Number.isFinite(rate) || rate < 0 || rate > 100) throw new UserError('GST rate must be between 0 and 100.');
     v.gstRatePercent = rate;
+  }
+  if (patch.gstSlabsEnabled !== undefined) v.gstSlabsEnabled = !!patch.gstSlabsEnabled;
+  if (patch.gstSlabs !== undefined) {
+    const slabs = patch.gstSlabs;
+    if (!Array.isArray(slabs) || slabs.length < 1 || slabs.length > 6) throw new UserError('Set up between one and six price steps.');
+    let previous = 0;
+    slabs.forEach((slab, i) => {
+      const last = i === slabs.length - 1;
+      if (typeof slab?.ratePercent !== 'number' || !Number.isFinite(slab.ratePercent) || slab.ratePercent < 0 || slab.ratePercent > 100) throw new UserError('Each price step needs a GST rate between 0 and 100.');
+      if (last) {
+        if (slab.upToPaise !== null) throw new UserError('The last price step must be "and above", with no upper limit.');
+      } else {
+        if (slab.upToPaise === null || !Number.isInteger(slab.upToPaise) || slab.upToPaise <= previous) throw new UserError('Price steps must go up: each "up to" price must be higher than the one before it.');
+        previous = slab.upToPaise;
+      }
+    });
+    v.gstSlabs = slabs.map((s) => ({ upToPaise: s.upToPaise, ratePercent: s.ratePercent }));
   }
   if (patch.invoicePrefix !== undefined) {
     const p = requireText(patch.invoicePrefix, 'Invoice prefix', 10).toUpperCase();

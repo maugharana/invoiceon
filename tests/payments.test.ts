@@ -13,6 +13,7 @@ import * as payments from '../electron/services/payments';
 import * as receivables from '../electron/services/receivables';
 import * as reports from '../electron/services/reports';
 import { loadSampleData } from '../electron/services/seed';
+import { REWIND_TO_STAGE_2 } from './helpers/oldSchema';
 import { getSettings, saveSettings } from '../electron/services/settings';
 import { addDays, todayIso } from '../shared/gst';
 import type { InvoiceInput, PaymentInput } from '../shared/types';
@@ -351,7 +352,7 @@ describe('upgrading an existing database', () => {
     const v = inventory.createVariant(first, d.id, { color: 'Red', size: '6 m', sellPricePaise: 100000, baseCostPaise: 0, reorderLevel: 0, openingStock: 5, bom: [] });
     const legacy = invoices.createInvoice(first, { type: 'B2C', customerId: null, issueDate: today, dueDate: today, discountPaise: 0, notes: '', lines: [{ variantId: v.id, qty: 2, unitPricePaise: 100000 }] });
     // Put the file back into exactly the shape stage 2 left it in.
-    first.exec('DROP TABLE credit_note_lines; DROP TABLE credit_notes; ALTER TABLE variants DROP COLUMN mrp_paise; DROP TABLE proforma_lines; DROP TABLE proformas; DROP TABLE expenses; DROP TABLE payment_allocations; DROP TABLE payments; PRAGMA user_version = 2;');
+    first.exec(REWIND_TO_STAGE_2);
     first.close();
 
     const upgraded = openDb(file);

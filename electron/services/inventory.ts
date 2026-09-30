@@ -32,6 +32,7 @@ interface DesignRow {
   hsn_code: string;
   description: string;
   default_price_paise: number;
+  gst_rate_percent: number | null;
 }
 interface VariantRow {
   id: string;
@@ -125,6 +126,7 @@ function summarise(d: DesignRow, variants: Variant[]): DesignSummary {
     hsnCode: d.hsn_code,
     description: d.description,
     defaultPricePaise: d.default_price_paise,
+    gstRatePercent: d.gst_rate_percent,
     variantCount: variants.length,
     totalStock: variants.reduce((s, v) => s + v.stock, 0),
     stockValuePaise: variants.reduce((s, v) => s + v.stock * v.unitCostPaise, 0),
@@ -178,6 +180,13 @@ export function nextDesignCode(db: Db, prefix = 'MG'): string {
   return `${prefix}-${String(highest + 1).padStart(3, '0')}`;
 }
 
+/** A design's own GST rate: blank means "use the shop's". */
+function validateRate(value: unknown): number | null {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 100) throw new UserError('GST rate must be between 0 and 100, or left blank to use your usual rate.');
+  return value;
+}
+
 function validateDesign(input: DesignInput) {
   return {
     code: requireText(input.code, 'Design code', 30),
@@ -186,6 +195,7 @@ function validateDesign(input: DesignInput) {
     hsn: optionalText(input.hsnCode, 'HSN code', 12),
     description: optionalText(input.description, 'Description', 500),
     price: requireInt(input.defaultPricePaise, 'Default price', { max: MAX_PAISE }),
+    gstRate: validateRate(input.gstRatePercent),
   };
 }
 
@@ -194,7 +204,7 @@ export function createDesign(db: Db, input: DesignInput): DesignDetail {
   const id = newId();
   const now = nowIso();
   try {
-    run(db, 'INSERT INTO designs (id, code, name, fabric, hsn_code, description, default_price_paise, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', id, v.code, v.name, v.fabric, v.hsn, v.description, v.price, now, now);
+    run(db, 'INSERT INTO designs (id, code, name, fabric, hsn_code, description, default_price_paise, gst_rate_percent, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', id, v.code, v.name, v.fabric, v.hsn, v.description, v.price, v.gstRate, now, now);
   } catch (err) {
     if (isUniqueViolation(err)) throw new UserError(`Design code "${v.code}" is already in use.`);
     throw err;
@@ -206,7 +216,7 @@ export function updateDesign(db: Db, id: string, input: DesignInput): DesignDeta
   const v = validateDesign(input);
   getDesign(db, id);
   try {
-    run(db, 'UPDATE designs SET code = ?, name = ?, fabric = ?, hsn_code = ?, description = ?, default_price_paise = ?, updated_at = ? WHERE id = ?', v.code, v.name, v.fabric, v.hsn, v.description, v.price, nowIso(), id);
+    run(db, 'UPDATE designs SET code = ?, name = ?, fabric = ?, hsn_code = ?, description = ?, default_price_paise = ?, gst_rate_percent = ?, updated_at = ? WHERE id = ?', v.code, v.name, v.fabric, v.hsn, v.description, v.price, v.gstRate, nowIso(), id);
   } catch (err) {
     if (isUniqueViolation(err)) throw new UserError(`Design code "${v.code}" is already in use.`);
     throw err;

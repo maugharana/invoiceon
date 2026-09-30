@@ -1,6 +1,6 @@
 import { Plus, Search, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { addDays, computeTotals, todayIso } from '../../../shared/gst';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { addDays, computeTotalsMulti, resolveGstRate, todayIso } from '../../../shared/gst';
 import { formatMoney, mulPaise } from '../../../shared/money';
 import { matchesAll } from '../../../shared/search';
 import { sameState } from '../../../shared/states';
@@ -254,7 +254,10 @@ export function NewInvoicePage({ presetCustomerId, advance, mode = 'invoice' }: 
   const rate = settings.data?.gstRatePercent ?? 0;
   const placeOfSupply = customer?.state || settings.data?.state || '';
   const intraState = !settings.data?.state || sameState(placeOfSupply, settings.data.state);
-  const totals = computeTotals({ lineAmounts: rows.map((r) => r.amount), discountPaise: discount, ratePercent: rate, intraState });
+  // Each piece is taxed at its design's rate, else by its price slab, else at the shop rate: the same rule the server applies.
+  const rateOf = (r: (typeof rows)[number]) => (settings.data ? resolveGstRate(settings.data, r.variant?.designGstRatePercent, r.line.price) : rate);
+  const totals = computeTotalsMulti({ lines: rows.map((r) => ({ amountPaise: r.amount, ratePercent: rateOf(r) })), discountPaise: discount, intraState });
+  const taxRows = totals.groups.length > 0 ? totals.groups : [{ ratePercent: rate, taxablePaise: 0, cgstPaise: 0, sgstPaise: 0, igstPaise: 0 }];
 
   // Advance the customer already holds goes onto this invoice first, then whatever is handed over now.
   const advanceHeld = quote ? 0 : (customer?.advancePaise ?? 0);
@@ -393,6 +396,7 @@ export function NewInvoicePage({ presetCustomerId, advance, mode = 'invoice' }: 
                         <div className="text-xs text-ink-muted">
                           {r.variant?.color} · {r.variant?.size} · {r.variant?.sku}
                         </div>
+                        {new Set(rows.map(rateOf)).size > 1 && <div className="mt-1 text-xs text-ink-muted">GST {+rateOf(r).toFixed(2)}%</div>}
                         {r.short && <div className="mt-1 text-xs text-status-overdue-fg">Only {r.variant?.stock} in stock</div>}
                       </td>
                       <td className="td">
@@ -491,13 +495,15 @@ export function NewInvoicePage({ presetCustomerId, advance, mode = 'invoice' }: 
                 <dd className="w-32"><MoneyInput value={discount} onChange={setDiscount} aria-label="Discount" className="h-8" /></dd>
               </div>
               {totals.discountPaise > 0 && <div className="flex justify-between"><dt className="text-ink-muted">Taxable value</dt><dd><Money paise={totals.taxablePaise} /></dd></div>}
-              {intraState ? (
-                <>
-                  <div className="flex justify-between"><dt className="text-ink-muted">CGST {rate / 2}%</dt><dd><Money paise={totals.cgstPaise} /></dd></div>
-                  <div className="flex justify-between"><dt className="text-ink-muted">SGST {rate / 2}%</dt><dd><Money paise={totals.sgstPaise} /></dd></div>
-                </>
-              ) : (
-                <div className="flex justify-between"><dt className="text-ink-muted">IGST {rate}%</dt><dd><Money paise={totals.igstPaise} /></dd></div>
+              {taxRows.map((g) =>
+                intraState ? (
+                  <Fragment key={g.ratePercent}>
+                    <div className="flex justify-between"><dt className="text-ink-muted">CGST {+(g.ratePercent / 2).toFixed(2)}%</dt><dd><Money paise={g.cgstPaise} /></dd></div>
+                    <div className="flex justify-between"><dt className="text-ink-muted">SGST {+(g.ratePercent / 2).toFixed(2)}%</dt><dd><Money paise={g.sgstPaise} /></dd></div>
+                  </Fragment>
+                ) : (
+                  <div key={g.ratePercent} className="flex justify-between"><dt className="text-ink-muted">IGST {+g.ratePercent.toFixed(2)}%</dt><dd><Money paise={g.igstPaise} /></dd></div>
+                ),
               )}
               {totals.roundOffPaise !== 0 && (
                 <div className="flex justify-between text-ink-muted"><dt>Round off</dt><dd className="num">{totals.roundOffPaise < 0 ? '−' : '+'}{formatMoney(Math.abs(totals.roundOffPaise))}</dd></div>

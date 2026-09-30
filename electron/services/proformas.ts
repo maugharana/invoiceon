@@ -3,7 +3,7 @@ import { matchesAll } from '../../shared/search';
 import type { Invoice, InvoiceLine, InvoiceType, Party, Proforma, ProformaInput, ProformaQuery, ProformaStatus, ProformaSummary } from '../../shared/types';
 import { all, get, run, tx, type Db } from '../db/connection';
 import { UserError, isUniqueViolation, newId, nowIso, optionalText } from './common';
-import { brandingOf, checkDocument, createInvoice, priceLines, sellerSnapshot } from './invoices';
+import { brandingOf, checkDocument, createInvoice, mainRateOf, priceLines, sellerSnapshot, taxSummaryOf } from './invoices';
 import { getSettings } from './settings';
 
 interface Row {
@@ -28,6 +28,7 @@ interface Row {
   igst_paise: number;
   round_off_paise: number;
   total_paise: number;
+  tax_summary_json: string | null;
   notes: string;
   status: 'open' | 'converted' | 'cancelled';
   invoice_id: string | null;
@@ -48,6 +49,7 @@ interface LineRow {
   qty: number;
   unit_price_paise: number;
   amount_paise: number;
+  gst_rate_percent: number | null;
 }
 
 // A quote lapses on its own; nothing needs to run for that to happen.
@@ -73,7 +75,7 @@ function toSummary(r: Row): ProformaSummary {
 
 function toProforma(db: Db, r: Row): Proforma {
   const lines = all<LineRow>(db, 'SELECT * FROM proforma_lines WHERE proforma_id = ? ORDER BY position', r.id).map(
-    (l): InvoiceLine => ({ id: l.id, variantId: l.variant_id, designName: l.design_name, color: l.color, size: l.size, sku: l.sku, hsn: l.hsn, qty: l.qty, unitPricePaise: l.unit_price_paise, amountPaise: l.amount_paise }),
+    (l): InvoiceLine => ({ id: l.id, variantId: l.variant_id, designName: l.design_name, color: l.color, size: l.size, sku: l.sku, hsn: l.hsn, qty: l.qty, unitPricePaise: l.unit_price_paise, amountPaise: l.amount_paise, gstRatePercent: l.gst_rate_percent ?? r.gst_rate_percent }),
   );
   return {
     ...toSummary(r),
@@ -82,6 +84,7 @@ function toProforma(db: Db, r: Row): Proforma {
     buyer: JSON.parse(r.buyer_json),
     placeOfSupply: r.place_of_supply,
     gstRatePercent: r.gst_rate_percent,
+    taxSummary: taxSummaryOf(r),
     intraState: r.intra_state === 1,
     subtotalPaise: r.subtotal_paise,
     discountPaise: r.discount_paise,
@@ -138,10 +141,10 @@ export function createProforma(db: Db, input: ProformaInput): Proforma {
       run(
         db,
         `INSERT INTO proformas (id, number, fy, seq, type, customer_id, seller_json, buyer_json, place_of_supply, issue_date, valid_until, gst_rate_percent, intra_state,
-           subtotal_paise, discount_paise, taxable_paise, cgst_paise, sgst_paise, igst_paise, round_off_paise, total_paise, notes, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        id, number, fy, seq, type, customer?.id ?? null, JSON.stringify(seller), JSON.stringify(buyer), placeOfSupply, input.issueDate, input.validUntil, settings.gstRatePercent, intraState ? 1 : 0,
-        totals.subtotalPaise, totals.discountPaise, totals.taxablePaise, totals.cgstPaise, totals.sgstPaise, totals.igstPaise, totals.roundOffPaise, totals.totalPaise, notes, now, now,
+           subtotal_paise, discount_paise, taxable_paise, cgst_paise, sgst_paise, igst_paise, round_off_paise, total_paise, tax_summary_json, notes, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        id, number, fy, seq, type, customer?.id ?? null, JSON.stringify(seller), JSON.stringify(buyer), placeOfSupply, input.issueDate, input.validUntil, mainRateOf(totals.groups, settings.gstRatePercent), intraState ? 1 : 0,
+        totals.subtotalPaise, totals.discountPaise, totals.taxablePaise, totals.cgstPaise, totals.sgstPaise, totals.igstPaise, totals.roundOffPaise, totals.totalPaise, JSON.stringify(totals.groups), notes, now, now,
       );
     } catch (err) {
       if (isUniqueViolation(err)) throw new UserError('Another proforma took that number a moment ago. Please try again.');
@@ -150,8 +153,8 @@ export function createProforma(db: Db, input: ProformaInput): Proforma {
     for (const i of items) {
       run(
         db,
-        'INSERT INTO proforma_lines (id, proforma_id, variant_id, position, design_name, color, size, sku, hsn, qty, unit_price_paise, amount_paise) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        newId(), id, i.variant.id, i.index, i.design.name, i.variant.color, i.variant.size, i.variant.sku, i.design.hsn_code, i.l.qty, i.l.unitPricePaise, i.amount,
+        'INSERT INTO proforma_lines (id, proforma_id, variant_id, position, design_name, color, size, sku, hsn, qty, unit_price_paise, amount_paise, gst_rate_percent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        newId(), id, i.variant.id, i.index, i.design.name, i.variant.color, i.variant.size, i.variant.sku, i.design.hsn_code, i.l.qty, i.l.unitPricePaise, i.amount, i.ratePercent,
       );
     }
   });

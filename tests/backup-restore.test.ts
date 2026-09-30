@@ -11,6 +11,7 @@ import * as invoices from '../electron/services/invoices';
 import * as payments from '../electron/services/payments';
 import { getSettings, saveSettings } from '../electron/services/settings';
 import { todayIso } from '../shared/gst';
+import { REWIND_TO_STAGE_2 } from './helpers/oldSchema';
 
 const today = todayIso();
 let dir: string;
@@ -82,7 +83,7 @@ describe('restoring a backup', () => {
     const d = inventory.createDesign(old, { code: 'MG-9', name: 'Old design', fabric: '', hsnCode: '5007', description: '', defaultPricePaise: 100000 });
     const v = inventory.createVariant(old, d.id, { color: 'Red', size: '6 m', sellPricePaise: 100000, baseCostPaise: 0, reorderLevel: 0, openingStock: 5, bom: [] });
     const legacy = invoices.createInvoice(old, { type: 'B2C', customerId: null, issueDate: today, dueDate: today, discountPaise: 0, notes: '', lines: [{ variantId: v.id, qty: 2, unitPricePaise: 100000 }] });
-    old.exec('DROP TABLE credit_note_lines; DROP TABLE credit_notes; ALTER TABLE variants DROP COLUMN mrp_paise; DROP TABLE proforma_lines; DROP TABLE proformas; DROP TABLE expenses; DROP TABLE payment_allocations; DROP TABLE payments; PRAGMA user_version = 2;');
+    old.exec(REWIND_TO_STAGE_2);
     old.exec('PRAGMA wal_checkpoint(TRUNCATE)');
     old.close();
     mkdirSync(backups, { recursive: true });

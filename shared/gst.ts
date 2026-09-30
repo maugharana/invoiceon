@@ -30,6 +30,34 @@ export function computeTotals(input: { lineAmounts: Paise[]; discountPaise: Pais
   return { subtotalPaise, discountPaise, taxablePaise, cgstPaise, sgstPaise, igstPaise, taxPaise, roundOffPaise: totalPaise - raw, totalPaise };
 }
 
+// ── Which rate applies to a piece ───────────────────────────────────────────
+/** One step of a price based rate: pieces priced up to this much (before GST) are taxed at this rate. `null` means "and above". */
+export interface GstSlab {
+  upToPaise: Paise | null;
+  ratePercent: number;
+}
+
+export interface RateRule {
+  /** The shop's one rate, used when neither the design nor the price slabs say otherwise. */
+  gstRatePercent: number;
+  gstSlabsEnabled: boolean;
+  gstSlabs: GstSlab[];
+}
+
+/**
+ * The GST rate for one piece: the design's own rate if it has one, otherwise the price slab it falls in (when the shop uses
+ * slabs), otherwise the shop's single rate. With no design rates and slabs off, every piece gets the shop rate, which is exactly
+ * how the app behaved before rates could differ.
+ */
+export function resolveGstRate(rule: RateRule, designRatePercent: number | null | undefined, unitPricePaise: Paise): number {
+  if (designRatePercent !== null && designRatePercent !== undefined) return designRatePercent;
+  if (rule.gstSlabsEnabled && rule.gstSlabs.length > 0) {
+    const slab = rule.gstSlabs.find((s) => s.upToPaise === null || unitPricePaise <= s.upToPaise) ?? rule.gstSlabs[rule.gstSlabs.length - 1]!;
+    return slab.ratePercent;
+  }
+  return rule.gstRatePercent;
+}
+
 // ── Several rates on one document ───────────────────────────────────────────
 /** The tax on one rate's share of a document. */
 export interface RateGroup {

@@ -1,10 +1,10 @@
-import { allocate, isIsoDate, todayIso } from '../../shared/gst';
+import { allocate, isIsoDate, todayIso, type RateGroup } from '../../shared/gst';
 import { bucketKeys, bucketOf, granularityFor } from '../../shared/periods';
 import type { GstReport, GstTotals, InvoiceType, PaymentMethod, ReturnsSummary, SalesReport, StockReport } from '../../shared/types';
-import type { RateGroup } from '../../shared/gst';
 import { all, type Db } from '../db/connection';
 import { UserError } from './common';
 import { listDesigns, loadVariants } from './inventory';
+import { taxSummaryOf } from './invoices';
 import { loadPaid } from './payments';
 
 // ── Shared loading ──────────────────────────────────────────────────────────
@@ -24,7 +24,9 @@ interface InvoiceRow {
   cgst_paise: number;
   sgst_paise: number;
   igst_paise: number;
+  round_off_paise: number;
   total_paise: number;
+  tax_summary_json: string | null;
 }
 
 interface LineRow {
@@ -35,6 +37,7 @@ interface LineRow {
   qty: number;
   amount_paise: number;
   unit_cost_paise: number;
+  gst_rate_percent: number | null;
 }
 
 /** One line of an issued invoice with its share of the invoice's discount and tax worked out. */
@@ -42,6 +45,7 @@ interface LineShare {
   designId: string | null;
   designName: string;
   hsn: string;
+  ratePercent: number;
   qty: number;
   taxable: number;
   cgst: number;
@@ -54,6 +58,7 @@ interface LoadedInvoice {
   row: InvoiceRow;
   buyerName: string;
   buyerGstin: string;
+  groups: RateGroup[];
   lines: LineShare[];
 }
 
@@ -71,7 +76,7 @@ function loadInvoices(db: Db, range: { from: string; to: string }): LoadedInvoic
   if (rows.length === 0) return [];
   const lineRows = all<LineRow>(
     db,
-    `SELECT l.invoice_id, v.design_id, l.design_name, l.hsn, l.qty, l.amount_paise, l.unit_cost_paise
+    `SELECT l.invoice_id, v.design_id, l.design_name, l.hsn, l.qty, l.amount_paise, l.unit_cost_paise, l.gst_rate_percent
      FROM invoice_lines l JOIN invoices i ON i.id = l.invoice_id LEFT JOIN variants v ON v.id = l.variant_id
      WHERE i.status = 'issued' AND i.issue_date BETWEEN ? AND ? ORDER BY l.position`,
     range.from,
@@ -86,16 +91,27 @@ function loadInvoices(db: Db, range: { from: string; to: string }): LoadedInvoic
 
   return rows.map((row) => {
     const lines = byInvoice.get(row.id) ?? [];
-    const taxable = allocate(row.taxable_paise, lines.map((l) => l.amount_paise));
-    const cgst = allocate(row.cgst_paise, taxable);
-    const sgst = allocate(row.sgst_paise, taxable);
-    const igst = allocate(row.igst_paise, taxable);
+    // Each rate's tax is shared out over the lines taxed at that rate, in proportion to their value, to the exact paisa. An invoice
+    // from before rates could differ has one rate for everything, which comes out exactly as it always did.
+    const groups = taxSummaryOf(row);
+    const rateOf = (l: LineRow) => l.gst_rate_percent ?? row.gst_rate_percent;
+    const shares = lines.map(() => ({ taxable: 0, cgst: 0, sgst: 0, igst: 0 }));
+    for (const g of groups) {
+      const at = lines.map((_, i) => i).filter((i) => rateOf(lines[i]!) === g.ratePercent);
+      if (at.length === 0) continue;
+      const taxable = allocate(g.taxablePaise, at.map((i) => lines[i]!.amount_paise));
+      const cgst = allocate(g.cgstPaise, taxable);
+      const sgst = allocate(g.sgstPaise, taxable);
+      const igst = allocate(g.igstPaise, taxable);
+      at.forEach((lineIndex, k) => (shares[lineIndex] = { taxable: taxable[k]!, cgst: cgst[k]!, sgst: sgst[k]!, igst: igst[k]! }));
+    }
     const buyer = JSON.parse(row.buyer_json) as { name: string; gstin: string };
     return {
       row,
       buyerName: buyer.name,
       buyerGstin: buyer.gstin,
-      lines: lines.map((l, i): LineShare => ({ designId: l.design_id, designName: l.design_name, hsn: l.hsn, qty: l.qty, taxable: taxable[i]!, cgst: cgst[i]!, sgst: sgst[i]!, igst: igst[i]!, cost: l.qty * l.unit_cost_paise })),
+      groups,
+      lines: lines.map((l, i): LineShare => ({ designId: l.design_id, designName: l.design_name, hsn: l.hsn, ratePercent: rateOf(l), qty: l.qty, ...shares[i]!, cost: l.qty * l.unit_cost_paise })),
     };
   });
 }
@@ -272,8 +288,8 @@ export function gstReport(db: Db, range: { from: string; to: string }): GstRepor
 
   const hsn = new Map<string, GstReport['hsn'][number]>();
   for (const l of invoices.flatMap((i) => i.lines)) {
-    const key = l.hsn || '—';
-    const h = hsn.get(key) ?? { hsn: key, qty: 0, taxablePaise: 0, cgstPaise: 0, sgstPaise: 0, igstPaise: 0, taxPaise: 0 };
+    const key = `${l.hsn || '—'}|${l.ratePercent}`;
+    const h = hsn.get(key) ?? { hsn: l.hsn || '—', ratePercent: l.ratePercent, qty: 0, taxablePaise: 0, cgstPaise: 0, sgstPaise: 0, igstPaise: 0, taxPaise: 0 };
     h.qty += l.qty;
     h.taxablePaise += l.taxable;
     h.cgstPaise += l.cgst;
@@ -285,14 +301,16 @@ export function gstReport(db: Db, range: { from: string; to: string }): GstRepor
 
   const states = new Map<string, GstReport['b2cByState'][number]>();
   for (const i of invoices.filter((x) => x.row.type === 'B2C')) {
-    const key = `${i.row.place_of_supply}|${i.row.gst_rate_percent}`;
-    const s = states.get(key) ?? { placeOfSupply: i.row.place_of_supply, ratePercent: i.row.gst_rate_percent, invoices: 0, taxablePaise: 0, cgstPaise: 0, sgstPaise: 0, igstPaise: 0 };
-    s.invoices += 1;
-    s.taxablePaise += i.row.taxable_paise;
-    s.cgstPaise += i.row.cgst_paise;
-    s.sgstPaise += i.row.sgst_paise;
-    s.igstPaise += i.row.igst_paise;
-    states.set(key, s);
+    for (const g of i.groups) {
+      const key = `${i.row.place_of_supply}|${g.ratePercent}`;
+      const st = states.get(key) ?? { placeOfSupply: i.row.place_of_supply, ratePercent: g.ratePercent, invoices: 0, taxablePaise: 0, cgstPaise: 0, sgstPaise: 0, igstPaise: 0 };
+      st.invoices += 1;
+      st.taxablePaise += g.taxablePaise;
+      st.cgstPaise += g.cgstPaise;
+      st.sgstPaise += g.sgstPaise;
+      st.igstPaise += g.igstPaise;
+      states.set(key, st);
+    }
   }
 
   const cancelled = all<{ n: number }>(db, "SELECT COUNT(*) AS n FROM invoices WHERE status = 'cancelled' AND issue_date BETWEEN ? AND ?", range.from, range.to)[0]!.n;
@@ -351,22 +369,26 @@ export function gstReport(db: Db, range: { from: string; to: string }): GstRepor
     b2b,
     b2c,
     hsn: [...hsn.values()].sort((a, b) => b.taxablePaise - a.taxablePaise),
+    // One row per invoice and rate (the shape GSTR-1 asks for). An invoice at a single rate is one row, its own figures.
     b2bRegister: invoices
       .filter((i) => i.row.type === 'B2B')
-      .map((i) => ({
-        invoiceId: i.row.id,
-        number: i.row.number,
-        date: i.row.issue_date,
-        customer: i.buyerName,
-        gstin: i.buyerGstin,
-        placeOfSupply: i.row.place_of_supply,
-        ratePercent: i.row.gst_rate_percent,
-        taxablePaise: i.row.taxable_paise,
-        cgstPaise: i.row.cgst_paise,
-        sgstPaise: i.row.sgst_paise,
-        igstPaise: i.row.igst_paise,
-        totalPaise: i.row.total_paise,
-      })),
+      .flatMap((i) =>
+        i.groups.map((g, index) => ({
+          invoiceId: i.row.id,
+          number: i.row.number,
+          date: i.row.issue_date,
+          customer: i.buyerName,
+          gstin: i.buyerGstin,
+          placeOfSupply: i.row.place_of_supply,
+          ratePercent: g.ratePercent,
+          taxablePaise: g.taxablePaise,
+          cgstPaise: g.cgstPaise,
+          sgstPaise: g.sgstPaise,
+          igstPaise: g.igstPaise,
+          // The invoice's round-off sits on its last row, so the rows still add up to the invoice's total.
+          totalPaise: g.taxablePaise + g.cgstPaise + g.sgstPaise + g.igstPaise + (index === i.groups.length - 1 ? i.row.round_off_paise : 0),
+        })),
+      ),
     b2cByState: [...states.values()].sort((a, b) => b.taxablePaise - a.taxablePaise),
     cancelledCount: cancelled,
   };

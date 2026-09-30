@@ -4,7 +4,8 @@ import { Modal } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { Button, ErrorNote, Field, Input, MoneyInput, Textarea } from '../../components/ui';
 import { api, errorMessage } from '../../lib/api';
-import { useRefresh } from '../../lib/data';
+import { useQuery, useRefresh } from '../../lib/data';
+import { toNumber } from '../../lib/format';
 
 const FABRICS = ['Pure silk', 'Katan silk', 'Silk blend', 'Cotton silk', 'Cotton', 'Organza', 'Georgette', 'Linen', 'Tissue'];
 
@@ -26,6 +27,8 @@ export function DesignFormModal({ design, suggestedCode = '', onClose, onSaved }
   const [hsn, setHsn] = useState(design?.hsnCode ?? '');
   const [price, setPrice] = useState(design?.defaultPricePaise ?? 0);
   const [description, setDescription] = useState(design?.description ?? '');
+  const [rate, setRate] = useState(design?.gstRatePercent == null ? '' : String(design.gstRatePercent));
+  const settings = useQuery(() => api.getSettings());
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -33,7 +36,13 @@ export function DesignFormModal({ design, suggestedCode = '', onClose, onSaved }
     e.preventDefault();
     setSaving(true);
     setError(null);
-    const input = { code, name, fabric, hsnCode: hsn, description, defaultPricePaise: price };
+    const parsedRate = toNumber(rate);
+    if (rate.trim() !== '' && Number.isNaN(parsedRate)) {
+      setError('GST rate must be a number, or left blank.');
+      setSaving(false);
+      return;
+    }
+    const input = { code, name, fabric, hsnCode: hsn, description, defaultPricePaise: price, gstRatePercent: rate.trim() === '' ? null : parsedRate };
     try {
       const saved = design ? await api.designUpdate(design.id, input) : await api.designCreate(input);
       refresh();
@@ -80,9 +89,17 @@ export function DesignFormModal({ design, suggestedCode = '', onClose, onSaved }
             <Input value={hsn} onChange={(e) => setHsn(e.target.value)} inputMode="numeric" placeholder="5007" />
           </Field>
         </div>
-        <Field label="Default selling price" hint="Before GST. Prefilled for each new variant; every variant can override it.">
-          <MoneyInput value={price} onChange={setPrice} />
-        </Field>
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Default selling price" hint="Before GST. Prefilled for each new variant; every variant can override it.">
+            <MoneyInput value={price} onChange={setPrice} />
+          </Field>
+          <Field
+            label="GST rate %"
+            hint={settings.data ? (settings.data.gstSlabsEnabled ? 'Blank: charged by price step (Settings, Tax Profiles).' : `Blank: your usual ${settings.data.gstRatePercent}%.`) : 'Blank: your usual rate.'}
+          >
+            <Input value={rate} onChange={(e) => setRate(e.target.value)} inputMode="decimal" placeholder="Usual rate" className="num text-right" />
+          </Field>
+        </div>
         <Field label="Notes">
           <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Weave, border, motifs… (optional)" />
         </Field>
