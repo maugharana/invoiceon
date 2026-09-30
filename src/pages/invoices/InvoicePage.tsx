@@ -1,4 +1,4 @@
-import { ArrowLeft, Ban, Download, HandCoins, Printer } from 'lucide-react';
+import { ArrowLeft, Ban, Download, FileMinus2, HandCoins, Printer } from 'lucide-react';
 import { useState } from 'react';
 import { formatDate } from '../../../shared/gst';
 import { formatMoney } from '../../../shared/money';
@@ -11,6 +11,7 @@ import { api, errorMessage } from '../../lib/api';
 import { useQuery, useRefresh } from '../../lib/data';
 import { paths } from '../../lib/router';
 import { RecordPaymentModal } from '../payments/RecordPaymentModal';
+import { CreditNoteModal } from './CreditNoteModal';
 
 export function InvoicePage({ id }: { id: string }) {
   const toast = useToast();
@@ -21,6 +22,7 @@ export function InvoicePage({ id }: { id: string }) {
   const [busy, setBusy] = useState<'pdf' | 'print' | 'advance' | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [paying, setPaying] = useState(false);
+  const [crediting, setCrediting] = useState(false);
   const [reason, setReason] = useState('');
 
   const back = (
@@ -48,6 +50,7 @@ export function InvoicePage({ id }: { id: string }) {
 
   const cancelled = inv.status === 'cancelled';
   const balance = inv.totalPaise - inv.paidPaise;
+  const credited = inv.creditedPaise ?? 0;
   const advance = customer.data?.advancePaise ?? 0;
 
   async function run<T>(kind: 'pdf' | 'print' | 'advance', work: () => Promise<T>): Promise<T | undefined> {
@@ -97,6 +100,11 @@ export function InvoicePage({ id }: { id: string }) {
               Print
             </Button>
             {!cancelled && (
+              <Button icon={<FileMinus2 className="h-4 w-4" />} onClick={() => setCrediting(true)}>
+                Credit note
+              </Button>
+            )}
+            {!cancelled && (
               <Button variant="danger" icon={<Ban className="h-4 w-4" />} onClick={() => setCancelling(true)}>
                 Cancel invoice
               </Button>
@@ -109,13 +117,18 @@ export function InvoicePage({ id }: { id: string }) {
       {!cancelled && (
         <Card className="mb-6 p-6">
           <div className="grid grid-cols-[auto_1fr] gap-10">
-            <div className="grid grid-cols-3 gap-8">
+            <div className={`grid gap-8 ${credited > 0 ? 'grid-cols-4' : 'grid-cols-3'}`}>
               <Figure label="Invoice total">
                 <Money paise={inv.totalPaise} fractionDigits={0} />
               </Figure>
               <Figure label="Received">
-                <Money paise={inv.paidPaise} fractionDigits={0} />
+                <Money paise={inv.paidPaise - credited} fractionDigits={0} />
               </Figure>
+              {credited > 0 && (
+                <Figure label="Credit notes">
+                  <Money paise={credited} fractionDigits={0} />
+                </Figure>
+              )}
               <Figure label="Balance due" highlight={balance > 0} sub={balance > 0 && inv.dueDate ? `Due ${formatDate(inv.dueDate)}` : balance === 0 ? 'Paid in full' : undefined}>
                 <Money paise={balance} fractionDigits={0} />
               </Figure>
@@ -137,13 +150,33 @@ export function InvoicePage({ id }: { id: string }) {
                     <li key={p.paymentId} className="flex items-center justify-between py-1.5">
                       <span>
                         <span className="num text-ink-muted">{formatDate(p.receivedOn)}</span>
-                        <span className="ml-3">{PAYMENT_METHOD_LABEL[p.method]}</span>
-                        {p.reference && <span className="num ml-2 text-xs text-ink-muted">{p.reference}</span>}
+                        {p.source === 'credit_note' ? (
+                          <span className="ml-3">
+                            Credit note{' '}
+                            {inv.creditNotes?.find((c) => c.number === p.creditNoteNumber) ? (
+                              <a href={`#${paths.creditNote(inv.creditNotes.find((c) => c.number === p.creditNoteNumber)!.id)}`} className="num transition-colors hover:text-brand">
+                                {p.creditNoteNumber}
+                              </a>
+                            ) : (
+                              <span className="num">{p.creditNoteNumber}</span>
+                            )}
+                          </span>
+                        ) : (
+                          <>
+                            <span className="ml-3">{PAYMENT_METHOD_LABEL[p.method]}</span>
+                            {p.reference && <span className="num ml-2 text-xs text-ink-muted">{p.reference}</span>}
+                          </>
+                        )}
                       </span>
                       <Money paise={p.amountPaise} />
                     </li>
                   ))}
                 </ul>
+              )}
+              {(inv.creditNotes ?? []).some((c) => c.status === 'cancelled') && (
+                <p className="mt-2 text-xs text-ink-muted">
+                  Cancelled credit notes: {(inv.creditNotes ?? []).filter((c) => c.status === 'cancelled').map((c) => c.number).join(', ')}
+                </p>
               )}
               {balance > 0 && advance > 0 && (
                 <div className="mt-3 flex items-center justify-between rounded-lg bg-status-partial-bg px-3 py-2 text-status-partial-fg">
@@ -165,6 +198,7 @@ export function InvoicePage({ id }: { id: string }) {
         </div>
       </div>
 
+      {crediting && <CreditNoteModal invoice={inv} onClose={() => setCrediting(false)} />}
       {paying && <RecordPaymentModal invoice={inv} customer={customer.data} onClose={() => setPaying(false)} />}
       {cancelling && (
         <ConfirmDialog

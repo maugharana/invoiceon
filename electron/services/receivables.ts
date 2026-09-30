@@ -13,6 +13,7 @@ interface Event {
   kind: LedgerEntry['kind'];
   description: string;
   invoiceId?: string;
+  creditNoteId?: string;
   debit: number;
   credit: number;
 }
@@ -37,12 +38,29 @@ export function customerLedger(db: Db, customerId: string): Ledger {
     }
   }
 
-  const payments = all<{ id: string; voided_at: string | null; void_reason: string; received_on: string; created_at: string; amount_paise: number; method: PaymentMethod; reference: string }>(
+  const payments = all<{ id: string; voided_at: string | null; void_reason: string; received_on: string; created_at: string; amount_paise: number; method: PaymentMethod; reference: string; source: string }>(
     db,
-    'SELECT id, voided_at, void_reason, received_on, created_at, amount_paise, method, reference FROM payments WHERE customer_id = ?',
+    'SELECT id, voided_at, void_reason, received_on, created_at, amount_paise, method, reference, source FROM payments WHERE customer_id = ?',
     customerId,
   );
-  for (const p of payments) {
+  // Credit notes get their own lines. Their bookkeeping payments are not money received, so they have no line of their own here
+  // (but they do count in `received` below, which is what keeps the running balance equal to outstanding less advance).
+  const creditNotes = all<{ id: string; number: string; invoice_id: string; issue_date: string; created_at: string; total_paise: number; refund_paise: number; refund_method: PaymentMethod | null; refund_reference: string; status: string; cancelled_at: string | null; cancel_reason: string }>(
+    db,
+    'SELECT id, number, invoice_id, issue_date, created_at, total_paise, refund_paise, refund_method, refund_reference, status, cancelled_at, cancel_reason FROM credit_notes WHERE customer_id = ?',
+    customerId,
+  );
+  for (const n of creditNotes) {
+    events.push({ date: n.issue_date, at: n.created_at, kind: 'credit-note', description: `Credit note ${n.number}`, invoiceId: n.invoice_id, creditNoteId: n.id, debit: 0, credit: n.total_paise });
+    if (n.refund_paise > 0) {
+      const via = [n.refund_method ? PAYMENT_METHOD_LABEL[n.refund_method] : '', n.refund_reference].filter(Boolean).join(' · ');
+      events.push({ date: n.issue_date, at: n.created_at, kind: 'refund', description: `Refund paid${via ? ` (${via})` : ''} — ${n.number}`, invoiceId: n.invoice_id, creditNoteId: n.id, debit: n.refund_paise, credit: 0 });
+    }
+    if (n.status === 'cancelled' && n.cancelled_at) {
+      events.push({ date: localDateOf(n.cancelled_at), at: n.cancelled_at, kind: 'credit-note-cancelled', description: `Credit note ${n.number} cancelled${n.cancel_reason ? ` — ${n.cancel_reason}` : ''}`, invoiceId: n.invoice_id, creditNoteId: n.id, debit: n.total_paise, credit: 0 });
+    }
+  }
+  for (const p of payments.filter((x) => x.source === 'receipt')) {
     const detail = getPayment(db, p.id);
     const via = [PAYMENT_METHOD_LABEL[p.method], p.reference].filter(Boolean).join(' · ');
     const invoicesPaid = detail.allocations.map((a) => a.invoiceNumber).join(', ');
@@ -57,7 +75,7 @@ export function customerLedger(db: Db, customerId: string): Ledger {
   let balance = 0;
   const entries: LedgerEntry[] = events.map((e) => {
     balance += e.debit - e.credit;
-    return { date: e.date, kind: e.kind, description: e.description, invoiceId: e.invoiceId, debitPaise: e.debit, creditPaise: e.credit, balancePaise: balance };
+    return { date: e.date, kind: e.kind, description: e.description, invoiceId: e.invoiceId, creditNoteId: e.creditNoteId, debitPaise: e.debit, creditPaise: e.credit, balancePaise: balance };
   });
 
   const received = payments.filter((p) => !p.voided_at).reduce((s, p) => s + p.amount_paise, 0);
@@ -117,7 +135,7 @@ export function duesReport(db: Db): DuesReport {
 // ── Summary ─────────────────────────────────────────────────────────────────
 export function paymentsSummary(db: Db): PaymentsSummary {
   const month = todayIso().slice(0, 7);
-  const monthPayments = all<{ amount_paise: number }>(db, "SELECT amount_paise FROM payments WHERE voided_at IS NULL AND received_on LIKE ? || '%'", month);
+  const monthPayments = all<{ amount_paise: number }>(db, "SELECT amount_paise FROM payments WHERE voided_at IS NULL AND source = 'receipt' AND received_on LIKE ? || '%'", month);
   const dues = duesReport(db);
   const withAdvance = listCustomers(db).filter((c) => c.advancePaise > 0);
   return {

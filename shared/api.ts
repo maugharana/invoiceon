@@ -1,5 +1,9 @@
 import type {
   BulkAddResult,
+  CreditNote,
+  CreditNoteInput,
+  CreditNoteQuery,
+  CreditNoteSummary,
   BulkSareeRow,
   Customer,
   CustomerInput,
@@ -95,6 +99,17 @@ export interface Api {
   invoiceExportPdf(id: string): Promise<{ saved: boolean; path?: string }>;
   /** Desktop app only: opens the system print dialog for the invoice. */
   invoicePrint(id: string): Promise<void>;
+
+  creditNotesList(query?: CreditNoteQuery): Promise<CreditNoteSummary[]>;
+  creditNoteGet(id: string): Promise<CreditNote>;
+  /** The number the next credit note issued on this date will get. */
+  creditNoteNextNumber(issueDate: string): Promise<string>;
+  /** Issues a credit note against an invoice: returned pieces go back on the shelf and the money is set against what the customer owes. */
+  creditNoteCreate(input: CreditNoteInput): Promise<CreditNote>;
+  /** Undoes a credit note that was a mistake. It stays on record. */
+  creditNoteCancel(id: string, reason: string): Promise<CreditNote>;
+  creditNoteExportPdf(id: string): Promise<{ saved: boolean; path?: string }>;
+  creditNotePrint(id: string): Promise<void>;
 
   paymentsList(query?: PaymentQuery): Promise<Payment[]>;
   /** Records money received. Each part goes to the invoices named in `allocations`; any remainder is held as the customer's advance. */

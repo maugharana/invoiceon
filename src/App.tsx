@@ -11,6 +11,7 @@ import { InvoicePage } from './pages/invoices/InvoicePage';
 import { InvoicesPage } from './pages/invoices/InvoicesPage';
 import { NewInvoicePage } from './pages/invoices/NewInvoicePage';
 import { PrintInvoicePage } from './pages/invoices/PrintInvoicePage';
+import { CreditNotePage, CreditNotesPage } from './pages/invoices/CreditNotesPage';
 import { ExpensesPage } from './pages/expenses/ExpensesPage';
 import { DuesPage, PaymentsPage } from './pages/payments/PaymentsPage';
 import { ProformaPage } from './pages/proformas/ProformaPage';
@@ -40,6 +41,10 @@ function renderRoute(route: Route) {
       return <DuesPage />;
     case 'invoice':
       return <InvoicePage id={route.id} />;
+    case 'credit-notes':
+      return <CreditNotesPage />;
+    case 'credit-note':
+      return <CreditNotePage id={route.id} />;
     case 'proformas':
       return <ProformasPage initialStatus={route.status} />;
     case 'proforma-new':
@@ -58,6 +63,7 @@ function renderRoute(route: Route) {
       return <ReportsPage tab={route.tab} period={route.period} asOf={route.asOf} />;
     case 'print-invoice':
     case 'print-proforma':
+    case 'print-credit-note':
       return null; // rendered outside the app shell, see App()
   }
 }
@@ -69,8 +75,10 @@ const pageKey = (r: Route): string => {
     case 'invoice':
     case 'proforma':
     case 'customer':
+    case 'credit-note':
     case 'print-invoice':
     case 'print-proforma':
+    case 'print-credit-note':
       return `${r.name}:${r.id}`;
     case 'inventory':
     case 'invoices':
@@ -94,6 +102,7 @@ export default function App() {
   // Print/PDF export render just the paper, with none of the app around it.
   if (route.name === 'print-invoice') return <PrintInvoicePage id={route.id} />;
   if (route.name === 'print-proforma') return <PrintInvoicePage id={route.id} kind="proforma" />;
+  if (route.name === 'print-credit-note') return <PrintInvoicePage id={route.id} kind="credit-note" />;
   return (
     <AppShell active={sectionOf(route)} pageKey={pageKey(route)} hideFab={route.name === 'invoice-new' || route.name === 'proforma-new' || route.name === 'inventory-add'}>
       {renderRoute(route)}

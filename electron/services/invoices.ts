@@ -77,6 +77,14 @@ function toSummary(r: InvoiceRow, paid: number): InvoiceSummary {
 }
 
 function toInvoice(db: Db, r: InvoiceRow): Invoice {
+  // Pieces already sent back on credit notes, per line, so the UI knows what can still be returned.
+  const credited = new Map(
+    all<{ invoice_line_id: string; q: number }>(
+      db,
+      "SELECT l.invoice_line_id, SUM(l.qty) AS q FROM credit_note_lines l JOIN credit_notes c ON c.id = l.credit_note_id WHERE c.invoice_id = ? AND c.status = 'issued' AND l.invoice_line_id IS NOT NULL GROUP BY l.invoice_line_id",
+      r.id,
+    ).map((c) => [c.invoice_line_id, c.q]),
+  );
   const lines = all<LineRow>(db, 'SELECT * FROM invoice_lines WHERE invoice_id = ? ORDER BY position', r.id).map(
     (l): InvoiceLine => ({
       id: l.id,
@@ -89,11 +97,15 @@ function toInvoice(db: Db, r: InvoiceRow): Invoice {
       qty: l.qty,
       unitPricePaise: l.unit_price_paise,
       amountPaise: l.amount_paise,
+      creditedQty: credited.get(l.id) ?? 0,
     }),
   );
+  const payments = paymentsOnInvoice(db, r.id);
   return {
     ...toSummary(r, paidFor(db, r.id)),
-    payments: paymentsOnInvoice(db, r.id),
+    payments,
+    creditedPaise: payments.filter((p) => p.source === 'credit_note').reduce((s, p) => s + p.amountPaise, 0),
+    creditNotes: all<{ id: string; number: string; issue_date: string; total_paise: number; status: 'issued' | 'cancelled' }>(db, 'SELECT id, number, issue_date, total_paise, status FROM credit_notes WHERE invoice_id = ? ORDER BY issue_date, seq', r.id).map((c) => ({ id: c.id, number: c.number, issueDate: c.issue_date, totalPaise: c.total_paise, status: c.status })),
     // Content is frozen at issue. Invoices from before "bank" and "footer" existed simply have none.
     seller: { bank: '', footer: '', ...JSON.parse(r.seller_json) },
     // Styling is not frozen: change the logo or colour and every invoice, old ones included, is redrawn with it.
@@ -335,6 +347,9 @@ export function applyAdvanceToInvoice(db: Db, invoiceId: string): Invoice {
 export function cancelInvoice(db: Db, id: string, reason: string): Invoice {
   const invoice = getInvoice(db, id);
   if (invoice.status === 'cancelled') throw new UserError('This invoice is already cancelled.');
+  // Returned pieces are already back on the shelf and the credit is already set against the invoice; cancelling now would count both twice.
+  const note = get<{ number: string }>(db, "SELECT number FROM credit_notes WHERE invoice_id = ? AND status = 'issued' LIMIT 1", id);
+  if (note) throw new UserError(`${invoice.number} has a credit note (${note.number}). Cancel the credit note first, then cancel the invoice.`);
   const why = optionalText(reason, 'Reason', 200);
 
   tx(db, () => {

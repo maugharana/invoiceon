@@ -27,6 +27,18 @@ export function salesCsv(r: SalesReport): string {
     ['Collected (payments received)', rs(r.collectedPaise)],
     ['Gross profit (taxable value less cost)', rs(r.grossProfitPaise)],
     ['Still unpaid on these invoices', rs(r.stillUnpaidPaise)],
+    ...(r.returns.count > 0
+      ? [
+          [],
+          ['Credit notes (returns and adjustments)', r.returns.count],
+          ['Credited (incl. GST)', rs(r.returns.totalPaise)],
+          ['Credited (taxable value)', rs(r.returns.taxablePaise)],
+          ['Refunded to customers', rs(r.returns.refundedPaise)],
+          ['Pieces returned', r.returns.piecesReturned],
+          ['Net invoiced (invoiced less credit notes)', rs(r.netInvoicedPaise)],
+          ['Net gross profit', rs(r.netGrossProfitPaise)],
+        ]
+      : []),
     [],
     [r.granularity === 'day' ? 'Date' : 'Month', 'Invoiced', 'Collected', 'Invoices'],
     ...r.series.map((p) => [p.key, rs(p.invoicedPaise), rs(p.collectedPaise), p.invoices]),
@@ -58,6 +70,14 @@ const hsnRows = (r: GstReport): Row[] => [
   ...r.hsn.map((h): Row => [h.hsn, h.qty, rs(h.taxablePaise), rs(h.cgstPaise), rs(h.sgstPaise), rs(h.igstPaise), rs(h.taxPaise)]),
 ];
 
+/** Credit and debit note register: one row per credit note and GST rate, with the invoice it corrects. */
+const creditNoteRows = (r: GstReport): Row[] => [
+  ['Type', 'GSTIN of buyer', 'Buyer name', 'Credit note number', 'Credit note date', 'Original invoice number', 'Original invoice date', 'Place of supply', 'GST rate %', 'Taxable value', 'CGST', 'SGST', 'IGST', 'Note value'],
+  ...r.creditNoteRegister.map((n): Row => [n.type, n.gstin, n.customer, n.number, n.date, n.invoiceNumber, n.invoiceDate, n.placeOfSupply, n.ratePercent, rs(n.taxablePaise), rs(n.cgstPaise), rs(n.sgstPaise), rs(n.igstPaise), rs(n.totalPaise)]),
+];
+
+export const gstCreditNotesCsv = (r: GstReport): string => toCsv(creditNoteRows(r));
+
 /** B2B invoice register, in the shape GSTR-1 asks for (invoice-wise, with the buyer's GSTIN). */
 export const gstB2bCsv = (r: GstReport): string => toCsv(b2bRows(r));
 /** B2C (retail) supplies rolled up by state and rate, as GSTR-1 wants them. */
@@ -82,6 +102,7 @@ export const gstCsv = (r: GstReport): string =>
     [],
     ['HSN summary'],
     ...hsnRows(r),
+    ...(r.creditNoteRegister.length > 0 ? [[], ['Credit notes'], ...creditNoteRows(r), [], ['Net GST after credit notes', rs(r.netTotals.taxPaise)]] : []),
   ]);
 
 export function stockCsv(r: StockReport): string {

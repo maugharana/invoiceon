@@ -30,6 +30,81 @@ export function computeTotals(input: { lineAmounts: Paise[]; discountPaise: Pais
   return { subtotalPaise, discountPaise, taxablePaise, cgstPaise, sgstPaise, igstPaise, taxPaise, roundOffPaise: totalPaise - raw, totalPaise };
 }
 
+// ── Several rates on one document ───────────────────────────────────────────
+/** The tax on one rate's share of a document. */
+export interface RateGroup {
+  ratePercent: number;
+  taxablePaise: Paise;
+  cgstPaise: Paise;
+  sgstPaise: Paise;
+  igstPaise: Paise;
+}
+
+export interface RateTotals {
+  groups: RateGroup[];
+  taxablePaise: Paise;
+  cgstPaise: Paise;
+  sgstPaise: Paise;
+  igstPaise: Paise;
+  taxPaise: Paise;
+  roundOffPaise: Paise;
+  totalPaise: Paise;
+}
+
+/**
+ * Tax on amounts that are already net of any discount, worked out once per rate (so a document with 5% and 18% pieces shows
+ * one tax row for each), then rounded to the whole rupee. With a single rate this gives exactly what `computeTotals` gives.
+ */
+export function taxByRate(items: { taxablePaise: Paise; ratePercent: number }[], intraState: boolean): RateTotals {
+  const byRate = new Map<number, number>();
+  for (const i of items) byRate.set(i.ratePercent, (byRate.get(i.ratePercent) ?? 0) + i.taxablePaise);
+  const groups = [...byRate.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([ratePercent, taxablePaise]): RateGroup => {
+      const tax = Math.round((taxablePaise * ratePercent) / 100);
+      const cgstPaise = intraState ? Math.floor(tax / 2) : 0;
+      return { ratePercent, taxablePaise, cgstPaise, sgstPaise: intraState ? tax - cgstPaise : 0, igstPaise: intraState ? 0 : tax };
+    });
+  const sum = (f: (g: RateGroup) => number) => groups.reduce((s, g) => s + f(g), 0);
+  const taxablePaise = sum((g) => g.taxablePaise);
+  const cgstPaise = sum((g) => g.cgstPaise);
+  const sgstPaise = sum((g) => g.sgstPaise);
+  const igstPaise = sum((g) => g.igstPaise);
+  const taxPaise = cgstPaise + sgstPaise + igstPaise;
+  const raw = taxablePaise + taxPaise;
+  const totalPaise = Math.round(raw / 100) * 100;
+  return { groups, taxablePaise, cgstPaise, sgstPaise, igstPaise, taxPaise, roundOffPaise: totalPaise - raw, totalPaise };
+}
+
+export interface MultiTotals extends Totals {
+  groups: RateGroup[];
+  /** Each line's amount after its share of the discount, in the order the lines were given. */
+  lineTaxablePaise: Paise[];
+}
+
+/** Like `computeTotals`, but every line carries its own GST rate. The discount is spread over the lines in proportion to their value. */
+export function computeTotalsMulti(input: { lines: { amountPaise: Paise; ratePercent: number }[]; discountPaise: Paise; intraState: boolean }): MultiTotals {
+  const amounts = input.lines.map((l) => l.amountPaise);
+  const subtotalPaise = amounts.reduce((s, a) => s + a, 0);
+  const discountPaise = Math.min(Math.max(input.discountPaise, 0), subtotalPaise);
+  const shares = allocate(discountPaise, amounts);
+  const lineTaxablePaise = amounts.map((a, i) => a - shares[i]!);
+  const t = taxByRate(lineTaxablePaise.map((taxablePaise, i) => ({ taxablePaise, ratePercent: input.lines[i]!.ratePercent })), input.intraState);
+  return {
+    subtotalPaise,
+    discountPaise,
+    taxablePaise: t.taxablePaise,
+    cgstPaise: t.cgstPaise,
+    sgstPaise: t.sgstPaise,
+    igstPaise: t.igstPaise,
+    taxPaise: t.taxPaise,
+    roundOffPaise: t.roundOffPaise,
+    totalPaise: t.totalPaise,
+    groups: t.groups,
+    lineTaxablePaise,
+  };
+}
+
 /**
  * Splits `total` across `weights` in proportion, in whole paise, so the parts always add back to exactly `total`
  * (largest-remainder). Used to spread an invoice's discount and tax over its lines for HSN and profit reporting.

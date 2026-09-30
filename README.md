@@ -13,6 +13,7 @@ Windows desktop app, offline-first: your data lives in a local SQLite file, no i
 | 4 | Reports (sales, GST, stock valuation) | **Done** |
 | 5 | Animation & UI polish pass | **Done** |
 | 6 | Dashboard, proformas, expenses, quick-create, command palette | **Done** |
+| 8 | Credit notes and sales returns | **Done** |
 
 **New here? Start with [`docs/TOUR.md`](docs/TOUR.md)** — a ten-minute guided tour (see it, generate a PDF, see what the PDF looks
 like, customise it). Sample PDFs are in [`sample-pdfs/`](sample-pdfs). If packaging fails on Windows, see
@@ -173,6 +174,16 @@ The period lives in the URL, so switching tabs keeps it.
 - **Add sarees** (`src/pages/inventory/AddSareesPage.tsx`) is a sheet: one row per piece, paste from Excel, keyboard navigation, live totals. It calls `inventoryBulkAdd` → `bulkAddSarees` in `electron/services/inventory.ts`, which validates every row (alone, against the other rows and against the shop), then writes designs and variants in one transaction. Nothing is written unless every row is valid; problems come back one per row.
 - Rows with the same normalised name (case and spacing ignored) form one design; a name matching an existing design extends it; two existing designs with one name are refused rather than guessed at.
 - **MRP** is a new optional field on each variant (migration 5; `0` means not set). It is stored and shown, and is not used in invoice maths: prices stay GST-exclusive (SP), MRP is the printed GST-inclusive price.
+
+## Credit notes and sales returns (stage 8)
+
+- **A credit note corrects an issued invoice.** Open the invoice and choose *Credit note*. Two kinds: a **sales return** (pick the lines and how many pieces came back; each line says whether the pieces are resaleable) or a **price adjustment** (an amount off the price, before GST, with a printed reason). Like an invoice, a credit note is immutable and freezes seller, buyer, prices and tax. Numbering follows the financial year (`CN/2026-27/0001`, prefix in Settings, numbers never reused).
+- **Credited at what the customer paid.** The invoice's discount is shared across its lines, so a returned piece is credited net of its discount share. Credits made over several visits add up to exactly the line's value (`shared/credit.ts`, used by both the server and the dialog's live preview). GST is worked out per rate (`taxByRate` in `shared/gst.ts`), which is also what multi rate invoices use.
+- **Stock goes back through the ledger** (`return`) for resaleable pieces only. Cancelling a credit note takes them off the shelf again.
+- **The money reuses the payments machinery**, so there is no second set of sums to drift. Whatever is not refunded becomes a payment with `source = 'credit_note'`: allocated to the invoice up to what is still owed, and held as the customer's advance beyond that. Outstanding, advance, dues and the ledger all stay consistent (the ledger's running balance still equals outstanding less advance). These bookkeeping payments are left out of *collected* figures and the Payments list. An optional **refund** (cash, UPI, bank) is recorded on the credit note; a walk-in sale must be refunded for anything the invoice no longer owes, since there is no account to hold a credit in.
+- **Guards.** You cannot return more than was sold, credit more than the invoice was for, or cancel an invoice that has a live credit note (cancel the credit note first). A credit note with a refund cannot be cancelled.
+- **Reports.** Sales figures stay gross and gain a *returns* strip (credit notes, refunds, net invoiced, net gross profit). The GST tab gains a credit note register (one row per note and rate, with the original invoice: the shape of GSTR-1's credit note table) and net GST. Both export to CSV.
+- Schema migration 6 adds `credit_notes`, `credit_note_lines` and two columns on `payments`. Existing databases upgrade in place.
 
 ## Brand
 

@@ -285,6 +285,80 @@ const V5 = `
 ALTER TABLE variants ADD COLUMN mrp_paise INTEGER NOT NULL DEFAULT 0;
 `;
 
+
+// Credit notes (sales returns and price adjustments).
+//  • A credit note is immutable, like an invoice: it freezes seller, buyer, prices and tax. It points at the invoice it corrects.
+//  • Returned pieces go back through the stock ledger (reason 'return'), unless the owner says they are not resaleable.
+//  • The money side reuses the payments machinery: the part of a credit note that is not refunded becomes a payment with
+//    source 'credit_note', allocated to the invoice up to what is still owed and held as the customer's advance beyond that.
+//    That keeps outstanding, advance, dues and the ledger consistent with no second set of sums to drift.
+const V6 = `
+CREATE TABLE credit_notes (
+  id                TEXT PRIMARY KEY,
+  number            TEXT NOT NULL,
+  fy                TEXT NOT NULL,
+  seq               INTEGER NOT NULL,
+  invoice_id        TEXT NOT NULL REFERENCES invoices (id),
+  customer_id       TEXT REFERENCES customers (id),
+  kind              TEXT NOT NULL CHECK (kind IN ('return','adjustment')),
+  seller_json       TEXT NOT NULL,
+  buyer_json        TEXT NOT NULL,
+  place_of_supply   TEXT NOT NULL,
+  issue_date        TEXT NOT NULL,
+  intra_state       INTEGER NOT NULL CHECK (intra_state IN (0,1)),
+  gst_rate_percent  REAL NOT NULL,
+  tax_summary_json  TEXT NOT NULL,
+  taxable_paise     INTEGER NOT NULL,
+  cgst_paise        INTEGER NOT NULL DEFAULT 0,
+  sgst_paise        INTEGER NOT NULL DEFAULT 0,
+  igst_paise        INTEGER NOT NULL DEFAULT 0,
+  round_off_paise   INTEGER NOT NULL DEFAULT 0,
+  total_paise       INTEGER NOT NULL CHECK (total_paise >= 0),
+  reason            TEXT NOT NULL DEFAULT '',
+  notes             TEXT NOT NULL DEFAULT '',
+  refund_paise      INTEGER NOT NULL DEFAULT 0,
+  refund_method     TEXT,
+  refund_reference  TEXT NOT NULL DEFAULT '',
+  status            TEXT NOT NULL DEFAULT 'issued' CHECK (status IN ('issued','cancelled')),
+  cancelled_at      TEXT,
+  cancel_reason     TEXT NOT NULL DEFAULT '',
+  created_at        TEXT NOT NULL,
+  updated_at        TEXT NOT NULL
+);
+CREATE UNIQUE INDEX ux_credit_notes_number ON credit_notes (number);
+CREATE UNIQUE INDEX ux_credit_notes_fy_seq ON credit_notes (fy, seq);
+CREATE INDEX ix_credit_notes_invoice ON credit_notes (invoice_id);
+CREATE INDEX ix_credit_notes_customer ON credit_notes (customer_id);
+CREATE INDEX ix_credit_notes_date ON credit_notes (issue_date);
+
+CREATE TABLE credit_note_lines (
+  id               TEXT PRIMARY KEY,
+  credit_note_id   TEXT NOT NULL REFERENCES credit_notes (id),
+  invoice_line_id  TEXT REFERENCES invoice_lines (id),
+  variant_id       TEXT REFERENCES variants (id),
+  position         INTEGER NOT NULL,
+  design_name      TEXT NOT NULL,
+  color            TEXT NOT NULL DEFAULT '',
+  size             TEXT NOT NULL DEFAULT '',
+  sku              TEXT NOT NULL DEFAULT '',
+  hsn              TEXT NOT NULL DEFAULT '',
+  qty              INTEGER NOT NULL CHECK (qty > 0),
+  unit_price_paise INTEGER NOT NULL,
+  amount_paise     INTEGER NOT NULL,
+  taxable_paise    INTEGER NOT NULL,
+  gst_rate_percent REAL NOT NULL,
+  restock          INTEGER NOT NULL DEFAULT 1 CHECK (restock IN (0,1)),
+  unit_cost_paise  INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX ix_credit_note_lines_note ON credit_note_lines (credit_note_id);
+CREATE INDEX ix_credit_note_lines_invoice_line ON credit_note_lines (invoice_line_id);
+
+ALTER TABLE payments ADD COLUMN source TEXT NOT NULL DEFAULT 'receipt';
+ALTER TABLE payments ADD COLUMN credit_note_id TEXT;
+
+INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES ('credit_note_prefix', 'CN', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
+`;
+
 // Append new migrations to the end; never edit one that has shipped.
 const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 1, sql: V1 },
@@ -292,6 +366,7 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 3, sql: V3 },
   { version: 4, sql: V4 },
   { version: 5, sql: V5 },
+  { version: 6, sql: V6 },
 ];
 
 export function migrate(db: DatabaseSync): void {

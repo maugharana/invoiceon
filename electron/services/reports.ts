@@ -1,6 +1,7 @@
 import { allocate, isIsoDate, todayIso } from '../../shared/gst';
 import { bucketKeys, bucketOf, granularityFor } from '../../shared/periods';
-import type { GstReport, GstTotals, InvoiceType, PaymentMethod, SalesReport, StockReport } from '../../shared/types';
+import type { GstReport, GstTotals, InvoiceType, PaymentMethod, ReturnsSummary, SalesReport, StockReport } from '../../shared/types';
+import type { RateGroup } from '../../shared/gst';
 import { all, type Db } from '../db/connection';
 import { UserError } from './common';
 import { listDesigns, loadVariants } from './inventory';
@@ -101,6 +102,60 @@ function loadInvoices(db: Db, range: { from: string; to: string }): LoadedInvoic
 
 const sum = <T>(items: T[], f: (t: T) => number): number => items.reduce((s, t) => s + f(t), 0);
 
+// ── Credit notes ────────────────────────────────────────────────────────────
+interface CreditNoteRow {
+  id: string;
+  number: string;
+  issue_date: string;
+  invoice_number: string;
+  invoice_date: string;
+  invoice_type: InvoiceType;
+  buyer_json: string;
+  place_of_supply: string;
+  tax_summary_json: string;
+  taxable_paise: number;
+  cgst_paise: number;
+  sgst_paise: number;
+  igst_paise: number;
+  total_paise: number;
+  refund_paise: number;
+}
+
+/** Issued credit notes dated in the range. Cancelled ones are left out, like cancelled invoices. */
+function loadCreditNotes(db: Db, range: { from: string; to: string }) {
+  const rows = all<CreditNoteRow>(
+    db,
+    `SELECT c.id, c.number, c.issue_date, i.number AS invoice_number, i.issue_date AS invoice_date, i.type AS invoice_type, c.buyer_json, c.place_of_supply, c.tax_summary_json,
+       c.taxable_paise, c.cgst_paise, c.sgst_paise, c.igst_paise, c.total_paise, c.refund_paise
+     FROM credit_notes c JOIN invoices i ON i.id = c.invoice_id WHERE c.status = 'issued' AND c.issue_date BETWEEN ? AND ? ORDER BY c.issue_date, c.seq`,
+    range.from,
+    range.to,
+  );
+  const lines = all<{ variant_id: string | null; qty: number; restock: number; unit_cost_paise: number }>(
+    db,
+    `SELECT l.variant_id, l.qty, l.restock, l.unit_cost_paise FROM credit_note_lines l JOIN credit_notes c ON c.id = l.credit_note_id WHERE c.status = 'issued' AND c.issue_date BETWEEN ? AND ?`,
+    range.from,
+    range.to,
+  );
+  return { rows, lines };
+}
+
+function returnsSummary(db: Db, range: { from: string; to: string }): ReturnsSummary {
+  const { rows, lines } = loadCreditNotes(db, range);
+  const taxablePaise = sum(rows, (r) => r.taxable_paise);
+  // Profit lost: the taxable value handed back, less the cost of pieces that went back on the shelf (that cost is not lost).
+  const restockedCost = sum(lines.filter((l) => l.restock === 1), (l) => l.qty * l.unit_cost_paise);
+  return {
+    count: rows.length,
+    taxablePaise,
+    gstPaise: sum(rows, (r) => r.cgst_paise + r.sgst_paise + r.igst_paise),
+    totalPaise: sum(rows, (r) => r.total_paise),
+    refundedPaise: sum(rows, (r) => r.refund_paise),
+    piecesReturned: sum(lines.filter((l) => l.variant_id), (l) => l.qty),
+    profitLostPaise: taxablePaise - restockedCost,
+  };
+}
+
 // ── Sales ───────────────────────────────────────────────────────────────────
 export function salesReport(db: Db, range: { from: string; to: string }): SalesReport {
   checkRange(range);
@@ -118,7 +173,7 @@ export function salesReport(db: Db, range: { from: string; to: string }): SalesR
   // Payments are measured by the day the money arrived — independent of which invoice (or advance) they went to.
   const payments = all<{ received_on: string; method: PaymentMethod; amount_paise: number }>(
     db,
-    'SELECT received_on, method, amount_paise FROM payments WHERE voided_at IS NULL AND received_on BETWEEN ? AND ?',
+    "SELECT received_on, method, amount_paise FROM payments WHERE voided_at IS NULL AND source = 'receipt' AND received_on BETWEEN ? AND ?",
     range.from,
     range.to,
   );
@@ -163,8 +218,12 @@ export function salesReport(db: Db, range: { from: string; to: string }): SalesR
     return { type, invoices: of.length, invoicedPaise: sum(of, (i) => i.row.total_paise) };
   });
 
+  const returns = returnsSummary(db, range);
   return {
     range,
+    returns,
+    netInvoicedPaise: sum(invoices, (i) => i.row.total_paise) - returns.totalPaise,
+    netGrossProfitPaise: grossProfitPaise - returns.profitLostPaise,
     invoicedPaise: sum(invoices, (i) => i.row.total_paise),
     taxablePaise,
     gstPaise: sum(invoices, (i) => i.row.cgst_paise + i.row.sgst_paise + i.row.igst_paise),
@@ -238,8 +297,56 @@ export function gstReport(db: Db, range: { from: string; to: string }): GstRepor
 
   const cancelled = all<{ n: number }>(db, "SELECT COUNT(*) AS n FROM invoices WHERE status = 'cancelled' AND issue_date BETWEEN ? AND ?", range.from, range.to)[0]!.n;
 
+  // Credit notes: their own totals, a register with one row per note and rate, and the net of both.
+  const notes = loadCreditNotes(db, range).rows;
+  const creditTotals = emptyTotals();
+  const creditNoteRegister: GstReport['creditNoteRegister'] = [];
+  for (const n of notes) {
+    creditTotals.invoices += 1;
+    creditTotals.taxablePaise += n.taxable_paise;
+    creditTotals.cgstPaise += n.cgst_paise;
+    creditTotals.sgstPaise += n.sgst_paise;
+    creditTotals.igstPaise += n.igst_paise;
+    creditTotals.taxPaise += n.cgst_paise + n.sgst_paise + n.igst_paise;
+    creditTotals.invoiceValuePaise += n.total_paise;
+    const buyer = JSON.parse(n.buyer_json) as { name: string; gstin: string };
+    const groups = JSON.parse(n.tax_summary_json) as RateGroup[];
+    groups.forEach((g, index) =>
+      creditNoteRegister.push({
+        creditNoteId: n.id,
+        number: n.number,
+        date: n.issue_date,
+        invoiceNumber: n.invoice_number,
+        invoiceDate: n.invoice_date,
+        customer: buyer.name,
+        gstin: buyer.gstin,
+        type: n.invoice_type,
+        placeOfSupply: n.place_of_supply,
+        ratePercent: g.ratePercent,
+        taxablePaise: g.taxablePaise,
+        cgstPaise: g.cgstPaise,
+        sgstPaise: g.sgstPaise,
+        igstPaise: g.igstPaise,
+        // The note's rounding sits on its last row so the rows still add up to the note's total.
+        totalPaise: g.taxablePaise + g.cgstPaise + g.sgstPaise + g.igstPaise + (index === groups.length - 1 ? n.total_paise - (n.taxable_paise + n.cgst_paise + n.sgst_paise + n.igst_paise) : 0),
+      }),
+    );
+  }
+  const netTotals: GstTotals = {
+    invoices: totals.invoices,
+    taxablePaise: totals.taxablePaise - creditTotals.taxablePaise,
+    cgstPaise: totals.cgstPaise - creditTotals.cgstPaise,
+    sgstPaise: totals.sgstPaise - creditTotals.sgstPaise,
+    igstPaise: totals.igstPaise - creditTotals.igstPaise,
+    taxPaise: totals.taxPaise - creditTotals.taxPaise,
+    invoiceValuePaise: totals.invoiceValuePaise - creditTotals.invoiceValuePaise,
+  };
+
   return {
     range,
+    creditNotes: creditTotals,
+    creditNoteRegister,
+    netTotals,
     totals,
     b2b,
     b2c,

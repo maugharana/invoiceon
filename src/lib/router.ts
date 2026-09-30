@@ -20,6 +20,8 @@ export type Route =
   | { name: 'payments' }
   | { name: 'dues' }
   | { name: 'invoice'; id: string }
+  | { name: 'credit-notes' }
+  | { name: 'credit-note'; id: string }
   | { name: 'proformas'; status: 'all' | ProformaStatus }
   | { name: 'proforma-new'; customerId: string | null }
   | { name: 'proforma'; id: string }
@@ -30,6 +32,7 @@ export type Route =
   /** Bare invoice document with no app chrome — what PDF export and printing render. */
   | { name: 'print-invoice'; id: string }
   | { name: 'print-proforma'; id: string }
+  | { name: 'print-credit-note'; id: string }
   | { name: 'reports'; tab: ReportTab; period: PeriodSpec; /** Stock valuation date; null means today. */ asOf: string | null };
 
 export type ReportTab = 'sales' | 'gst' | 'stock';
@@ -66,6 +69,8 @@ export function parseHash(hash: string): Route {
       const status = params.get('status');
       return { name: 'invoices', status: status === 'open' || status === 'overdue' || status === 'cancelled' ? status : 'all' };
     }
+    case 'credit-notes':
+      return parts[1] ? { name: 'credit-note', id: decodeURIComponent(parts[1]) } : { name: 'credit-notes' };
     case 'proformas': {
       if (parts[1] === 'new') return { name: 'proforma-new', customerId: params.get('customer') };
       if (parts[1]) return { name: 'proforma', id: decodeURIComponent(parts[1]) };
@@ -81,6 +86,7 @@ export function parseHash(hash: string): Route {
     case 'print':
       if (parts[1] === 'invoice' && id) return { name: 'print-invoice', id };
       if (parts[1] === 'proforma' && id) return { name: 'print-proforma', id };
+      if (parts[1] === 'credit-note' && id) return { name: 'print-credit-note', id };
       return { name: 'dashboard' };
     case 'payments':
       return parts[1] === 'dues' ? { name: 'dues' } : { name: 'payments' };
@@ -115,6 +121,9 @@ export const sectionOf = (route: Route): Section => {
     case 'invoice-new':
     case 'invoice':
     case 'print-invoice':
+    case 'credit-notes':
+    case 'credit-note':
+    case 'print-credit-note':
       return 'invoices';
     case 'proformas':
     case 'proforma-new':
@@ -166,6 +175,8 @@ export const paths = {
     return `/reports/${tab}${q.size ? `?${q}` : ''}`;
   },
   invoice: (id: string) => `/invoices/${encodeURIComponent(id)}`,
+  creditNotes: '/credit-notes',
+  creditNote: (id: string) => `/credit-notes/${encodeURIComponent(id)}`,
   customers: '/customers',
   customer: (id: string) => `/customers/${encodeURIComponent(id)}`,
   settings: '/settings',

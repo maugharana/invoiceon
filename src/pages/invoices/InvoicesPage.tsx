@@ -1,4 +1,4 @@
-import { ChevronRight, FileText, Plus, SearchX } from 'lucide-react';
+import { ChevronRight, FileMinus2, FileText, Plus, SearchX } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { formatDate } from '../../../shared/gst';
 import { Button, Card, EmptyState, ErrorNote, InvoicePill, Money, PageHeader, SearchInput, Segmented, TableSkeleton, TypePill } from '../../components/ui';
@@ -28,7 +28,15 @@ export function InvoicesPage({ initialStatus }: { initialStatus: Status }) {
 
   return (
     <>
-      <PageHeader title="Invoices" subtitle="Every invoice you've issued, newest first." />
+      <PageHeader
+        title="Invoices"
+        subtitle="Every invoice you've issued, newest first."
+        actions={
+          <Button icon={<FileMinus2 className="h-4 w-4" />} onClick={() => navigate(paths.creditNotes)}>
+            Credit notes
+          </Button>
+        }
+      />
       {invoices.error && <ErrorNote>{invoices.error}</ErrorNote>}
 
       {none ? (

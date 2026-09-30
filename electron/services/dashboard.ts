@@ -16,7 +16,7 @@ function allTimeRange(db: Db, today: string): { from: string; to: string } {
     db,
     `SELECT MIN(d) AS d FROM (
        SELECT MIN(issue_date) AS d FROM invoices
-       UNION ALL SELECT MIN(received_on) FROM payments WHERE voided_at IS NULL
+       UNION ALL SELECT MIN(received_on) FROM payments WHERE voided_at IS NULL AND source = 'receipt'
        UNION ALL SELECT MIN(expense_date) FROM expenses WHERE deleted_at IS NULL
      )`,
   )?.d;
@@ -44,7 +44,7 @@ export function dashboardOverview(db: Db, requested: { from: string; to: string 
   const trend: TrendPoint[] = trendKeys(range, granularity).map((key) => ({ key, invoicedPaise: 0, receivedPaise: 0, expensesPaise: 0 }));
   const byKey = new Map(trend.map((t) => [t.key, t]));
   for (const i of all<{ issue_date: string; total_paise: number }>(db, "SELECT issue_date, total_paise FROM invoices WHERE status = 'issued' AND issue_date BETWEEN ? AND ?", range.from, range.to)) byKey.get(trendBucketOf(i.issue_date, granularity))!.invoicedPaise += i.total_paise;
-  for (const p of all<{ received_on: string; amount_paise: number }>(db, 'SELECT received_on, amount_paise FROM payments WHERE voided_at IS NULL AND received_on BETWEEN ? AND ?', range.from, range.to)) byKey.get(trendBucketOf(p.received_on, granularity))!.receivedPaise += p.amount_paise;
+  for (const p of all<{ received_on: string; amount_paise: number }>(db, "SELECT received_on, amount_paise FROM payments WHERE voided_at IS NULL AND source = 'receipt' AND received_on BETWEEN ? AND ?", range.from, range.to)) byKey.get(trendBucketOf(p.received_on, granularity))!.receivedPaise += p.amount_paise;
   for (const e of expenses) byKey.get(trendBucketOf(e.date, granularity))!.expensesPaise += e.amountPaise;
 
   const invoices = listInvoices(db);

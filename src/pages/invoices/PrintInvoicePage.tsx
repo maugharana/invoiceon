@@ -1,10 +1,12 @@
 import { Printer } from 'lucide-react';
 import { useEffect } from 'react';
+import { CreditNoteDocument } from '../../components/CreditNoteDocument';
 import { InvoiceDocument } from '../../components/InvoiceDocument';
 import { Button } from '../../components/ui';
 import { api } from '../../lib/api';
 import { useQuery } from '../../lib/data';
 import { proformaAsInvoice } from '../../lib/proforma';
+import type { CreditNote, Invoice } from '../../../shared/types';
 
 /**
  * The bare invoice, with no app chrome. In the desktop app, PDF export and printing open this route in a hidden window and
@@ -13,10 +15,12 @@ import { proformaAsInvoice } from '../../lib/proforma';
  * In a plain browser (the localhost preview) there is no shell to capture it, so the page carries a small toolbar instead:
  * the browser's own print dialog does the job, and its "Save as PDF" destination produces the file.
  */
-export function PrintInvoicePage({ id, kind = 'invoice' }: { id: string; kind?: 'invoice' | 'proforma' }) {
+export function PrintInvoicePage({ id, kind = 'invoice' }: { id: string; kind?: 'invoice' | 'proforma' | 'credit-note' }) {
   const proforma = kind === 'proforma';
-  const query = useQuery(() => (proforma ? api.proformaGet(id).then(proformaAsInvoice) : api.invoiceGet(id)), [id, proforma]);
+  const creditNote = kind === 'credit-note';
+  const query = useQuery<Invoice | CreditNote>(() => (creditNote ? api.creditNoteGet(id) : proforma ? api.proformaGet(id).then(proformaAsInvoice) : api.invoiceGet(id)), [id, kind]);
   const invoice = query.data;
+  const noun = creditNote ? 'credit note' : proforma ? 'proforma' : 'invoice';
   const inBrowser = !window.invoiceon;
 
   useEffect(() => {
@@ -33,8 +37,8 @@ export function PrintInvoicePage({ id, kind = 'invoice' }: { id: string; kind?: 
   }, [invoice]);
 
   useEffect(() => {
-    if (invoice) document.title = `${proforma ? 'Proforma' : 'Invoice'} ${invoice.number.replaceAll('/', '-')}`; // becomes the suggested file name when saving as PDF
-  }, [invoice, proforma]);
+    if (invoice) document.title = `${creditNote ? 'Credit note' : proforma ? 'Proforma' : 'Invoice'} ${invoice.number.replaceAll('/', '-')}`; // becomes the suggested file name when saving as PDF
+  }, [invoice, proforma, creditNote]);
 
   if (query.error) return <p className="p-8 text-status-overdue-fg">{query.error}</p>;
   if (!invoice) return null;
@@ -43,7 +47,7 @@ export function PrintInvoicePage({ id, kind = 'invoice' }: { id: string; kind?: 
       {inBrowser && (
         <div className="sticky top-0 z-10 flex items-center justify-between gap-6 border-b border-line bg-surface px-6 py-3 print:hidden">
           <p className="text-ink-muted">
-            To save this {proforma ? 'proforma' : 'invoice'} as a PDF, click <span className="text-ink">Save as PDF</span>, then choose <span className="text-ink">“Save as PDF”</span> as the printer (destination) and press Save.
+            To save this {noun} as a PDF, click <span className="text-ink">Save as PDF</span>, then choose <span className="text-ink">“Save as PDF”</span> as the printer (destination) and press Save.
           </p>
           <Button variant="primary" icon={<Printer className="h-4 w-4" />} onClick={() => window.print()}>
             Save as PDF / Print
@@ -52,7 +56,7 @@ export function PrintInvoicePage({ id, kind = 'invoice' }: { id: string; kind?: 
       )}
       <div className={inBrowser ? 'py-8 print:py-0' : ''}>
         <div className={inBrowser ? 'mx-auto w-max border border-line shadow-overlay print:border-0 print:shadow-none' : ''}>
-          <InvoiceDocument invoice={invoice} variant={kind} />
+          {creditNote ? <CreditNoteDocument note={invoice as CreditNote} /> : <InvoiceDocument invoice={invoice as Invoice} variant={proforma ? 'proforma' : 'invoice'} />}
         </div>
       </div>
     </div>

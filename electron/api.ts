@@ -4,6 +4,7 @@ import type { Api, Envelope } from '../shared/api';
 import { backupNow, listBackups } from './backup';
 import type { Db } from './db/connection';
 import { UserError } from './services/common';
+import * as creditNotes from './services/creditNotes';
 import * as customers from './services/customers';
 import { dashboardOverview } from './services/dashboard';
 import * as expenses from './services/expenses';
@@ -77,6 +78,22 @@ export function createApi(db: Db, host?: Host, dataDir?: string): Api {
       if (!host) throw new UserError(DESKTOP_ONLY);
       invoices.getInvoice(db, id); // fail early with a friendly message if it's gone
       return host.printDocument(`/print/invoice/${encodeURIComponent(id)}`);
+    },
+
+    creditNotesList: async (query) => creditNotes.listCreditNotes(db, query ?? {}),
+    creditNoteGet: async (id) => creditNotes.getCreditNote(db, id),
+    creditNoteNextNumber: async (date) => creditNotes.nextCreditNoteNumber(db, date),
+    creditNoteCreate: async (input) => creditNotes.createCreditNote(db, input),
+    creditNoteCancel: async (id, reason) => creditNotes.cancelCreditNote(db, id, reason),
+    creditNoteExportPdf: async (id) => {
+      if (!host) throw new UserError(DESKTOP_ONLY);
+      const cn = creditNotes.getCreditNote(db, id);
+      return host.exportDocumentPdf(`/print/credit-note/${encodeURIComponent(id)}`, `Credit note ${cn.number.replace(/[\\/:*?"<>|]/g, '-')}.pdf`);
+    },
+    creditNotePrint: async (id) => {
+      if (!host) throw new UserError(DESKTOP_ONLY);
+      creditNotes.getCreditNote(db, id);
+      return host.printDocument(`/print/credit-note/${encodeURIComponent(id)}`);
     },
 
     paymentsList: async (query) => payments.listPayments(db, query ?? {}),

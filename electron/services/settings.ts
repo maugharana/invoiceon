@@ -54,6 +54,7 @@ const FIELDS: { [K in keyof Settings]: Field<K> } = {
   invoiceFooter: text('invoice_footer'),
   invoiceShowSignature: bool('invoice_show_signature', true),
   proformaPrefix: text('proforma_prefix', 'PF'),
+  creditNotePrefix: text('credit_note_prefix', 'CN'),
   proformaValidDays: num('proforma_valid_days', 15),
   proformaTerms: text('proforma_terms'),
   expenseCategories: json<string[]>('expense_categories', DEFAULT_EXPENSE_CATEGORIES),
@@ -127,6 +128,11 @@ function validate(patch: Partial<Settings>): Partial<Settings> {
     const p = requireText(patch.proformaPrefix, 'Proforma prefix', 10).toUpperCase();
     if (!/^[A-Z0-9-]+$/.test(p)) throw new UserError('Proforma prefix can only use letters, numbers and dashes.');
     v.proformaPrefix = p;
+  }
+  if (patch.creditNotePrefix !== undefined) {
+    const p = requireText(patch.creditNotePrefix, 'Credit note prefix', 10).toUpperCase();
+    if (!/^[A-Z0-9-]+$/.test(p)) throw new UserError('Credit note prefix can only use letters, numbers and dashes.');
+    v.creditNotePrefix = p;
   }
   if (patch.proformaValidDays !== undefined) v.proformaValidDays = requireInt(patch.proformaValidDays, 'Proforma validity', { max: 365 });
   if (patch.proformaTerms !== undefined) v.proformaTerms = optionalText(patch.proformaTerms, 'Proforma terms', 400);

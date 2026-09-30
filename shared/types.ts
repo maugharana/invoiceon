@@ -1,7 +1,7 @@
 import type { Paise } from './money';
 import type { StockStatus } from './stock';
 
-import type { InvoiceStatus } from './gst';
+import type { InvoiceStatus, RateGroup } from './gst';
 
 export const DEFAULT_EXPENSE_CATEGORIES = ['Raw materials', 'Rent', 'Salaries & wages', 'Transport & freight', 'Packaging', 'Electricity & utilities', 'Marketing', 'Other'];
 
@@ -52,6 +52,8 @@ export interface Settings {
   invoiceShowSignature: boolean;
   // ── Proforma invoices (a quote to pay against; no stock or tax effect) ──
   proformaPrefix: string;
+  /** Prefix for credit note numbers, e.g. "CN" gives CN/2026-27/0001. */
+  creditNotePrefix: string;
   /** Days a proforma stays valid. */
   proformaValidDays: number;
   proformaTerms: string;
@@ -307,14 +309,18 @@ export interface InvoicePayment {
   method: PaymentMethod;
   reference: string;
   amountPaise: Paise;
+  /** 'credit_note' when the amount is a credit note set against this invoice rather than money received. */
+  source?: 'receipt' | 'credit_note';
+  creditNoteNumber?: string;
 }
 
 // ── Ledger & dues ───────────────────────────────────────────────────────────
 export interface LedgerEntry {
   date: string;
-  kind: 'invoice' | 'invoice-cancelled' | 'payment' | 'payment-voided';
+  kind: 'invoice' | 'invoice-cancelled' | 'payment' | 'payment-voided' | 'credit-note' | 'credit-note-cancelled' | 'refund';
   description: string;
   invoiceId?: string;
+  creditNoteId?: string;
   debitPaise: Paise;
   creditPaise: Paise;
   /** Running balance after this line. Positive = the customer owes you; negative = you hold their advance. */
@@ -389,6 +395,10 @@ export interface InvoiceLine {
   qty: number;
   unitPricePaise: Paise;
   amountPaise: Paise;
+  /** Pieces already sent back on credit notes. Absent on proformas. */
+  creditedQty?: number;
+  /** The GST rate this line was taxed at. Absent on invoices from before rates could differ by line: they use the invoice's own rate. */
+  gstRatePercent?: number;
 }
 
 export interface InvoiceSummary {
@@ -425,8 +435,11 @@ export interface Invoice extends InvoiceSummary {
   roundOffPaise: Paise;
   notes: string;
   lines: InvoiceLine[];
-  /** Payments currently applied to this invoice. */
+  /** Payments currently applied to this invoice (credit notes set against it show here too, marked by `source`). */
   payments: InvoicePayment[];
+  /** Of `paidPaise`, the part that is credit notes rather than money. */
+  creditedPaise?: Paise;
+  creditNotes?: { id: string; number: string; issueDate: string; totalPaise: Paise; status: CreditNoteStatus }[];
   cancelledAt: string | null;
   cancelReason: string;
   createdAt: string;
@@ -516,6 +529,11 @@ export interface SalesReport {
   byMethod: { method: PaymentMethod; count: number; paise: Paise }[];
   topDesigns: { designId: string; name: string; pieces: number; revenuePaise: Paise; profitPaise: Paise }[];
   topCustomers: { customerId: string | null; name: string; invoices: number; invoicedPaise: Paise }[];
+  /** Credit notes dated in the period. The figures above are gross; these are what came back. */
+  returns: ReturnsSummary;
+  /** Invoiced less credit notes. */
+  netInvoicedPaise: Paise;
+  netGrossProfitPaise: Paise;
 }
 
 export interface GstTotals {
@@ -551,6 +569,28 @@ export interface GstReport {
   b2cByState: { placeOfSupply: string; ratePercent: number; invoices: number; taxablePaise: Paise; cgstPaise: Paise; sgstPaise: Paise; igstPaise: Paise }[];
   /** Cancelled invoices dated in the period; they are left out of everything above. */
   cancelledCount: number;
+  /** Credit notes dated in the period (cancelled ones left out). Everything above is gross of them. */
+  creditNotes: GstTotals;
+  /** The GSTR-1 credit and debit note register: one row per credit note and tax rate. */
+  creditNoteRegister: {
+    creditNoteId: string;
+    number: string;
+    date: string;
+    invoiceNumber: string;
+    invoiceDate: string;
+    customer: string;
+    gstin: string;
+    type: InvoiceType;
+    placeOfSupply: string;
+    ratePercent: number;
+    taxablePaise: Paise;
+    cgstPaise: Paise;
+    sgstPaise: Paise;
+    igstPaise: Paise;
+    totalPaise: Paise;
+  }[];
+  /** Invoices less credit notes: what is actually due to the government. */
+  netTotals: GstTotals;
 }
 
 export interface StockVariantRow {
@@ -741,4 +781,106 @@ export interface DashboardOverview {
   topClients: { customerId: string | null; name: string; invoicedPaise: Paise }[];
   expensesByCategory: { category: string; paise: Paise }[];
   recent: InvoiceSummary[];
+}
+
+// ── Credit notes ────────────────────────────────────────────────────────────
+export type CreditNoteKind = 'return' | 'adjustment';
+export type CreditNoteStatus = 'issued' | 'cancelled';
+
+export const CREDIT_NOTE_KIND_LABEL: Record<CreditNoteKind, string> = { return: 'Sales return', adjustment: 'Price adjustment' };
+
+export interface CreditNoteLine {
+  id: string;
+  invoiceLineId: string | null;
+  variantId: string | null;
+  designName: string;
+  color: string;
+  size: string;
+  sku: string;
+  hsn: string;
+  qty: number;
+  unitPricePaise: Paise;
+  /** qty times price, before any discount on the invoice. */
+  amountPaise: Paise;
+  /** What is credited before tax: the amount less this line's share of the invoice's discount. */
+  taxablePaise: Paise;
+  gstRatePercent: number;
+  /** Whether the pieces went back on the shelf. */
+  restock: boolean;
+}
+
+export interface CreditNoteSummary {
+  id: string;
+  number: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  customerId: string | null;
+  buyerName: string;
+  issueDate: string;
+  kind: CreditNoteKind;
+  totalPaise: Paise;
+  /** Of the total, what was handed back as a refund. */
+  refundPaise: Paise;
+  status: CreditNoteStatus;
+  reason: string;
+}
+
+export interface CreditNote extends CreditNoteSummary {
+  invoiceDate: string;
+  invoiceType: InvoiceType;
+  seller: Party & { email: string; terms: string; bank: string; footer: string };
+  branding: InvoiceBranding;
+  buyer: Party;
+  placeOfSupply: string;
+  intraState: boolean;
+  gstRatePercent: number;
+  taxSummary: RateGroup[];
+  taxablePaise: Paise;
+  cgstPaise: Paise;
+  sgstPaise: Paise;
+  igstPaise: Paise;
+  roundOffPaise: Paise;
+  notes: string;
+  refundMethod: PaymentMethod | null;
+  refundReference: string;
+  /** How much of the credit went against what the customer still owed on the invoice. */
+  appliedToInvoicePaise: Paise;
+  /** What is left over: held as the customer's credit, ready for their next invoice. */
+  heldAsCreditPaise: Paise;
+  lines: CreditNoteLine[];
+  cancelledAt: string | null;
+  cancelReason: string;
+  createdAt: string;
+}
+
+export interface CreditNoteInput {
+  invoiceId: string;
+  issueDate: string;
+  kind: CreditNoteKind;
+  reason: string;
+  notes: string;
+  /** For a sales return: which invoice lines come back, how many, and whether they go back on the shelf. */
+  lines?: { invoiceLineId: string; qty: number; restock: boolean }[];
+  /** For a price adjustment: the amount to credit before tax, and the tax rate when the invoice has more than one. */
+  adjustment?: { taxablePaise: Paise; ratePercent?: number };
+  /** Money paid back to the customer now. The rest of the credit goes against the invoice, then stays with the customer. */
+  refund?: { amountPaise: Paise; method: PaymentMethod; reference: string };
+}
+
+export interface CreditNoteQuery {
+  search?: string;
+  customerId?: string;
+  invoiceId?: string;
+}
+
+/** Returns and credit notes in a period, shown beside the sales figures. */
+export interface ReturnsSummary {
+  count: number;
+  taxablePaise: Paise;
+  gstPaise: Paise;
+  totalPaise: Paise;
+  refundedPaise: Paise;
+  piecesReturned: number;
+  /** Taxable value credited less the cost of the pieces that went back on the shelf. */
+  profitLostPaise: Paise;
 }

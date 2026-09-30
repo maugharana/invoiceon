@@ -1,6 +1,7 @@
 import { addDays, todayIso } from '../../shared/gst';
 import { get, tx, type Db } from '../db/connection';
 import { UserError } from './common';
+import { createCreditNote } from './creditNotes';
 import { createCustomer } from './customers';
 import { createExpense } from './expenses';
 import { createDesign, createVariant, nextDesignCode } from './inventory';
@@ -138,7 +139,17 @@ function addSampleSales(db: Db): void {
   createInvoice(db, { ...base, type: 'B2B', customerId: kanchan, issueDate: day(-4), dueDate: day(11), lines: [item('Katan', 'Wine', 1)] });
 
   // 4. B2C, saved customer, paid in full by UPI at the counter.
-  createInvoice(db, { ...base, type: 'B2C', customerId: idOf('Sunita'), issueDate: day(-9), dueDate: day(-9), lines: [item('Chanderi', 'Sky blue', 3)], payment: { amountPaise: rupees(10710), method: 'upi', reference: 'UPI 20918' } });
+  const sunita = createInvoice(db, { ...base, type: 'B2C', customerId: idOf('Sunita'), issueDate: day(-9), dueDate: day(-9), lines: [item('Chanderi', 'Sky blue', 3)], payment: { amountPaise: rupees(10710), method: 'upi', reference: 'UPI 20918' } });
+  // She sent one piece back with a zari snag: refunded by UPI, and not put back on the shelf, so stock and dues stay as they are.
+  createCreditNote(db, {
+    invoiceId: sunita.id,
+    issueDate: day(-6),
+    kind: 'return',
+    reason: 'Zari snag found on one piece',
+    notes: '',
+    lines: [{ invoiceLineId: sunita.lines[0]!.id, qty: 1, restock: false }],
+    refund: { amountPaise: rupees(3570), method: 'upi', reference: 'UPI 20977' },
+  });
 
   // 5. B2C walk-in, paid in cash, with a discount.
   createInvoice(db, { ...base, type: 'B2C', customerId: null, buyerName: 'Anita Rao', issueDate: day(-2), dueDate: day(-2), discountPaise: rupees(500), lines: [item('Tanchoi', 'Onion pink', 1), item('Chanderi', 'Lemon', 2)], payment: { amountPaise: rupees(14175), method: 'cash', reference: '' } });

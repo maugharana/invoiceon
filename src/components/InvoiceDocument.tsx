@@ -149,7 +149,8 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
           <Row strong label="Total" value={formatMoney(inv.totalPaise)} />
           {!cancelled && inv.paidPaise > 0 && (
             <>
-              <Row muted label="Received" value={`− ${formatMoney(inv.paidPaise)}`} />
+              {(inv.creditedPaise ?? 0) > 0 && <Row muted label="Credit notes" value={`− ${formatMoney(inv.creditedPaise ?? 0)}`} />}
+              {inv.paidPaise - (inv.creditedPaise ?? 0) > 0 && <Row muted label="Received" value={`− ${formatMoney(inv.paidPaise - (inv.creditedPaise ?? 0))}`} />}
               <Row label="Balance due" value={formatMoney(inv.totalPaise - inv.paidPaise)} />
             </>
           )}

@@ -23,12 +23,16 @@ export function paidFor(db: Db, invoiceId: string): number {
 }
 
 export function paymentsOnInvoice(db: Db, invoiceId: string): InvoicePayment[] {
-  return all<{ id: string; received_on: string; method: PaymentMethod; reference: string; amount: number }>(
+  return all<{ id: string; received_on: string; method: PaymentMethod; reference: string; amount: number; source: string; cn_number: string | null }>(
     db,
-    `SELECT p.id, p.received_on, p.method, p.reference, a.amount_paise AS amount FROM payment_allocations a JOIN payments p ON p.id = a.payment_id
+    `SELECT p.id, p.received_on, p.method, p.reference, a.amount_paise AS amount, p.source, cn.number AS cn_number
+     FROM payment_allocations a JOIN payments p ON p.id = a.payment_id LEFT JOIN credit_notes cn ON cn.id = p.credit_note_id
      WHERE a.invoice_id = ? AND ${LIVE_ALLOCATION} ORDER BY p.received_on, a.created_at`,
     invoiceId,
-  ).map((r) => ({ paymentId: r.id, receivedOn: r.received_on, method: r.method, reference: r.reference, amountPaise: r.amount }));
+  ).map((r): InvoicePayment => {
+    const base: InvoicePayment = { paymentId: r.id, receivedOn: r.received_on, method: r.method, reference: r.reference, amountPaise: r.amount };
+    return r.source === 'credit_note' ? { ...base, source: 'credit_note', creditNoteNumber: r.cn_number ?? '' } : base;
+  });
 }
 
 /** What's still owed on an issued invoice, or a UserError if it can't take payments. */
@@ -80,6 +84,9 @@ export function applyAdvance(db: Db, customerId: string, invoiceId: string, max:
 // ── Recording ───────────────────────────────────────────────────────────────
 export interface PaymentDraft extends Omit<PaymentInput, 'method'> {
   method: PaymentMethod;
+  /** Only credit notes set these: the value is not money received, so reports leave it out of collections. */
+  source?: 'receipt' | 'credit_note';
+  creditNoteId?: string;
 }
 
 /** Validates and writes a payment and its allocations. Callers wrap it in their own transaction when it belongs to a bigger step. */
@@ -111,7 +118,7 @@ export function recordPaymentTx(db: Db, input: PaymentDraft): string {
 
   const id = newId();
   const now = nowIso();
-  run(db, 'INSERT INTO payments (id, customer_id, amount_paise, method, reference, received_on, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', id, input.customerId ?? null, amount, input.method, reference, input.receivedOn, note, now, now);
+  run(db, 'INSERT INTO payments (id, customer_id, amount_paise, method, reference, received_on, note, source, credit_note_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', id, input.customerId ?? null, amount, input.method, reference, input.receivedOn, note, input.source ?? 'receipt', input.creditNoteId ?? null, now, now);
   for (const al of allocations) addAllocation(db, id, al.invoiceId, al.amountPaise);
   return id;
 }
@@ -137,6 +144,8 @@ interface PaymentRow {
 }
 
 const SELECT = `SELECT p.*, c.name AS customer_name FROM payments p LEFT JOIN customers c ON c.id = p.customer_id`;
+/** The Payments screens list money received. Credit notes have their own list, and their payment rows are bookkeeping for them. */
+const RECEIPTS_ONLY = "p.source = 'receipt'";
 
 function toPayment(db: Db, r: PaymentRow): Payment {
   const allocations = all<{ invoice_id: string; number: string; amount_paise: number }>(
@@ -171,7 +180,7 @@ export function getPayment(db: Db, id: string): Payment {
 }
 
 export function listPayments(db: Db, query: PaymentQuery = {}): Payment[] {
-  const where: string[] = [];
+  const where: string[] = [RECEIPTS_ONLY];
   const params: string[] = [];
   if (query.customerId) {
     where.push('p.customer_id = ?');
@@ -187,6 +196,7 @@ export function listPayments(db: Db, query: PaymentQuery = {}): Payment[] {
 // ── Reversing ───────────────────────────────────────────────────────────────
 export function voidPayment(db: Db, id: string, reason: string): Payment {
   const payment = getPayment(db, id);
+  if (get<{ source: string }>(db, 'SELECT source FROM payments WHERE id = ?', id)?.source === 'credit_note') throw new UserError('This is a credit note. Cancel the credit note instead.');
   if (payment.voided) throw new UserError('This payment is already reversed.');
   const why = optionalText(reason, 'Reason', 200);
   run(db, 'UPDATE payments SET voided_at = ?, void_reason = ?, updated_at = ? WHERE id = ?', nowIso(), why, nowIso(), id);

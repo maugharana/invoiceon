@@ -87,6 +87,7 @@ function Palette({ onClose }: { onClose: () => void }) {
       ['Raw materials', paths.materials, Boxes, 'yarn zari costs'],
       ['Add sarees', paths.addSarees, Shirt, 'bulk sheet designs new stock import'],
       ['Invoices', paths.invoices(), FileText],
+      ['Credit notes', paths.creditNotes, FileText, 'returns refund adjustment'],
       ['Proformas', paths.proformas(), ClipboardList, 'quotes quotations'],
       ['Customers', paths.customers, Users],
       ['Payments', paths.payments, Wallet],

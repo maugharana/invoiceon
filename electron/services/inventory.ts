@@ -472,6 +472,9 @@ export function recordMovement(
   });
 }
 
+/** True while the variant is on the shelf (not archived). Documents keep pointing at archived variants, but nothing can be moved in or out of them. */
+export const isVariantLive = (db: Db, variantId: string): boolean => !!get(db, 'SELECT 1 AS x FROM variants WHERE id = ? AND deleted_at IS NULL', variantId);
+
 export function adjustStock(db: Db, input: StockAdjustInput): Variant {
   const delta = requireInt(input.delta, 'Quantity', { min: -MAX_STOCK, max: MAX_STOCK });
   if (delta === 0) throw new UserError('Enter a quantity to add or remove.');

@@ -93,7 +93,7 @@ export function CustomerPage({ id }: { id: string }) {
       {/* Ledger */}
       <div className="mb-3 flex items-end justify-between">
         <h2 className="text-base">Ledger</h2>
-        <span className="text-xs text-ink-muted">Invoices add to the balance; payments reduce it. A minus balance means you hold their advance.</span>
+        <span className="text-xs text-ink-muted">Invoices add to the balance; payments and credit notes reduce it. A minus balance means you hold their advance.</span>
       </div>
       <Card className="mb-8 overflow-x-auto">
         {ledger.data?.entries.length === 0 ? (
@@ -111,14 +111,15 @@ export function CustomerPage({ id }: { id: string }) {
             </thead>
             <tbody>
               {ledger.data?.entries.map((e, i) => {
-                const reversal = e.kind === 'invoice-cancelled' || e.kind === 'payment-voided';
+                const reversal = e.kind === 'invoice-cancelled' || e.kind === 'payment-voided' || e.kind === 'credit-note-cancelled';
+                const creditNoteLink = e.creditNoteId;
                 const link = e.invoiceId;
                 return (
                   <tr
                     key={i}
                     tabIndex={link ? 0 : undefined}
-                    onClick={() => link && navigate(paths.invoice(link))}
-                    onKeyDown={(ev) => ev.key === 'Enter' && link && navigate(paths.invoice(link))}
+                    onClick={() => (creditNoteLink ? navigate(paths.creditNote(creditNoteLink)) : link && navigate(paths.invoice(link)))}
+                    onKeyDown={(ev) => ev.key === 'Enter' && (creditNoteLink ? navigate(paths.creditNote(creditNoteLink)) : link && navigate(paths.invoice(link)))}
                     className={`animate-fade-in border-b border-line/70 transition-colors duration-150 last:border-0 hover:bg-canvas ${link ? 'cursor-pointer' : ''} ${reversal ? 'text-ink-muted' : ''}`}
                   >
                     <td className="td num whitespace-nowrap text-ink-muted">{formatDate(e.date)}</td>

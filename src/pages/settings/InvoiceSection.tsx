@@ -24,6 +24,11 @@ export function InvoiceSection({ draft, set }: SectionProps) {
             <Input value={draft.defaultDueDays} onChange={(e) => set('defaultDueDays', e.target.value)} inputMode="numeric" className="num text-right" />
           </Field>
         </div>
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Credit note prefix" hint="CN → CN/2026-27/0001">
+            <Input value={draft.creditNotePrefix} onChange={(e) => set('creditNotePrefix', e.target.value.toUpperCase())} maxLength={10} className="num" />
+          </Field>
+        </div>
         <Field label="Terms printed on invoices">
           <Textarea rows={2} value={draft.invoiceTerms} onChange={(e) => set('invoiceTerms', e.target.value)} />
         </Field>
