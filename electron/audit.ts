@@ -210,6 +210,9 @@ const RULES: Partial<Record<keyof Api, Rule>> = {
   offsiteDisable: simple('backup', 'Turned off off-site copies', () => 'Turned off off-site copies'),
   offsiteCopyNow: simple('backup', 'Copied off-site', (c) => `Copied the data off-site as ${c.result.lastFile}`),
   offsiteRestore: simple('backup', 'Restored off-site copy', (c) => `Restored off-site copy ${c.result.restoredFrom} (safety copy: ${c.result.restorePoint})`),
+  mobileEnable: simple('settings', 'Turned on the phone view', () => 'Turned on the phone view on the local network'),
+  mobileDisable: simple('settings', 'Turned off the phone view', () => 'Turned off the phone view'),
+  mobileResetLink: simple('settings', 'Reset the phone view link', () => 'Made a new phone view link; the old one no longer works'),
   sampleDataLoad: simple('settings', 'Loaded sample data', () => 'Loaded the sample data'),
 };
 

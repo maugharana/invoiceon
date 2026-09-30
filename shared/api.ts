@@ -1,5 +1,6 @@
 import type { AccessStatus, AccessUser, AccessUserInput } from './access';
 import type { FilingFile, FilingRequest } from './filing';
+import type { MobileStatus } from './mobile';
 import type { OffsiteSetup, OffsiteStatus } from './offsite';
 import type {
   AuditEntry,
@@ -175,6 +176,12 @@ export interface Api {
   offsiteRestore(name: string, passphrase?: string): Promise<{ restoredFrom: string; restorePoint: string }>;
   /** The desktop app's folder chooser. */
   offsiteChooseFolder(): Promise<{ folder: string | null }>;
+  /** The read only phone view served on the shop's Wi-Fi. Off until switched on. */
+  mobileStatus(): Promise<MobileStatus>;
+  mobileEnable(): Promise<MobileStatus>;
+  mobileDisable(): Promise<MobileStatus>;
+  /** A new secret link; phones with the old one stop working. */
+  mobileResetLink(): Promise<MobileStatus>;
 
   dashboardSummary(): Promise<DashboardSummary>;
   /** Everything the dashboard shows for a period. Null means all time. */

@@ -4,6 +4,7 @@ import type { Api, Envelope } from '../shared/api';
 import { encodeLabelRequest, labelSizeById, parseLabelRequest } from '../shared/labels';
 import { listAudit, withAudit, type Actor } from './audit';
 import { backupNow, listBackups, restoreBackup } from './backup';
+import { mobileController } from './mobile';
 import { offsiteCopy, offsiteDisable, offsiteRestore, offsiteSave, offsiteStatus } from './offsite';
 import type { Db } from './db/connection';
 import { UserError } from './services/common';
@@ -47,6 +48,7 @@ const labelQuery = (req: ReturnType<typeof parseLabelRequest>): string => encode
 export function createApi(db: Db, host?: Host, dataDir?: string, actor?: () => Actor): Api {
   // Who is signed in lives here, in memory. With access control off (the default) it never matters and every call goes straight through.
   const session = createSession(db);
+  const mobile = mobileController(db);
   const who = actor ?? (() => session.actor());
   const api: Api = {
     getSettings: async () => settings.getSettings(db),
@@ -162,6 +164,11 @@ export function createApi(db: Db, host?: Host, dataDir?: string, actor?: () => A
       if (!host?.chooseFolder) throw new UserError(DESKTOP_ONLY);
       return { folder: await host.chooseFolder() };
     },
+
+    mobileStatus: async () => mobile.status(),
+    mobileEnable: async () => mobile.enable(),
+    mobileDisable: async () => mobile.disable(),
+    mobileResetLink: async () => mobile.resetLink(),
 
     dashboardSummary: async () => invoices.dashboardSummary(db),
     dashboardOverview: async (range) => dashboardOverview(db, range ?? null),

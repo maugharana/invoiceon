@@ -1,4 +1,4 @@
-import { Bell, Building2, ClipboardList, CreditCard, Database, FileText, KeyRound, Percent, ScrollText, Send, Settings2, Sparkles, Tag, Wallet, type LucideIcon } from 'lucide-react';
+import { Bell, Building2, ClipboardList, CreditCard, Database, FileText, KeyRound, Percent, Smartphone, ScrollText, Send, Settings2, Sparkles, Tag, Wallet, type LucideIcon } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useToast } from '../../components/Toast';
 import { Button, Card, ErrorNote, PageHeader, Spinner } from '../../components/ui';
@@ -13,6 +13,7 @@ import { DataManagementSection } from './DataManagementSection';
 import { fromDraft, toDraft, type Draft, type SetDraft } from './draft';
 import { ExpenseCategoriesSection } from './ExpenseCategoriesSection';
 import { InvoiceSection } from './InvoiceSection';
+import { MobileSection } from './MobileSection';
 import { NotificationsSection } from './NotificationsSection';
 import { PaymentAccountsSection } from './PaymentAccountsSection';
 import { PaymentInstructionsSection } from './PaymentInstructionsSection';
@@ -43,6 +44,7 @@ const SECTIONS: SectionInfo[] = [
   { id: 'sharing', label: 'Sharing & UPI', icon: Send, title: 'Sharing & UPI', subtitle: 'Your UPI id for the pay QR code, and the messages sent with invoices and reminders.', saves: true },
   { id: 'notifications', label: 'Notifications', icon: Bell, title: 'Notifications', subtitle: 'What InvoiceOn points out to you.', saves: true },
   { id: 'data', label: 'Data Management', icon: Database, title: 'Data Management', subtitle: 'Where your data is, and keeping it safe.', saves: false },
+  { id: 'mobile', label: 'Phone View', icon: Smartphone, title: 'Phone View', subtitle: 'Check sales, dues and stock from your phone, on the shop Wi-Fi. Read only.', saves: false },
   { id: 'access', label: 'Users & Access', icon: KeyRound, title: 'Users & Access', subtitle: 'Who can sign in, and what each person can do.', saves: true },
   { id: 'activity', label: 'Activity Log', icon: ScrollText, title: 'Activity Log', subtitle: 'What was done, when and by whom. It cannot be edited.', saves: false },
   { id: 'preferences', label: 'Preferences', icon: Settings2, title: 'Preferences', subtitle: 'Defaults used across the app.', saves: true },
@@ -71,6 +73,8 @@ function renderSection(id: SettingsSection, draft: Draft, set: SetDraft): ReactN
       return <NotificationsSection draft={draft} set={set} />;
     case 'data':
       return <DataManagementSection />;
+    case 'mobile':
+      return <MobileSection />;
     case 'access':
       return <AccessSection draft={draft} set={set} />;
     case 'activity':

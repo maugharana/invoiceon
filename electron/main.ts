@@ -3,6 +3,7 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createApi, invoke, type Host } from './api';
 import { backupDaily } from './backup';
+import { mobileController } from './mobile';
 import { offsiteDaily } from './offsite';
 import { openDb } from './db/connection';
 import { UserError } from './services/common';
@@ -112,10 +113,14 @@ if (!app.requestSingleInstanceLock()) {
     const db = openDb(join(dataDir, 'invoiceon.db'));
     backupDaily(db, join(dataDir, 'backups'));
     offsiteDaily(db, dataDir);
+    void mobileController(db).resume();
     const api = createApi(db, createHost(() => win), dataDir);
 
     ipcMain.handle('api', (_event, method: string, args: unknown[]) => invoke(api, method, Array.isArray(args) ? args : []));
-    app.on('before-quit', () => db.close());
+    app.on('before-quit', () => {
+      void mobileController(db).stop();
+      db.close();
+    });
 
     createWindow();
     app.on('activate', () => {

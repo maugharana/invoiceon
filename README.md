@@ -267,6 +267,13 @@ The period lives in the URL, so switching tabs keeps it.
 - **Restore from off-site** goes through the same careful restore as any backup (safety copy first, schema brought up to date, damage checked). Restoring any backup keeps this computer's off-site setup, so restoring an old copy never turns the copies off or changes the key.
 - **Not included, on purpose:** live sync between two computers. That needs a server that both talk to, which this offline app does not have. A synced folder gives safe off-site copies, not simultaneous editing on two machines.
 
+## Phone view (stage 19)
+
+- **Settings, Phone View** switches on a small read only web page that the shop computer serves on its own Wi-Fi (`electron/mobile.ts`). Scan the QR code shown there, or type the address, on a phone on the same network: **Today** (sold today, the month, to collect, overdue, stock), **Dues** (who owes the most, with a tap to call), **Stock** (search by design, colour or SKU) and **Invoices** (the latest 30). It refreshes itself and works on any phone with no app to install.
+- **Read only by construction.** The server is not the app's API: it has a fixed handful of read functions that return only safe figures, answers nothing but `GET`, and never sends a cost, profit or margin (a test lists the exact fields). The page runs under a strict content policy (a fresh nonce per load, `default-src 'none'`, no inline styles) and puts every figure on the screen as text, never as markup.
+- **A secret link, and it is yours to revoke.** Off until switched on, remembered across restarts, answering only to a 128 bit random link compared in constant time. Guessing is slowed (20 wrong tries a minute, then a pause) while the right link is never turned away. **Make a new link** kills the old one at once, for a lost phone or a departed staff member. It stops with the app and takes the next free port if the usual one is busy.
+- **Honest limits.** It is plain `http` on a local address, not encrypted on the way, so use it on your own Wi-Fi. It works only while InvoiceOn is open on the shop computer, and not from outside the shop: reaching it from anywhere needs a server in the middle, which this offline app does not have. Windows may ask to allow network access the first time.
+
 ## Brand
 
 Tokens live in `tailwind.config.js` (teal `#0F6E56`, gold `#D9A94E` for one figure per screen, status pairs, ink).
