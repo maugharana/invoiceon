@@ -462,6 +462,13 @@ export interface Invoice extends InvoiceSummary {
   payments: InvoicePayment[];
   /** Of `paidPaise`, the part that is credit notes rather than money. */
   creditedPaise?: Paise;
+  /** The offer this invoice used (by name, frozen) and its part of `discountPaise`; points spent and their value. Absent on invoices from before offers. */
+  offerName?: string;
+  offerDiscountPaise?: Paise;
+  pointsRedeemed?: number;
+  pointsRedeemedPaise?: Paise;
+  /** Loyalty points this sale earned, when the customer was saved and points were on. */
+  pointsEarned?: number;
   /** Your UPI id when the invoice should show a pay-by-UPI QR code (set in Settings, Sharing). Live, like branding: not frozen at issue. */
   payByUpi?: string | null;
   creditNotes?: { id: string; number: string; issueDate: string; totalPaise: Paise; status: CreditNoteStatus }[];
@@ -485,6 +492,10 @@ export interface InvoiceInput {
   payment?: { amountPaise: Paise; method: PaymentMethod; reference: string };
   /** How much of the customer's held advance to put toward this invoice. */
   applyAdvancePaise?: Paise;
+  /** An offer to apply (its discount is worked out by the data layer and added to `discountPaise`). */
+  offerId?: string | null;
+  /** Loyalty points to spend on this invoice, for a saved customer. */
+  redeemPoints?: number;
 }
 
 export interface InvoiceQuery {

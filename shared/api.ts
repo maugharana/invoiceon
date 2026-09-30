@@ -2,6 +2,7 @@ import type { AccessStatus, AccessUser, AccessUserInput } from './access';
 import type { CatalogueData, DesignPhoto, DesignPhotoInput } from './catalogue';
 import type { FilingFile, FilingRequest } from './filing';
 import type { MobileStatus } from './mobile';
+import type { LoyaltyAccount, LoyaltyConfig, Offer, OfferInput } from './offers';
 import type { OffsiteSetup, OffsiteStatus } from './offsite';
 import type {
   AuditEntry,
@@ -177,6 +178,14 @@ export interface Api {
   offsiteRestore(name: string, passphrase?: string): Promise<{ restoredFrom: string; restorePoint: string }>;
   /** The desktop app's folder chooser. */
   offsiteChooseFolder(): Promise<{ folder: string | null }>;
+  /** Offers (named discounts with rules) and loyalty points. */
+  offersList(): Promise<Offer[]>;
+  offerSave(id: string | null, input: OfferInput): Promise<Offer>;
+  offerArchive(id: string): Promise<void>;
+  loyaltyConfig(): Promise<LoyaltyConfig>;
+  loyaltySave(config: LoyaltyConfig): Promise<LoyaltyConfig>;
+  loyaltyAccount(customerId: string): Promise<LoyaltyAccount>;
+  loyaltyAdjust(customerId: string, points: number, note: string): Promise<LoyaltyAccount>;
   /** Photos of a design (the first is the cover), and the small covers of every design for the lists. */
   designPhotos(designId: string): Promise<DesignPhoto[]>;
   designPhotoAdd(designId: string, input: DesignPhotoInput): Promise<DesignPhoto[]>;

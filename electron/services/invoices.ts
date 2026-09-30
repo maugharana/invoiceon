@@ -7,6 +7,7 @@ import { all, get, run, tx, type Db } from '../db/connection';
 import { UserError, isUniqueViolation, newId, nowIso, optionalText, requireInt } from './common';
 import { getCustomer } from './customers';
 import { getVariant, recordMovement } from './inventory';
+import { checkRedemption, discountFromOffer, recordSale, reverseSale } from './offers';
 import { advanceHeld, applyAdvance, loadPaid, paidFor, paymentsOnInvoice, recordPaymentTx, releaseInvoicePayments } from './payments';
 import { getSettings } from './settings';
 
@@ -40,6 +41,10 @@ interface InvoiceRow {
   cancelled_at: string | null;
   cancel_reason: string;
   created_at: string;
+  offer_name: string;
+  offer_discount_paise: number;
+  points_redeemed: number;
+  points_redeemed_paise: number;
 }
 
 interface LineRow {
@@ -145,6 +150,11 @@ function toInvoice(db: Db, r: InvoiceRow): Invoice {
     igstPaise: r.igst_paise,
     roundOffPaise: r.round_off_paise,
     notes: r.notes,
+    offerName: r.offer_name,
+    offerDiscountPaise: r.offer_discount_paise,
+    pointsRedeemed: r.points_redeemed,
+    pointsRedeemedPaise: r.points_redeemed_paise,
+    pointsEarned: get<{ p: number | null }>(db, "SELECT SUM(points) AS p FROM loyalty_entries WHERE invoice_id = ? AND kind = 'earn'", r.id)?.p ?? 0,
     lines,
     cancelledAt: r.cancelled_at,
     cancelReason: r.cancel_reason,
@@ -304,8 +314,14 @@ export function createInvoice(db: Db, input: InvoiceInput): Invoice {
   const seller = sellerSnapshot(settings, settings.invoiceTerms);
 
   const id = newId();
+  let redeemed = 0;
   tx(db, () => {
-    const { items, totals } = priceLines(db, settings, input.lines, discount, intraState);
+    // An offer and spent points are worked out here, by the same rules the invoice screen previews, and added to the discount typed in.
+    const ofLines = input.lines.map((l) => ({ designId: getVariant(db, l.variantId).designId, amountPaise: l.qty * l.unitPricePaise }));
+    const offer = input.offerId ? discountFromOffer(db, input.offerId, input.issueDate, ofLines) : null;
+    const spend = checkRedemption(db, customer?.id ?? null, input.redeemPoints ?? 0);
+    redeemed = spend.points;
+    const { items, totals } = priceLines(db, settings, input.lines, discount + (offer?.discountPaise ?? 0) + spend.valuePaise, intraState);
 
     const fy = financialYear(input.issueDate);
     const seq = nextSequence(db, fy);
@@ -326,6 +342,9 @@ export function createInvoice(db: Db, input: InvoiceInput): Invoice {
       throw err;
     }
 
+    if (offer || spend.points > 0) {
+      run(db, 'UPDATE invoices SET offer_name = ?, offer_discount_paise = ?, points_redeemed = ?, points_redeemed_paise = ? WHERE id = ?', offer?.offer.name ?? '', offer?.discountPaise ?? 0, spend.points, spend.valuePaise, id);
+    }
     for (const i of items) {
       run(
         db,
@@ -335,6 +354,9 @@ export function createInvoice(db: Db, input: InvoiceInput): Invoice {
       // Throws "Not enough stock" if short, which rolls back the whole invoice.
       recordMovement(db, i.variant.id, -i.l.qty, 'sale', `Invoice ${number}`, { type: 'invoice', id });
     }
+
+    // Points spent come off the customer's balance, and what this sale earns is added, in the same step as the invoice.
+    recordSale(db, { id, number, customerId: customer?.id ?? null, taxablePaise: totals.taxablePaise }, redeemed);
 
     // Money handed over as the invoice is made is recorded in this same step, so an invoice and its advance can never get out of sync.
     let due = totals.totalPaise;
@@ -388,6 +410,7 @@ export function cancelInvoice(db: Db, id: string, reason: string): Invoice {
       const live = get(db, 'SELECT 1 AS x FROM variants WHERE id = ? AND deleted_at IS NULL', line.variantId);
       if (live) recordMovement(db, line.variantId, line.qty, 'return', `Invoice ${invoice.number} cancelled`, { type: 'invoice', id });
     }
+    reverseSale(db, id, invoice.number);
     run(db, "UPDATE invoices SET status = 'cancelled', cancelled_at = ?, cancel_reason = ?, updated_at = ? WHERE id = ?", nowIso(), why, nowIso(), id);
   });
   return getInvoice(db, id);

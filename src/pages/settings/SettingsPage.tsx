@@ -1,4 +1,4 @@
-import { Bell, Building2, ClipboardList, CreditCard, Database, FileText, KeyRound, Percent, Smartphone, ScrollText, Send, Settings2, Sparkles, Tag, Wallet, type LucideIcon } from 'lucide-react';
+import { Bell, Building2, ClipboardList, CreditCard, Database, FileText, Gift, KeyRound, Percent, Smartphone, ScrollText, Send, Settings2, Sparkles, Tag, Wallet, type LucideIcon } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useToast } from '../../components/Toast';
 import { Button, Card, ErrorNote, PageHeader, Spinner } from '../../components/ui';
@@ -14,6 +14,7 @@ import { fromDraft, toDraft, type Draft, type SetDraft } from './draft';
 import { ExpenseCategoriesSection } from './ExpenseCategoriesSection';
 import { InvoiceSection } from './InvoiceSection';
 import { MobileSection } from './MobileSection';
+import { OffersSection } from './OffersSection';
 import { NotificationsSection } from './NotificationsSection';
 import { PaymentAccountsSection } from './PaymentAccountsSection';
 import { PaymentInstructionsSection } from './PaymentInstructionsSection';
@@ -42,6 +43,7 @@ const SECTIONS: SectionInfo[] = [
   { id: 'accounts', label: 'Payment Accounts', icon: Wallet, title: 'Payment Accounts', subtitle: 'Where customers’ money lands: banks, UPI, cash.', saves: true },
   { id: 'instructions', label: 'Payment Instructions', icon: CreditCard, title: 'Payment Instructions', subtitle: 'How customers should pay you, printed on each invoice.', saves: true },
   { id: 'sharing', label: 'Sharing & UPI', icon: Send, title: 'Sharing & UPI', subtitle: 'Your UPI id for the pay QR code, and the messages sent with invoices and reminders.', saves: true },
+  { id: 'offers', label: 'Offers & Loyalty', icon: Gift, title: 'Offers & Loyalty', subtitle: 'Discount offers and loyalty points for your regular customers.', saves: false },
   { id: 'notifications', label: 'Notifications', icon: Bell, title: 'Notifications', subtitle: 'What InvoiceOn points out to you.', saves: true },
   { id: 'data', label: 'Data Management', icon: Database, title: 'Data Management', subtitle: 'Where your data is, and keeping it safe.', saves: false },
   { id: 'mobile', label: 'Phone View', icon: Smartphone, title: 'Phone View', subtitle: 'Check sales, dues and stock from your phone, on the shop Wi-Fi. Read only.', saves: false },
@@ -69,6 +71,8 @@ function renderSection(id: SettingsSection, draft: Draft, set: SetDraft): ReactN
       return <PaymentInstructionsSection draft={draft} set={set} />;
     case 'sharing':
       return <SharingSection draft={draft} set={set} />;
+    case 'offers':
+      return <OffersSection />;
     case 'notifications':
       return <NotificationsSection draft={draft} set={set} />;
     case 'data':

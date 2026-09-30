@@ -7,6 +7,7 @@ import { all, get, run, tx, type Db } from '../db/connection';
 import { UserError, isUniqueViolation, newId, nowIso, optionalText, requireInt } from './common';
 import { isVariantLive, recordMovement } from './inventory';
 import { brandingOf, getInvoice } from './invoices';
+import { clawBack, giveBack } from './offers';
 import { recordPaymentTx } from './payments';
 import { getSettings } from './settings';
 
@@ -317,6 +318,8 @@ export function createCreditNote(db: Db, input: CreditNoteInput): CreditNote {
         creditNoteId: id,
       });
     }
+    // Goods that came back take back the loyalty points they earned.
+    clawBack(db, { id, number, taxablePaise: tax.taxablePaise }, { id: inv.id, customerId: inv.customerId, taxablePaise: inv.taxablePaise });
   });
   return getCreditNote(db, id);
 }
@@ -336,6 +339,7 @@ export function cancelCreditNote(db: Db, id: string, reason: string): CreditNote
     for (const l of cn.lines) {
       if (l.restock && l.variantId && isVariantLive(db, l.variantId)) recordMovement(db, l.variantId, -l.qty, 'return', `Credit note ${cn.number} cancelled`, { type: 'credit_note', id });
     }
+    giveBack(db, id, cn.number);
     run(db, "UPDATE credit_notes SET status = 'cancelled', cancelled_at = ?, cancel_reason = ?, updated_at = ? WHERE id = ?", at, why, at, id);
   });
   return getCreditNote(db, id);

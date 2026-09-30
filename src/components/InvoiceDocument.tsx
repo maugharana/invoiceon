@@ -132,6 +132,7 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
         <div>
           <div className="text-[10px] uppercase tracking-wider text-ink-muted">Amount in words</div>
           <div className="mt-0.5 font-medium">{rupeesInWords(inv.totalPaise)}</div>
+          {!cancelled && (inv.pointsEarned ?? 0) > 0 && <div className="mt-3 text-[11px] text-ink-muted">You earned {inv.pointsEarned} loyalty {inv.pointsEarned === 1 ? 'point' : 'points'} on this bill.</div>}
           {inv.notes && (
             <>
               <div className="mt-4 text-[10px] uppercase tracking-wider text-ink-muted">Notes</div>
@@ -142,6 +143,8 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
         <div>
           <Row label="Subtotal" value={formatMoney(inv.subtotalPaise)} />
           {inv.discountPaise > 0 && <Row label="Discount" value={`− ${formatMoney(inv.discountPaise)}`} />}
+          {(inv.offerDiscountPaise ?? 0) > 0 && <Row muted label={`of which offer: ${inv.offerName}`} value={`− ${formatMoney(inv.offerDiscountPaise ?? 0)}`} />}
+          {(inv.pointsRedeemedPaise ?? 0) > 0 && <Row muted label={`of which ${inv.pointsRedeemed} loyalty points`} value={`− ${formatMoney(inv.pointsRedeemedPaise ?? 0)}`} />}
           {inv.discountPaise > 0 && <Row label="Taxable value" value={formatMoney(inv.taxablePaise)} />}
           {rateGroups.map((g) =>
             tax && inv.intraState ? (

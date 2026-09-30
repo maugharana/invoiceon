@@ -10,6 +10,7 @@ import { useQuery, useRefresh } from '../../lib/data';
 import { navigate, paths } from '../../lib/router';
 import { RecordPaymentModal } from '../payments/RecordPaymentModal';
 import { CustomerFormModal } from './CustomerFormModal';
+import { LoyaltyCard } from './LoyaltyCard';
 
 export function CustomerPage({ id }: { id: string }) {
   const toast = useToast();
@@ -89,6 +90,8 @@ export function CustomerPage({ id }: { id: string }) {
       <div className="mb-8 text-ink-muted">
         {[c.gstin && `GSTIN ${c.gstin}`, ...address, c.notes].filter(Boolean).join(' · ') || 'No address or GSTIN saved.'}
       </div>
+
+      <LoyaltyCard customerId={c.id} />
 
       {/* Ledger */}
       <div className="mb-3 flex items-end justify-between">

@@ -3,6 +3,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { addDays, computeTotalsMulti, resolveGstRate, todayIso } from '../../../shared/gst';
 import { formatMoney, mulPaise } from '../../../shared/money';
 import { matchesAll } from '../../../shared/search';
+import { isOfferLive, loyaltyEarned, offerDiscount } from '../../../shared/offers';
 import { sameState } from '../../../shared/states';
 import { PAYMENT_METHODS, PAYMENT_METHOD_LABEL, type Customer, type InvoiceType, type PaymentMethod, type SaleVariant } from '../../../shared/types';
 import { useToast } from '../../components/Toast';
@@ -211,6 +212,8 @@ export function NewInvoicePage({ presetCustomerId, advance, mode = 'invoice' }: 
   const settings = useQuery(() => api.getSettings());
   const customers = useQuery(() => api.customersList());
   const variants = useQuery(() => api.variantsForSale());
+  const offersQ = useQuery(() => (mode === 'proforma' ? Promise.resolve([]) : api.offersList()));
+  const loyaltyQ = useQuery(() => (mode === 'proforma' ? Promise.resolve(null) : api.loyaltyConfig()));
 
   const [type, setType] = useState<InvoiceType>('B2C');
   const [customerId, setCustomerId] = useState<string | null>(presetCustomerId);
@@ -219,6 +222,8 @@ export function NewInvoicePage({ presetCustomerId, advance, mode = 'invoice' }: 
   const [dueDate, setDueDate] = useState(todayIso());
   const dueTouched = useRef(false);
   const [discount, setDiscount] = useState(0);
+  const [offerId, setOfferId] = useState<string | null>(null);
+  const [redeem, setRedeem] = useState(0);
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<Line[]>([]);
   // Money received as the invoice is made. It can arrive pre-filled from "Record payment → Record & create invoice".
@@ -230,6 +235,7 @@ export function NewInvoicePage({ presetCustomerId, advance, mode = 'invoice' }: 
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  const pointsQ = useQuery(() => (customerId && loyaltyQ.data?.enabled ? api.loyaltyAccount(customerId) : Promise.resolve(null)), [customerId, loyaltyQ.data?.enabled]);
   const nextNumber = useQuery(() => (quote ? api.proformaNextNumber(issueDate) : api.invoiceNextNumber(issueDate)), [issueDate, quote]);
 
   const customer = customers.data?.find((c) => c.id === customerId) ?? null;
@@ -266,7 +272,22 @@ export function NewInvoicePage({ presetCustomerId, advance, mode = 'invoice' }: 
   const intraState = !settings.data?.state || sameState(placeOfSupply, settings.data.state);
   // Each piece is taxed at its design's rate, else by its price slab, else at the shop rate: the same rule the server applies.
   const rateOf = (r: (typeof rows)[number]) => (settings.data ? resolveGstRate(settings.data, r.variant?.designGstRatePercent, r.line.price) : rate);
-  const totals = computeTotalsMulti({ lines: rows.map((r) => ({ amountPaise: r.amount, ratePercent: rateOf(r) })), discountPaise: discount, intraState });
+  // An offer and spent points are added to the typed discount. The same shared maths the data layer uses decides what each is worth.
+  const subtotal = rows.reduce((s, r) => s + r.amount, 0);
+  const offerLines = rows.map((r) => ({ designId: r.variant?.designId ?? null, amountPaise: r.amount }));
+  const liveOffers = (offersQ.data ?? []).filter((o) => isOfferLive(o, issueDate));
+  const offerChoices = liveOffers.map((o) => ({ offer: o, off: offerDiscount(o, offerLines) }));
+  const chosenOffer = offerChoices.find((c) => c.offer.id === offerId) ?? null;
+  const offerOff = chosenOffer?.off ?? 0;
+  const loyalty = loyaltyQ.data;
+  const balance = pointsQ.data?.points ?? 0;
+  const pointsEnabled = !quote && !!loyalty?.enabled && !!customerId && balance >= (loyalty?.minRedeem ?? 0) && balance > 0;
+  const maxPoints = loyalty ? Math.max(0, Math.min(balance, Math.floor(Math.max(0, subtotal - discount - offerOff) / loyalty.paisePerPoint))) : 0;
+  const pointsUsed = pointsEnabled ? Math.min(redeem, maxPoints) : 0;
+  const pointsOff = pointsUsed * (loyalty?.paisePerPoint ?? 0);
+  const totalDiscount = discount + offerOff + pointsOff;
+  const totals = computeTotalsMulti({ lines: rows.map((r) => ({ amountPaise: r.amount, ratePercent: rateOf(r) })), discountPaise: totalDiscount, intraState });
+  const willEarn = !quote && loyalty?.enabled && customerId ? loyaltyEarned(totals.taxablePaise, loyalty.pointsPer100) : 0;
   const taxRows = totals.groups.length > 0 ? totals.groups : [{ ratePercent: rate, taxablePaise: 0, cgstPaise: 0, sgstPaise: 0, igstPaise: 0 }];
 
   // Advance the customer already holds goes onto this invoice first, then whatever is handed over now.
@@ -283,7 +304,9 @@ export function NewInvoicePage({ presetCustomerId, advance, mode = 'invoice' }: 
   if (rows.some((r) => r.short)) problems.push('Some items are short of stock.');
   if (type === 'B2B' && !customer) problems.push('Choose the business customer.');
   if (type === 'B2B' && customer && !customer.gstin) problems.push(`${customer.name} has no GSTIN — add it, or bill as B2C.`);
-  if (discount > totals.subtotalPaise) problems.push('The discount is more than the subtotal.');
+  if (totalDiscount > totals.subtotalPaise) problems.push('The discount is more than the subtotal.');
+  if (offerId && offerOff === 0 && lines.length > 0) problems.push(`The offer ${chosenOffer?.offer.name ?? ''} does not apply to this bill. Choose another, or none.`);
+  if (pointsUsed > 0 && pointsUsed < (loyalty?.minRedeem ?? 0)) problems.push(`Points are spent ${loyalty?.minRedeem} at a time or more.`);
   if (sellerGstinMissing) problems.push('Add your GSTIN in Settings first.');
   const canSubmit = problems.length === 0 && !saving;
 
@@ -328,6 +351,8 @@ export function NewInvoicePage({ presetCustomerId, advance, mode = 'invoice' }: 
         lines: rows.map((r) => ({ variantId: r.line.variantId, qty: r.qty, unitPricePaise: r.line.price })),
         payment: received > 0 ? { amountPaise: received, method: payMethod, reference: payRef } : undefined,
         applyAdvancePaise: advanceApplied > 0 ? advanceApplied : undefined,
+        offerId: offerId ?? undefined,
+        redeemPoints: pointsUsed > 0 ? pointsUsed : undefined,
       });
       refresh();
       toast.success(inv.paidPaise > 0 ? `Invoice ${inv.number} issued — ${formatMoney(inv.paidPaise)} received` : `Invoice ${inv.number} issued`);
@@ -515,6 +540,33 @@ export function NewInvoicePage({ presetCustomerId, advance, mode = 'invoice' }: 
                 <dt className="text-ink-muted">Discount</dt>
                 <dd className="w-32"><MoneyInput value={discount} onChange={setDiscount} aria-label="Discount" className="h-8" /></dd>
               </div>
+              {!quote && liveOffers.length > 0 && (
+                <div className="space-y-1">
+                  <dt className="text-ink-muted">Offer</dt>
+                  <dd>
+                    <Select value={offerId ?? ''} onChange={(e) => setOfferId(e.target.value || null)} aria-label="Offer" className="h-8">
+                      <option value="">No offer</option>
+                      {offerChoices.map(({ offer, off }) => (
+                        <option key={offer.id} value={offer.id} disabled={off === 0}>
+                          {offer.name}
+                          {off > 0 ? ` (saves ${formatMoney(off, { fractionDigits: 0 })})` : ' (does not apply)'}
+                        </option>
+                      ))}
+                    </Select>
+                  </dd>
+                </div>
+              )}
+              {offerOff > 0 && <div className="flex justify-between text-ink-muted"><dt>Offer discount</dt><dd className="num">−{formatMoney(offerOff)}</dd></div>}
+              {pointsEnabled && (
+                <div className="space-y-1">
+                  <dt className="text-ink-muted">Points <span className="text-xs">(has {balance}, worth {formatMoney(balance * (loyalty?.paisePerPoint ?? 0), { fractionDigits: 0 })})</span></dt>
+                  <dd className="flex items-center gap-2">
+                    <Input type="number" min={0} max={maxPoints} value={redeem || ''} onChange={(e) => setRedeem(Math.max(0, Math.trunc(Number(e.target.value) || 0)))} aria-label="Points to spend" className="num h-8 w-24" />
+                    <button type="button" className="whitespace-nowrap text-xs text-brand transition-colors hover:text-brand-hover" onClick={() => setRedeem(maxPoints)}>Use {maxPoints}</button>
+                  </dd>
+                </div>
+              )}
+              {pointsOff > 0 && <div className="flex justify-between text-ink-muted"><dt>Points discount</dt><dd className="num">−{formatMoney(pointsOff)}</dd></div>}
               {totals.discountPaise > 0 && <div className="flex justify-between"><dt className="text-ink-muted">Taxable value</dt><dd><Money paise={totals.taxablePaise} /></dd></div>}
               {taxRows.map((g) =>
                 intraState ? (
@@ -539,6 +591,7 @@ export function NewInvoicePage({ presetCustomerId, advance, mode = 'invoice' }: 
               <p className="mt-3 text-xs text-ink-muted">
                 {placeOfSupply ? `Supply to ${placeOfSupply}` : 'Place of supply not set'} · {intraState ? 'CGST + SGST' : 'IGST'}
               </p>
+              {willEarn > 0 && <p className="mt-1 text-xs text-brand">Earns {willEarn} loyalty {willEarn === 1 ? 'point' : 'points'}</p>}
             </div>
 
             {!quote && totals.totalPaise > 0 && (advanceApplied > 0 || received > 0) && (

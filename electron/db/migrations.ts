@@ -614,6 +614,45 @@ CREATE TABLE design_photos (
 CREATE INDEX ix_design_photos_design ON design_photos (design_id, position);
 `;
 
+const V13 = `
+-- Offers: a named discount with rules (a percentage or a flat amount, a minimum bill, one design or the whole bill, a date range).
+CREATE TABLE offers (
+  id             TEXT PRIMARY KEY,
+  name           TEXT NOT NULL,
+  kind           TEXT NOT NULL CHECK (kind IN ('percent','flat')),
+  value          REAL NOT NULL CHECK (value > 0),
+  min_bill_paise INTEGER NOT NULL DEFAULT 0 CHECK (min_bill_paise >= 0),
+  design_id      TEXT REFERENCES designs (id),
+  start_date     TEXT NOT NULL,
+  end_date       TEXT,
+  active         INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL,
+  deleted_at     TEXT
+);
+
+-- Loyalty points: a ledger, one row per change. A customer's balance is the sum of their rows, never a stored figure.
+CREATE TABLE loyalty_entries (
+  id             TEXT PRIMARY KEY,
+  customer_id    TEXT NOT NULL REFERENCES customers (id),
+  invoice_id     TEXT REFERENCES invoices (id),
+  credit_note_id TEXT REFERENCES credit_notes (id),
+  kind           TEXT NOT NULL CHECK (kind IN ('earn','redeem','reverse-earn','reverse-redeem','return','reverse-return','adjust')),
+  points         INTEGER NOT NULL,
+  note           TEXT NOT NULL DEFAULT '',
+  created_at     TEXT NOT NULL
+);
+CREATE INDEX ix_loyalty_customer ON loyalty_entries (customer_id);
+CREATE INDEX ix_loyalty_invoice ON loyalty_entries (invoice_id);
+
+-- What an invoice used: the offer (frozen by name) and its share of the discount, and points spent. The invoice's discount_paise stays the
+-- whole discount (manual, offer and points together), so every total and tax figure works exactly as before.
+ALTER TABLE invoices ADD COLUMN offer_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE invoices ADD COLUMN offer_discount_paise INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE invoices ADD COLUMN points_redeemed INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE invoices ADD COLUMN points_redeemed_paise INTEGER NOT NULL DEFAULT 0;
+`;
+
 const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 1, sql: V1 },
   { version: 2, sql: V2 },
@@ -627,6 +666,7 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 10, sql: V10 },
   { version: 11, sql: V11 },
   { version: 12, sql: V12 },
+  { version: 13, sql: V13 },
 ];
 
 export function migrate(db: DatabaseSync): void {

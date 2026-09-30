@@ -2,6 +2,7 @@ import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Api, Envelope } from '../shared/api';
 import { catalogueData } from './services/catalogue';
+import * as offers from './services/offers';
 import * as photos from './services/photos';
 import { encodeCatalogueRequest, parseCatalogueRequest } from '../shared/catalogue';
 import { encodeLabelRequest, labelSizeById, parseLabelRequest } from '../shared/labels';
@@ -132,6 +133,14 @@ export function createApi(db: Db, host?: Host, dataDir?: string, actor?: () => A
       if (req.items.length === 0) throw new UserError('Choose at least one saree to print a label for.');
       return host.exportDocumentPdf(`/print/labels?${labelQuery(req)}`, 'Saree labels.pdf');
     },
+
+    offersList: async () => offers.listOffers(db),
+    offerSave: async (id, input) => offers.saveOffer(db, id ?? null, input),
+    offerArchive: async (id) => offers.archiveOffer(db, id),
+    loyaltyConfig: async () => offers.loyaltyConfig(db),
+    loyaltySave: async (config) => offers.saveLoyaltyConfig(db, config),
+    loyaltyAccount: async (customerId) => offers.loyaltyAccount(db, customerId),
+    loyaltyAdjust: async (customerId, points, note) => offers.adjustPoints(db, customerId, points, note),
 
     designPhotos: async (designId) => photos.listPhotos(db, designId),
     designPhotoAdd: async (designId, input) => photos.addPhoto(db, designId, input),
