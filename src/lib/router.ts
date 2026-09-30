@@ -41,6 +41,7 @@ export type Route =
   | { name: 'proforma'; id: string }
   | { name: 'expenses'; category: string | null }
   | { name: 'customers' }
+  | { name: 'customers-import' }
   | { name: 'customer'; id: string }
   | { name: 'settings'; section: SettingsSection }
   /** Bare invoice document with no app chrome — what PDF export and printing render. */
@@ -110,6 +111,7 @@ export function parseHash(hash: string): Route {
     case 'expenses':
       return { name: 'expenses', category: params.get('category') };
     case 'customers':
+      if (parts[1] === 'import') return { name: 'customers-import' };
       return parts[1] ? { name: 'customer', id: decodeURIComponent(parts[1]) } : { name: 'customers' };
     case 'settings':
       return { name: 'settings', section: (SETTINGS_SECTIONS as readonly string[]).includes(parts[1] ?? '') ? (parts[1] as SettingsSection) : 'business' };
@@ -172,6 +174,7 @@ export const sectionOf = (route: Route): Section => {
     case 'expenses':
       return 'expenses';
     case 'customers':
+    case 'customers-import':
     case 'customer':
       return 'customers';
     case 'payments':
@@ -269,6 +272,7 @@ export const paths = {
   creditNotes: '/credit-notes',
   creditNote: (id: string) => `/credit-notes/${encodeURIComponent(id)}`,
   customers: '/customers',
+  importCustomers: '/customers/import',
   customer: (id: string) => `/customers/${encodeURIComponent(id)}`,
   settings: '/settings',
   settingsSection: (s: SettingsSection) => `/settings/${s}`,

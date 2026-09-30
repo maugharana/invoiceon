@@ -21,6 +21,8 @@ import * as access from './services/access';
 import { createSession } from './services/access';
 import * as creditNotes from './services/creditNotes';
 import * as customers from './services/customers';
+import { importCustomers } from './services/customerImport';
+import { dismissOnboarding, onboardingStatus } from './services/onboarding';
 import { dashboardOverview } from './services/dashboard';
 import * as expenses from './services/expenses';
 import { gstFilingExport } from './services/filing';
@@ -171,6 +173,9 @@ export function createApi(db: Db, host?: Host, dataDir?: string, actor?: () => A
     promiseCreate: async (customerId, input) => followups.createPromise(db, customerId, input),
     promiseCancel: async (id) => followups.cancelPromise(db, id),
 
+    onboardingStatus: async () => onboardingStatus(db),
+    onboardingDismiss: async () => dismissOnboarding(db),
+    customersImport: async (rows, dryRun) => importCustomers(db, rows, dryRun === true),
     businessesList: async () => need(host).list(settings.getSettings(db).businessName),
     businessAdd: async (name) => need(host).add(name),
     businessRename: async (id, name) => need(host).rename(id, name),

@@ -1,5 +1,7 @@
 import type { AccessStatus, AccessUser, AccessUserInput } from './access';
 import type { Business, BusinessList } from './business';
+import type { ImportResult, ImportRow } from './import';
+import type { OnboardingStatus } from './onboarding';
 import type { CatalogueData, DesignPhoto, DesignPhotoInput } from './catalogue';
 import type { FilingFile, FilingRequest } from './filing';
 import type { MobileStatus } from './mobile';
@@ -183,6 +185,11 @@ export interface Api {
   offsiteRestore(name: string, passphrase?: string): Promise<{ restoredFrom: string; restorePoint: string }>;
   /** The desktop app's folder chooser. */
   offsiteChooseFolder(): Promise<{ folder: string | null }>;
+  /** The Getting started checklist, worked out from the data itself. */
+  onboardingStatus(): Promise<OnboardingStatus>;
+  onboardingDismiss(): Promise<OnboardingStatus>;
+  /** Bring customers in from a spreadsheet. A dry run shows exactly what would happen and changes nothing. */
+  customersImport(rows: ImportRow[], dryRun: boolean): Promise<ImportResult>;
   /** Several businesses in one installation, each with its own data. Desktop app only. */
   businessesList(): Promise<BusinessList>;
   businessAdd(name: string): Promise<Business>;

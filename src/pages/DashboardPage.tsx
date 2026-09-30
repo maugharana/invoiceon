@@ -6,6 +6,7 @@ import { PERIOD_LABEL, resolvePeriod, type PeriodPreset } from '../../shared/per
 import { AgingChart, ChartCard, C_EXPENSES, C_INVOICED, C_RECEIVED, RankedBars, Sparkline, TrendChart } from '../components/charts';
 import { SalesChart } from '../components/SalesChart';
 import { Button, Card, EmptyState, ErrorNote, InvoicePill, Money, PageHeader, Select, TypePill, rolling } from '../components/ui';
+import { GettingStarted } from '../components/GettingStarted';
 import { useQuickCreate } from '../components/QuickCreate';
 import { api } from '../lib/api';
 import { useQuery } from '../lib/data';
@@ -136,6 +137,8 @@ export function DashboardPage() {
         }
       />
       {overview.error && <ErrorNote>{overview.error}</ErrorNote>}
+
+      <GettingStarted />
 
       {o && !brandNew && (
         <p className="animate-fade-up -mt-3 mb-6 flex items-start gap-2.5 text-ink">

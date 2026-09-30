@@ -6,6 +6,7 @@ import { useAccess } from './lib/access';
 import { navigate, paths, routeNeeds, sectionOf, useRoute, type Route } from './lib/router';
 import { CustomerPage } from './pages/customers/CustomerPage';
 import { CustomersPage } from './pages/customers/CustomersPage';
+import { ImportCustomersPage } from './pages/customers/ImportCustomersPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { DesignPage } from './pages/inventory/DesignPage';
 import { InventoryPage } from './pages/inventory/InventoryPage';
@@ -100,6 +101,8 @@ function renderRoute(route: Route) {
       return <ExpensesPage category={route.category} />;
     case 'customers':
       return <CustomersPage />;
+    case 'customers-import':
+      return <ImportCustomersPage />;
     case 'customer':
       return <CustomerPage id={route.id} />;
     case 'settings':

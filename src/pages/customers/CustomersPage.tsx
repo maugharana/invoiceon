@@ -1,4 +1,4 @@
-import { ChevronRight, Plus, SearchX, Users } from 'lucide-react';
+import { ChevronRight, Plus, SearchX, Upload, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Button, Card, EmptyState, ErrorNote, Money, PageHeader, SearchInput, TableSkeleton, TypePill } from '../../components/ui';
 import { api } from '../../lib/api';
@@ -28,9 +28,14 @@ export function CustomersPage() {
         title="Customers"
         subtitle="Everyone you sell to, with what you've billed them."
         actions={
-          <Button icon={<Plus className="h-4 w-4" />} onClick={() => setAdding(true)}>
-            Add customer
-          </Button>
+          <>
+            <Button icon={<Upload className="h-4 w-4" />} onClick={() => navigate(paths.importCustomers)}>
+              Import
+            </Button>
+            <Button icon={<Plus className="h-4 w-4" />} onClick={() => setAdding(true)}>
+              Add customer
+            </Button>
+          </>
         }
       />
       {customers.error && <ErrorNote>{customers.error}</ErrorNote>}
@@ -42,9 +47,14 @@ export function CustomersPage() {
             title="No customers yet"
             body="Add the people and businesses you sell to. For a quick walk-in sale you can also invoice without saving a customer."
             actions={
-              <Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => setAdding(true)}>
-                Add customer
-              </Button>
+              <>
+                <Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => setAdding(true)}>
+                  Add customer
+                </Button>
+                <Button icon={<Upload className="h-4 w-4" />} onClick={() => navigate(paths.importCustomers)}>
+                  Import from a spreadsheet
+                </Button>
+              </>
             }
           />
         </Card>

@@ -146,6 +146,7 @@ const RULES: Partial<Record<keyof Api, Rule>> = {
   }, (db, a) => getDesign(db, a[0])),
   designArchive: rule('design', 'Archived design', (c) => ({ summary: `Archived design ${c.before.code} ${c.before.name}`, entityId: c.args[0] }), (db, a) => getDesign(db, a[0])),
   inventoryBulkAdd: rule('design', 'Added sarees in bulk', (c) => ({ summary: `Added sarees from the sheet: ${c.result.variantsCreated} pieces, ${c.result.designsCreated} new designs, ${c.result.designsExtended} extended` })),
+  customersImport: rule('customer', 'Imported customers', (c) => (c.args[1] === true ? null : { summary: `Imported ${c.result.created} customers from a list (${c.result.results.filter((r: { status: string }) => r.status !== 'new').length} skipped)` })),
   businessAdd: simple('settings', 'Added a business', (c) => `Added the business ${c.result.name}`),
   businessRename: simple('settings', 'Renamed a business', (c) => `Renamed a business in the list to ${c.args[1]}`),
   businessUnlist: simple('settings', 'Removed a business from the list', () => 'Removed a business from the list (its files are kept)'),
