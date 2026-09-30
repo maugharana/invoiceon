@@ -1,11 +1,13 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import type { Api } from '../shared/api';
 import { createApi, invoke, type Host } from './api';
 import { backupDaily } from './backup';
+import { activeBusiness, addBusiness, listBusinesses, renameBusiness, setActiveBusiness, unlistBusiness } from './businesses';
 import { mobileController } from './mobile';
 import { offsiteDaily } from './offsite';
-import { openDb } from './db/connection';
+import { openDb, type Db } from './db/connection';
 import { UserError } from './services/common';
 
 const DEV_URL = process.env.VITE_DEV_SERVER_URL;
@@ -109,18 +111,45 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(() => {
-    const dataDir = app.getPath('userData');
-    const db = openDb(join(dataDir, 'invoiceon.db'));
-    backupDaily(db, join(dataDir, 'backups'));
-    offsiteDaily(db, dataDir);
-    void mobileController(db).resume();
-    const api = createApi(db, createHost(() => win), dataDir);
+    const appData = app.getPath('userData');
+    let opened: { db: Db; api: Api } | null = null;
 
-    ipcMain.handle('api', (_event, method: string, args: unknown[]) => invoke(api, method, Array.isArray(args) ? args : []));
-    app.on('before-quit', () => {
-      void mobileController(db).stop();
-      db.close();
-    });
+    // Each business has its own folder, database, backups and off-site copies. The original one is the app's data folder itself, as it always was.
+    function openBusiness(): void {
+      const business = activeBusiness(appData);
+      const db = openDb(join(business.dir, 'invoiceon.db'));
+      backupDaily(db, join(business.dir, 'backups'));
+      offsiteDaily(db, business.dir);
+      void mobileController(db).resume();
+      opened = { db, api: createApi(db, host, business.dir) };
+    }
+    function closeBusiness(): void {
+      if (!opened) return;
+      void mobileController(opened.db).stop();
+      opened.db.close();
+      opened = null;
+    }
+    const host: Host = {
+      ...createHost(() => win),
+      businesses: {
+        list: (activeName) => listBusinesses(appData, activeName),
+        add: (name) => addBusiness(appData, name),
+        rename: (id, name) => renameBusiness(appData, id, name),
+        unlist: (id) => unlistBusiness(appData, id),
+        // Switching is done here, in one step, so there is never a moment with two businesses open or none: the screens reload when this returns.
+        switchTo: (id) => {
+          if (id === activeBusiness(appData).id) return listBusinesses(appData);
+          const list = setActiveBusiness(appData, id);
+          closeBusiness();
+          openBusiness();
+          return list;
+        },
+      },
+    };
+    openBusiness();
+
+    ipcMain.handle('api', (_event, method: string, args: unknown[]) => invoke(opened!.api, method, Array.isArray(args) ? args : []));
+    app.on('before-quit', closeBusiness);
 
     createWindow();
     app.on('activate', () => {

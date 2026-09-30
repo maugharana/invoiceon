@@ -3,7 +3,7 @@ import { matchesAll } from '../../shared/search';
 import type { Invoice, InvoiceLine, InvoiceType, Party, Proforma, ProformaInput, ProformaQuery, ProformaStatus, ProformaSummary } from '../../shared/types';
 import { all, get, run, tx, type Db } from '../db/connection';
 import { UserError, isUniqueViolation, newId, nowIso, optionalText } from './common';
-import { brandingOf, checkDocument, createInvoice, mainRateOf, payByUpiOf, priceLines, sellerSnapshot, taxSummaryOf } from './invoices';
+import { brandingOf, checkDocument, createInvoice, mainRateOf, payByUpiOf, priceLines, sellerSnapshot, styleOf, taxSummaryOf } from './invoices';
 import { getSettings } from './settings';
 
 interface Row {
@@ -81,6 +81,7 @@ function toProforma(db: Db, r: Row): Proforma {
     ...toSummary(r),
     seller: { bank: '', footer: '', ...JSON.parse(r.seller_json) },
     branding: brandingOf(db),
+    style: styleOf(db),
     payByUpi: payByUpiOf(db),
     buyer: JSON.parse(r.buyer_json),
     placeOfSupply: r.place_of_supply,

@@ -1,7 +1,7 @@
 import { isValidGstin, type GstSlab } from '../../shared/gst';
 import { DEFAULT_EMAIL_SUBJECT, DEFAULT_INVOICE_MESSAGE, DEFAULT_REMINDER_MESSAGE, isValidUpiId } from '../../shared/share';
 import { STATE_NAMES } from '../../shared/states';
-import { DEFAULT_EXPENSE_CATEGORIES, PAYMENT_ACCOUNT_KINDS, type PaymentAccount, type Settings } from '../../shared/types';
+import { DEFAULT_EXPENSE_CATEGORIES, INVOICE_TEMPLATES, PAYMENT_ACCOUNT_KINDS, type PaymentAccount, type Settings } from '../../shared/types';
 import { all, run, tx, type Db } from '../db/connection';
 import { UserError, nowIso, optionalText, requireInt, requireText } from './common';
 
@@ -61,6 +61,10 @@ const FIELDS: { [K in keyof Settings]: Field<K> } = {
   invoiceBank: text('invoice_bank'),
   invoiceFooter: text('invoice_footer'),
   invoiceShowSignature: bool('invoice_show_signature', true),
+  invoiceTemplate: text('invoice_template', 'classic'),
+  invoiceShowItemDetail: bool('invoice_show_item_detail', true),
+  invoiceShowWords: bool('invoice_show_words', true),
+  invoiceRetailTitle: text('invoice_retail_title'),
   autoLockMinutes: num('auto_lock_minutes', 10),
   upiId: text('upi_id'),
   invoiceShowUpiQr: bool('invoice_show_upi_qr', true),
@@ -150,6 +154,13 @@ function validate(patch: Partial<Settings>): Partial<Settings> {
   if (patch.invoiceBank !== undefined) v.invoiceBank = optionalText(patch.invoiceBank, 'Bank details', 300);
   if (patch.invoiceFooter !== undefined) v.invoiceFooter = optionalText(patch.invoiceFooter, 'Footer note', 200);
   if (patch.invoiceShowSignature !== undefined) v.invoiceShowSignature = !!patch.invoiceShowSignature;
+  if (patch.invoiceTemplate !== undefined) {
+    if (!(INVOICE_TEMPLATES as readonly string[]).includes(patch.invoiceTemplate)) throw new UserError('Choose one of the invoice layouts.');
+    v.invoiceTemplate = patch.invoiceTemplate;
+  }
+  if (patch.invoiceShowItemDetail !== undefined) v.invoiceShowItemDetail = !!patch.invoiceShowItemDetail;
+  if (patch.invoiceShowWords !== undefined) v.invoiceShowWords = !!patch.invoiceShowWords;
+  if (patch.invoiceRetailTitle !== undefined) v.invoiceRetailTitle = optionalText(patch.invoiceRetailTitle, 'Retail invoice heading', 24).toUpperCase();
   if (patch.autoLockMinutes !== undefined) v.autoLockMinutes = requireInt(patch.autoLockMinutes, 'Auto lock minutes', { max: 600 });
   if (patch.upiId !== undefined) {
     const id = optionalText(patch.upiId, 'UPI id', 80);

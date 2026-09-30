@@ -1,4 +1,5 @@
 import { InvoicePreview } from '../../components/InvoicePreview';
+import { INVOICE_TEMPLATES, INVOICE_TEMPLATE_LABEL } from '../../../shared/types';
 import { Field, Input, Textarea } from '../../components/ui';
 import { fromDraft, type SectionProps } from './draft';
 
@@ -56,6 +57,36 @@ export function InvoiceSection({ draft, set }: SectionProps) {
           </div>
           <p className="mt-1.5 text-xs text-ink-muted">Used for the title, the line under the header, and the closing note.</p>
         </div>
+
+        <div>
+          <div className="mb-1.5 text-xs font-medium text-ink-muted">Layout</div>
+          <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Invoice layout">
+            {INVOICE_TEMPLATES.map((t) => (
+              <button
+                key={t}
+                type="button"
+                role="radio"
+                aria-checked={draft.invoiceTemplate === t}
+                onClick={() => set('invoiceTemplate', t)}
+                className={`rounded-lg border px-3 py-2 text-left transition-colors duration-150 ${draft.invoiceTemplate === t ? 'border-brand bg-brand-tint' : 'border-line hover:border-ink/25'}`}
+              >
+                <div className="text-sm font-medium">{INVOICE_TEMPLATE_LABEL[t]}</div>
+                <div className="text-xs text-ink-muted">{t === 'classic' ? 'A coloured rule under the header' : t === 'modern' ? 'A colour band at the top' : 'Thin lines, no colour block'}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+        <label className="flex cursor-pointer items-center gap-3">
+          <input type="checkbox" checked={draft.invoiceShowItemDetail} onChange={(e) => set('invoiceShowItemDetail', e.target.checked)} className="h-4 w-4 accent-[#0F6E56]" />
+          <span>Show colour, size and SKU under each item</span>
+        </label>
+        <label className="flex cursor-pointer items-center gap-3">
+          <input type="checkbox" checked={draft.invoiceShowWords} onChange={(e) => set('invoiceShowWords', e.target.checked)} className="h-4 w-4 accent-[#0F6E56]" />
+          <span>Show the total in words</span>
+        </label>
+        <Field label="Heading of a retail (B2C) bill" hint="Empty prints INVOICE. A GST tax invoice always says TAX INVOICE.">
+          <Input value={draft.invoiceRetailTitle} onChange={(e) => set('invoiceRetailTitle', e.target.value.toUpperCase())} placeholder="CASH MEMO" maxLength={24} />
+        </Field>
 
         <Field label="Closing note">
           <Input value={draft.invoiceFooter} onChange={(e) => set('invoiceFooter', e.target.value)} placeholder="e.g. Thank you for shopping with us!" maxLength={200} />

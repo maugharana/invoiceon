@@ -2,7 +2,7 @@ import { computeTotalsMulti, financialYear, formatInvoiceNumber, invoiceStatus, 
 import { matchesAll } from '../../shared/search';
 import { formatMoney } from '../../shared/money';
 import { sameState } from '../../shared/states';
-import type { DashboardSummary, Invoice, InvoiceBranding, InvoiceInput, InvoiceLine, InvoiceQuery, InvoiceSummary, InvoiceType, Party, SaleVariant, Settings } from '../../shared/types';
+import type { DashboardSummary, Invoice, InvoiceBranding, InvoiceStyle, InvoiceInput, InvoiceLine, InvoiceQuery, InvoiceSummary, InvoiceType, Party, SaleVariant, Settings } from '../../shared/types';
 import { all, get, run, tx, type Db } from '../db/connection';
 import { UserError, isUniqueViolation, newId, nowIso, optionalText, requireInt } from './common';
 import { getCustomer } from './customers';
@@ -84,6 +84,12 @@ export function brandingOf(db: Db): InvoiceBranding {
   return { accent: s.invoiceAccent, logo: s.invoiceLogo, showSignature: s.invoiceShowSignature };
 }
 
+/** Layout choices, live like branding: change them and every invoice (and proforma), old ones included, is redrawn. */
+export function styleOf(db: Db): InvoiceStyle {
+  const s = getSettings(db);
+  return { template: s.invoiceTemplate, showItemDetail: s.invoiceShowItemDetail, showWords: s.invoiceShowWords, retailTitle: s.invoiceRetailTitle };
+}
+
 // ── Mapping ─────────────────────────────────────────────────────────────────
 function toSummary(r: InvoiceRow, paid: number): InvoiceSummary {
   const buyer = JSON.parse(r.buyer_json) as Party;
@@ -137,6 +143,7 @@ function toInvoice(db: Db, r: InvoiceRow): Invoice {
     seller: { bank: '', footer: '', ...JSON.parse(r.seller_json) },
     // Styling is not frozen: change the logo or colour and every invoice, old ones included, is redrawn with it.
     branding: brandingOf(db),
+    style: styleOf(db),
     buyer: JSON.parse(r.buyer_json),
     placeOfSupply: r.place_of_supply,
     gstRatePercent: r.gst_rate_percent,

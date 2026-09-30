@@ -34,6 +34,14 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
   // One tax row per rate. Most invoices have one; a mixed one (say silk at 5% and a brocade at 18%) shows each on its own.
   const rateGroups = inv.taxSummary;
   const mixed = rateGroups.length > 1;
+  // The layout the owner chose in Settings: classic (the original), modern (a colour band at the top) or minimal (thin rules, no colour block).
+  const style = inv.style ?? { template: 'classic' as const, showItemDetail: true, showWords: true, retailTitle: '' };
+  const modern = style.template === 'modern';
+  const minimal = style.template === 'minimal';
+  const muted = modern ? 'text-white/80' : 'text-ink-muted';
+  const headerClass = modern ? 'flex items-start justify-between gap-8 rounded-lg bg-[color:var(--accent)] p-5 text-white' : minimal ? 'flex items-start justify-between gap-8 border-b border-line pb-5' : 'flex items-start justify-between gap-8 border-b-2 border-[color:var(--accent)] pb-5';
+  const titleClass = modern ? 'text-white' : minimal ? 'text-ink' : 'text-[color:var(--accent)]';
+  const headTitle = proforma ? 'PROFORMA INVOICE' : tax ? 'TAX INVOICE' : style.retailTitle || 'INVOICE';
 
   return (
     <article
@@ -49,12 +57,12 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
       )}
 
       {/* Header */}
-      <header className="flex items-start justify-between gap-8 border-b-2 border-[color:var(--accent)] pb-5">
+      <header className={headerClass}>
         <div className="flex items-start gap-4">
           {inv.branding.logo && <img src={inv.branding.logo} alt="" className="max-h-[16mm] max-w-[38mm] object-contain" />}
           <div>
             <h1 className="text-xl tracking-tight">{inv.seller.name}</h1>
-            <div className="mt-1 text-ink-muted">
+            <div className={`mt-1 ${muted}`}>
               {addressLines(inv.seller).map((l) => (
                 <div key={l}>{l}</div>
               ))}
@@ -65,11 +73,11 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
           </div>
         </div>
         <div className="text-right">
-          <div className="text-2xl tracking-wide text-[color:var(--accent)]">{proforma ? 'PROFORMA INVOICE' : tax ? 'TAX INVOICE' : 'INVOICE'}</div>
+          <div className={`text-2xl tracking-wide ${titleClass}`}>{headTitle}</div>
           <dl className="mt-2 space-y-0.5">
-            <div className="flex justify-end gap-3"><dt className="text-ink-muted">{proforma ? 'Proforma no.' : 'Invoice no.'}</dt><dd className="num font-medium">{inv.number}</dd></div>
-            <div className="flex justify-end gap-3"><dt className="text-ink-muted">Date</dt><dd className="num">{formatDate(inv.issueDate)}</dd></div>
-            {(proforma || tax) && inv.dueDate && <div className="flex justify-end gap-3"><dt className="text-ink-muted">{proforma ? 'Valid until' : 'Due'}</dt><dd className="num">{formatDate(inv.dueDate)}</dd></div>}
+            <div className="flex justify-end gap-3"><dt className={muted}>{proforma ? 'Proforma no.' : 'Invoice no.'}</dt><dd className="num font-medium">{inv.number}</dd></div>
+            <div className="flex justify-end gap-3"><dt className={muted}>Date</dt><dd className="num">{formatDate(inv.issueDate)}</dd></div>
+            {(proforma || tax) && inv.dueDate && <div className="flex justify-end gap-3"><dt className={muted}>{proforma ? 'Valid until' : 'Due'}</dt><dd className="num">{formatDate(inv.dueDate)}</dd></div>}
           </dl>
         </div>
       </header>
@@ -99,7 +107,7 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
       {/* Items */}
       <table className="mt-4 w-full border-collapse">
         <thead>
-          <tr className="border-b border-ink text-left text-[10px] uppercase tracking-wider text-ink-muted">
+          <tr className={`border-b ${minimal ? 'border-line' : 'border-ink'} text-left text-[10px] uppercase tracking-wider text-ink-muted`}>
             <th className="w-8 py-2 pr-2">#</th>
             <th className="py-2 pr-2">Description</th>
             {tax && <th className="w-16 py-2 pr-2">HSN</th>}
@@ -115,7 +123,7 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
               <td className="num py-2 pr-2 text-ink-muted">{i + 1}</td>
               <td className="py-2 pr-2">
                 <div className="font-medium">{l.designName}</div>
-                <div className="text-ink-muted">{l.color} · {l.size} · {l.sku}</div>
+                {style.showItemDetail && <div className="text-ink-muted">{l.color} · {l.size} · {l.sku}</div>}
               </td>
               {tax && <td className="num py-2 pr-2">{l.hsn || '—'}</td>}
               <td className="num py-2 pr-2 text-right">{l.qty}</td>
@@ -130,8 +138,12 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
       {/* Totals */}
       <section className="mt-4 grid break-inside-avoid grid-cols-[1fr_16rem] gap-8">
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-ink-muted">Amount in words</div>
-          <div className="mt-0.5 font-medium">{rupeesInWords(inv.totalPaise)}</div>
+          {style.showWords && (
+            <>
+              <div className="text-[10px] uppercase tracking-wider text-ink-muted">Amount in words</div>
+              <div className="mt-0.5 font-medium">{rupeesInWords(inv.totalPaise)}</div>
+            </>
+          )}
           {!cancelled && (inv.pointsEarned ?? 0) > 0 && <div className="mt-3 text-[11px] text-ink-muted">You earned {inv.pointsEarned} loyalty {inv.pointsEarned === 1 ? 'point' : 'points'} on this bill.</div>}
           {inv.notes && (
             <>

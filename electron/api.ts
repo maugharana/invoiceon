@@ -1,6 +1,7 @@
 import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Api, Envelope } from '../shared/api';
+import type { Business, BusinessList } from '../shared/business';
 import { catalogueData } from './services/catalogue';
 import * as followups from './services/followups';
 import { stockInsights } from './services/insights';
@@ -44,6 +45,15 @@ export interface Host {
   /** `pageMm` sets the paper size for things that are not A4 (a roll of labels). */
   printDocument(route: string, pageMm?: { widthMm: number; heightMm: number }): Promise<void>;
   saveTextFile(fileName: string, content: string): Promise<{ saved: boolean; path?: string }>;
+  /** Several businesses in one installation. Only the desktop app has them. */
+  businesses?: {
+    list(activeName: string): BusinessList;
+    add(name: string): Business;
+    rename(id: string, name: string): BusinessList;
+    /** Closes this business's data, opens the other, and returns the new list. The screens then reload. */
+    switchTo(id: string): BusinessList;
+    unlist(id: string): BusinessList;
+  };
   /** Lets the owner pick a folder (for off-site copies). */
   chooseFolder?(): Promise<string | null>;
 }
@@ -54,6 +64,10 @@ const labelQuery = (req: ReturnType<typeof parseLabelRequest>): string => encode
 
 /** Binds the data layer to one open database. This is the only place that knows which service backs which call. */
 export function createApi(db: Db, host?: Host, dataDir?: string, actor?: () => Actor): Api {
+  const need = (h: Host | undefined) => {
+    if (!h?.businesses) throw new UserError(DESKTOP_ONLY);
+    return h.businesses;
+  };
   // Who is signed in lives here, in memory. With access control off (the default) it never matters and every call goes straight through.
   const session = createSession(db);
   const mobile = mobileController(db);
@@ -156,6 +170,12 @@ export function createApi(db: Db, host?: Host, dataDir?: string, actor?: () => A
     contactLog: async (customerId, channel, note) => followups.logContact(db, customerId, channel, note),
     promiseCreate: async (customerId, input) => followups.createPromise(db, customerId, input),
     promiseCancel: async (id) => followups.cancelPromise(db, id),
+
+    businessesList: async () => need(host).list(settings.getSettings(db).businessName),
+    businessAdd: async (name) => need(host).add(name),
+    businessRename: async (id, name) => need(host).rename(id, name),
+    businessSwitch: async (id) => need(host).switchTo(id),
+    businessUnlist: async (id) => need(host).unlist(id),
 
     offersList: async () => offers.listOffers(db),
     offerSave: async (id, input) => offers.saveOffer(db, id ?? null, input),

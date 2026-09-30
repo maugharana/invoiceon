@@ -181,7 +181,7 @@ describe('every call has a decided place', () => {
     const methods = Object.keys(api).filter((m) => !ALWAYS_ALLOWED.includes(m));
     const ownerOnly = methods.filter((m) => !(m in METHOD_CAPABILITY) && capabilityOf(m) === 'admin').sort();
     // If this list changes, a call was added without saying who may use it: decide, and add it to shared/access.ts.
-    expect(ownerOnly).toEqual(['accessDisable', 'accessEnable', 'accessUserSave', 'accessUsers', 'auditList', 'backupNow', 'backupRestore', 'dataInfo', 'integrityCheck', 'loyaltySave', 'mobileDisable', 'mobileEnable', 'mobileResetLink', 'mobileStatus', 'offsiteChooseFolder', 'offsiteCopyNow', 'offsiteDisable', 'offsiteRestore', 'offsiteSave', 'offsiteStatus', 'sampleDataLoad', 'saveSettings']);
+    expect(ownerOnly).toEqual(['accessDisable', 'accessEnable', 'accessUserSave', 'accessUsers', 'auditList', 'backupNow', 'backupRestore', 'businessAdd', 'businessRename', 'businessSwitch', 'businessUnlist', 'businessesList', 'dataInfo', 'integrityCheck', 'loyaltySave', 'mobileDisable', 'mobileEnable', 'mobileResetLink', 'mobileStatus', 'offsiteChooseFolder', 'offsiteCopyNow', 'offsiteDisable', 'offsiteRestore', 'offsiteSave', 'offsiteStatus', 'sampleDataLoad', 'saveSettings']);
     expect(Object.keys(METHOD_CAPABILITY).filter((m) => !(m in api))).toEqual([]); // and nothing is listed that no longer exists
     expect(canDo('staff', 'admin')).toBe(false);
     expect(canDo(null, 'view')).toBe(false);

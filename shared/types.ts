@@ -53,6 +53,14 @@ export interface Settings {
   /** A closing line, e.g. "Thank you for shopping with us". */
   invoiceFooter: string;
   invoiceShowSignature: boolean;
+  /** The layout of the printed invoice. See InvoiceStyle. */
+  invoiceTemplate: InvoiceTemplate;
+  /** Show the colour, size and SKU under each item. */
+  invoiceShowItemDetail: boolean;
+  /** Show the total in words. */
+  invoiceShowWords: boolean;
+  /** The heading of a retail (B2C) invoice, instead of "INVOICE", for example "CASH MEMO". A GST tax invoice always says TAX INVOICE. */
+  invoiceRetailTitle: string;
   /** Minutes without use before the app locks itself, when access control is on. 0 means never. */
   autoLockMinutes: number;
   // ── Sharing and paying ──
@@ -86,6 +94,18 @@ export interface DataInfo {
   databaseBytes: number;
   /** `manual` is true for copies that are never cleaned up automatically (ones you made, and the safety copy taken before a restore). */
   backups: { name: string; bytes: number; modifiedAt: string; manual: boolean; kind: 'daily' | 'manual' | 'restore-point' }[];
+}
+
+export const INVOICE_TEMPLATES = ['classic', 'modern', 'minimal'] as const;
+export type InvoiceTemplate = (typeof INVOICE_TEMPLATES)[number];
+export const INVOICE_TEMPLATE_LABEL: Record<InvoiceTemplate, string> = { classic: 'Classic', modern: 'Modern', minimal: 'Minimal' };
+
+/** The layout choices that apply when an invoice is shown or printed (live, like branding: a change restyles old invoices too). */
+export interface InvoiceStyle {
+  template: InvoiceTemplate;
+  showItemDetail: boolean;
+  showWords: boolean;
+  retailTitle: string;
 }
 
 /** How an invoice is dressed. Applied when it is shown or printed, so a new logo or colour restyles every invoice, old ones included. */
@@ -442,6 +462,8 @@ export interface Invoice extends InvoiceSummary {
    */
   seller: Party & { email: string; terms: string; bank: string; footer: string };
   branding: InvoiceBranding;
+  /** Layout choices. Absent on a document that does not carry them, which then uses the classic layout. */
+  style?: InvoiceStyle;
   buyer: Party;
   placeOfSupply: string;
   /** The rate with the most value on the document. When rates differ, `taxSummary` has the whole picture. */
@@ -766,6 +788,7 @@ export interface Proforma extends ProformaSummary {
   payByUpi?: string | null;
   seller: Party & { email: string; terms: string; bank: string; footer: string };
   branding: InvoiceBranding;
+  style?: InvoiceStyle;
   buyer: Party;
   placeOfSupply: string;
   gstRatePercent: number;
