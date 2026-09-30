@@ -20,6 +20,19 @@ Windows desktop app, offline-first: your data lives in a local SQLite file, no i
 | 12 | Weavers and job work orders | **Done** |
 | 13 | Barcode labels and scan to bill | **Done** |
 | 14 | Sharing (WhatsApp, email), reminders, UPI QR | **Done** |
+| 15 | Activity log and "Check my books" | **Done** |
+| 16 | Users, roles and PIN lock | **Done** |
+| 17 | GSTR-1, e-invoice and e-way bill files | **Done** |
+| 18 | Off-site copy, optionally encrypted | **Done** |
+| 19 | Read only phone view on the shop Wi-Fi | **Done** |
+| 20 | Design photos and a shareable catalogue | **Done** |
+| 21 | Offers and loyalty points | **Done** |
+| 22 | Dues follow-up and promises to pay | **Done** |
+| 23 | Restock suggestions and dead stock | **Done** |
+| 24 | Stock in other places | **Done** |
+| 25 | Physical stock take | **Done** |
+| 26 | Invoice layouts and several businesses | **Done** (switching businesses not run in a live Electron window) |
+| 27 | Customer import and getting started checklist | **Done** |
 
 **New here? Start with [`docs/TOUR.md`](docs/TOUR.md)** — a ten-minute guided tour (see it, generate a PDF, see what the PDF looks
 like, customise it). Sample PDFs are in [`sample-pdfs/`](sample-pdfs). If packaging fails on Windows, see
