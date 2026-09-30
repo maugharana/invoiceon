@@ -2,16 +2,28 @@ import { ArrowLeft, Ban, Download, FileMinus2, HandCoins, Printer } from 'lucide
 import { useState } from 'react';
 import { formatDate } from '../../../shared/gst';
 import { formatMoney } from '../../../shared/money';
-import { PAYMENT_METHOD_LABEL } from '../../../shared/types';
+import { PAYMENT_METHOD_LABEL, type Invoice, type Settings } from '../../../shared/types';
 import { InvoiceDocument } from '../../components/InvoiceDocument';
 import { ConfirmDialog } from '../../components/Modal';
+import { ShareMenu, type ShareOption } from '../../components/ShareMenu';
 import { useToast } from '../../components/Toast';
 import { Button, Card, ErrorNote, Field, Figure, Input, InvoicePill, Money, PageHeader, Spinner, TypePill } from '../../components/ui';
 import { api, errorMessage } from '../../lib/api';
 import { useQuery, useRefresh } from '../../lib/data';
 import { paths } from '../../lib/router';
+import { invoiceMessage, invoiceReminder, invoiceSubject } from '../../lib/share';
 import { RecordPaymentModal } from '../payments/RecordPaymentModal';
 import { CreditNoteModal } from './CreditNoteModal';
+
+function shareOptions(inv: Invoice, email: string, settings: Settings): ShareOption[] {
+  const owes = inv.totalPaise - inv.paidPaise > 0;
+  const options: ShareOption[] = [
+    { id: 'wa', kind: 'whatsapp', label: 'Send on WhatsApp', to: inv.buyer.phone, hint: inv.buyer.phone, message: invoiceMessage(settings, inv) },
+    { id: 'mail', kind: 'email', label: 'Send by email', to: email, subject: invoiceSubject(settings, inv), message: invoiceMessage(settings, inv) },
+  ];
+  if (owes) options.push({ id: 'remind', kind: 'whatsapp', label: 'Remind about payment on WhatsApp', to: inv.buyer.phone, hint: inv.buyer.phone, message: invoiceReminder(settings, inv) });
+  return options;
+}
 
 export function InvoicePage({ id }: { id: string }) {
   const toast = useToast();
@@ -19,6 +31,7 @@ export function InvoicePage({ id }: { id: string }) {
   const query = useQuery(() => api.invoiceGet(id), [id]);
   const inv = query.data;
   const customer = useQuery(() => (inv?.customerId ? api.customerGet(inv.customerId) : Promise.resolve(null)), [inv?.customerId]);
+  const settings = useQuery(() => api.getSettings());
   const [busy, setBusy] = useState<'pdf' | 'print' | 'advance' | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [paying, setPaying] = useState(false);
@@ -99,6 +112,9 @@ export function InvoicePage({ id }: { id: string }) {
             <Button icon={<Printer className="h-4 w-4" />} loading={busy === 'print'} disabled={busy !== null} onClick={() => void print()}>
               Print
             </Button>
+            {!cancelled && settings.data && (
+              <ShareMenu options={shareOptions(inv, customer.data?.email ?? '', settings.data)} />
+            )}
             {!cancelled && (
               <Button icon={<FileMinus2 className="h-4 w-4" />} onClick={() => setCrediting(true)}>
                 Credit note

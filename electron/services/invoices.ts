@@ -68,6 +68,12 @@ export function taxSummaryOf(r: { tax_summary_json: string | null; gst_rate_perc
 /** The rate with the most value on the document, for places that show a single rate. */
 export const mainRateOf = (groups: RateGroup[], fallback: number): number => [...groups].sort((a, b) => b.taxablePaise - a.taxablePaise)[0]?.ratePercent ?? fallback;
 
+/** The UPI id to show a pay QR for, or null when there is none or the QR is switched off. Live, like the invoice's styling. */
+export function payByUpiOf(db: Db): string | null {
+  const s = getSettings(db);
+  return s.invoiceShowUpiQr && s.upiId ? s.upiId : null;
+}
+
 export function brandingOf(db: Db): InvoiceBranding {
   const s = getSettings(db);
   return { accent: s.invoiceAccent, logo: s.invoiceLogo, showSignature: s.invoiceShowSignature };
@@ -120,6 +126,7 @@ function toInvoice(db: Db, r: InvoiceRow): Invoice {
     ...toSummary(r, paidFor(db, r.id)),
     payments,
     creditedPaise: payments.filter((p) => p.source === 'credit_note').reduce((s, p) => s + p.amountPaise, 0),
+    payByUpi: payByUpiOf(db),
     creditNotes: all<{ id: string; number: string; issue_date: string; total_paise: number; status: 'issued' | 'cancelled' }>(db, 'SELECT id, number, issue_date, total_paise, status FROM credit_notes WHERE invoice_id = ? ORDER BY issue_date, seq', r.id).map((c) => ({ id: c.id, number: c.number, issueDate: c.issue_date, totalPaise: c.total_paise, status: c.status })),
     // Content is frozen at issue. Invoices from before "bank" and "footer" existed simply have none.
     seller: { bank: '', footer: '', ...JSON.parse(r.seller_json) },

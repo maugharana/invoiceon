@@ -1,6 +1,7 @@
-import { Ban, HandCoins, Plus, SearchX, Undo2 } from 'lucide-react';
+import { Ban, HandCoins, MessageCircle, Plus, SearchX, Undo2 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { formatDate } from '../../../shared/gst';
+import { whatsappUrl } from '../../../shared/share';
 import { PAYMENT_METHOD_LABEL, type DuesRow, type Payment } from '../../../shared/types';
 import { ConfirmDialog } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
@@ -9,6 +10,7 @@ import { api } from '../../lib/api';
 import { useQuery, useRefresh } from '../../lib/data';
 import { plural } from '../../lib/format';
 import { navigate, paths } from '../../lib/router';
+import { customerReminder } from '../../lib/share';
 import { RecordPaymentModal } from './RecordPaymentModal';
 
 function Tabs({ tab }: { tab: 'payments' | 'dues' }) {
@@ -218,7 +220,14 @@ const BUCKETS = [
 
 export function DuesPage() {
   const dues = useQuery(() => api.duesReport());
+  const settings = useQuery(() => api.getSettings());
+  const openInvoices = useQuery(() => api.invoicesList({ status: 'open' }));
   const [paying, setPaying] = useState<DuesRow | null>(null);
+  const remind = (r: DuesRow) => {
+    if (!settings.data) return;
+    const mine = (openInvoices.data ?? []).filter((i) => (i.customerId ?? null) === r.customerId && i.totalPaise - i.paidPaise > 0);
+    window.open(whatsappUrl(r.phone, customerReminder(settings.data, r, mine)), '_blank', 'noopener');
+  };
   const d = dues.data;
   const total = d?.outstandingPaise ?? 0;
 
@@ -265,7 +274,7 @@ export function DuesPage() {
                     <th className="th text-right">31–60</th>
                     <th className="th text-right">61+</th>
                     <th className="th text-right">Owes</th>
-                    <th className="w-36" />
+                    <th className="w-56" />
                   </tr>
                 </thead>
                 <tbody>
@@ -291,11 +300,18 @@ export function DuesPage() {
                       <Cell paise={r.days61plusPaise} late />
                       <td className="td text-right"><Money paise={r.outstandingPaise} /></td>
                       <td className="td text-right" onClick={(e) => e.stopPropagation()}>
-                        {r.customerId && (
-                          <Button className="h-8 px-3 text-xs" onClick={() => setPaying(r)}>
-                            Record payment
-                          </Button>
-                        )}
+                        <div className="flex justify-end gap-1.5">
+                          {r.customerId && settings.data && (
+                            <Button className="h-8 px-2.5 text-xs" icon={<MessageCircle className="h-3.5 w-3.5" />} title={r.phone ? `Remind ${r.customerName} on WhatsApp` : 'No phone number on file: you will choose the contact'} onClick={() => remind(r)}>
+                              Remind
+                            </Button>
+                          )}
+                          {r.customerId && (
+                            <Button className="h-8 px-3 text-xs" onClick={() => setPaying(r)}>
+                              Record payment
+                            </Button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}

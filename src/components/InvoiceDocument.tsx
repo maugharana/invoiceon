@@ -1,6 +1,8 @@
 import type { CSSProperties } from 'react';
 import { formatDate, localDateOf, rupeesInWords } from '../../shared/gst';
 import { formatMoney } from '../../shared/money';
+import { upiPaymentLink } from '../../shared/share';
+import { QrCode } from './QrCode';
 import type { Invoice, Party } from '../../shared/types';
 
 // The paper invoice. The on-screen preview, the print dialog and the exported PDF all render this one
@@ -26,6 +28,8 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
   const tax = inv.type === 'B2B';
   const cancelled = inv.status === 'cancelled';
   const totalTax = inv.cgstPaise + inv.sgstPaise + inv.igstPaise;
+  // What the QR asks for: the balance still due on an invoice, or the whole of a quote. Nothing once it's paid or cancelled.
+  const payAmount = cancelled ? 0 : proforma ? inv.totalPaise : inv.totalPaise - inv.paidPaise;
   const rateLabel = (r: number) => `${+r.toFixed(2)}%`; // 2.5%, 6%, 9%
   // One tax row per rate. Most invoices have one; a mixed one (say silk at 5% and a brocade at 18%) shows each on its own.
   const rateGroups = inv.taxSummary;
@@ -209,6 +213,16 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
               <div>
                 <div className="mb-0.5 uppercase tracking-wider">Pay to</div>
                 <div className="whitespace-pre-line text-ink">{inv.seller.bank}</div>
+              </div>
+            )}
+            {payAmount > 0 && inv.payByUpi && (
+              <div className="flex items-center gap-3">
+                <QrCode value={upiPaymentLink({ upiId: inv.payByUpi, payeeName: inv.seller.name, amountPaise: payAmount, note: `${proforma ? 'Proforma' : 'Invoice'} ${inv.number}` })} className="h-[26mm] w-[26mm] shrink-0 border border-line" />
+                <div>
+                  <div className="mb-0.5 uppercase tracking-wider">Pay by UPI</div>
+                  <div className="text-ink">Scan with any UPI app to pay <span className="num font-medium">{formatMoney(payAmount)}</span></div>
+                  <div className="num">{inv.payByUpi}</div>
+                </div>
               </div>
             )}
             {inv.seller.terms && (

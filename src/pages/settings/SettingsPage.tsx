@@ -1,4 +1,4 @@
-import { Bell, Building2, ClipboardList, CreditCard, Database, FileText, Percent, Settings2, Sparkles, Tag, Wallet, type LucideIcon } from 'lucide-react';
+import { Bell, Building2, ClipboardList, CreditCard, Database, FileText, Percent, Send, Settings2, Sparkles, Tag, Wallet, type LucideIcon } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useToast } from '../../components/Toast';
 import { Button, Card, ErrorNote, PageHeader, Spinner } from '../../components/ui';
@@ -17,6 +17,7 @@ import { PaymentInstructionsSection } from './PaymentInstructionsSection';
 import { PlusSection } from './PlusSection';
 import { PreferencesSection } from './PreferencesSection';
 import { ProformaSection } from './ProformaSection';
+import { SharingSection } from './SharingSection';
 import { TaxProfilesSection } from './TaxProfilesSection';
 
 interface SectionInfo {
@@ -37,6 +38,7 @@ const SECTIONS: SectionInfo[] = [
   { id: 'expenses', label: 'Expense Categories', icon: Tag, title: 'Expense Categories', subtitle: 'The headings you file business expenses under.', saves: true },
   { id: 'accounts', label: 'Payment Accounts', icon: Wallet, title: 'Payment Accounts', subtitle: 'Where customers’ money lands: banks, UPI, cash.', saves: true },
   { id: 'instructions', label: 'Payment Instructions', icon: CreditCard, title: 'Payment Instructions', subtitle: 'How customers should pay you, printed on each invoice.', saves: true },
+  { id: 'sharing', label: 'Sharing & UPI', icon: Send, title: 'Sharing & UPI', subtitle: 'Your UPI id for the pay QR code, and the messages sent with invoices and reminders.', saves: true },
   { id: 'notifications', label: 'Notifications', icon: Bell, title: 'Notifications', subtitle: 'What InvoiceOn points out to you.', saves: true },
   { id: 'data', label: 'Data Management', icon: Database, title: 'Data Management', subtitle: 'Where your data is, and keeping it safe.', saves: false },
   { id: 'preferences', label: 'Preferences', icon: Settings2, title: 'Preferences', subtitle: 'Defaults used across the app.', saves: true },
@@ -59,6 +61,8 @@ function renderSection(id: SettingsSection, draft: Draft, set: SetDraft): ReactN
       return <PaymentAccountsSection draft={draft} set={set} />;
     case 'instructions':
       return <PaymentInstructionsSection draft={draft} set={set} />;
+    case 'sharing':
+      return <SharingSection draft={draft} set={set} />;
     case 'notifications':
       return <NotificationsSection draft={draft} set={set} />;
     case 'data':

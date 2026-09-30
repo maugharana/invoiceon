@@ -135,7 +135,7 @@ if (!app.requestSingleInstanceLock()) {
 
     // The app is a single local page: block any navigation away from it and send links to the system browser.
     win.webContents.setWindowOpenHandler(({ url }) => {
-      if (/^https?:/.test(url)) void shell.openExternal(url);
+      if (/^(https?:|mailto:)/.test(url)) void shell.openExternal(url);
       return { action: 'deny' };
     });
     win.webContents.on('will-navigate', (event, url) => {

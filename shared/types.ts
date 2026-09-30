@@ -53,6 +53,16 @@ export interface Settings {
   /** A closing line, e.g. "Thank you for shopping with us". */
   invoiceFooter: string;
   invoiceShowSignature: boolean;
+  // ── Sharing and paying ──
+  /** Your UPI id (name@bank). When set, invoices show a QR code that opens a UPI app ready to pay the amount due. */
+  upiId: string;
+  /** Print the UPI QR code on invoices (only if a UPI id is set). */
+  invoiceShowUpiQr: boolean;
+  /** The message sent with an invoice, by WhatsApp or email. {placeholders} are filled in (see Settings, Sharing). */
+  shareInvoiceMessage: string;
+  /** The message for a payment reminder. */
+  shareReminderMessage: string;
+  shareEmailSubject: string;
   // ── Proforma invoices (a quote to pay against; no stock or tax effect) ──
   proformaPrefix: string;
   /** Prefix for credit note numbers, e.g. "CN" gives CN/2026-27/0001. */
@@ -450,6 +460,8 @@ export interface Invoice extends InvoiceSummary {
   payments: InvoicePayment[];
   /** Of `paidPaise`, the part that is credit notes rather than money. */
   creditedPaise?: Paise;
+  /** Your UPI id when the invoice should show a pay-by-UPI QR code (set in Settings, Sharing). Live, like branding: not frozen at issue. */
+  payByUpi?: string | null;
   creditNotes?: { id: string; number: string; issueDate: string; totalPaise: Paise; status: CreditNoteStatus }[];
   cancelledAt: string | null;
   cancelReason: string;
@@ -734,6 +746,8 @@ export interface ProformaSummary {
 }
 
 export interface Proforma extends ProformaSummary {
+  /** Your UPI id when the quote should show a pay-by-UPI QR code. Live, not frozen. */
+  payByUpi?: string | null;
   seller: Party & { email: string; terms: string; bank: string; footer: string };
   branding: InvoiceBranding;
   buyer: Party;

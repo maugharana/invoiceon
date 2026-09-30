@@ -18,6 +18,7 @@ export function proformaAsInvoice(p: Proforma): Invoice {
     status: p.status === 'cancelled' ? 'cancelled' : 'unpaid',
     seller: p.seller,
     branding: p.branding,
+    payByUpi: p.payByUpi,
     buyer: p.buyer,
     placeOfSupply: p.placeOfSupply,
     gstRatePercent: p.gstRatePercent,

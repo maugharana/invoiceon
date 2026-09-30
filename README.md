@@ -19,6 +19,7 @@ Windows desktop app, offline-first: your data lives in a local SQLite file, no i
 | 11 | Suppliers, purchase bills, payables, input tax credit | **Done** |
 | 12 | Weavers and job work orders | **Done** |
 | 13 | Barcode labels and scan to bill | **Done** |
+| 14 | Sharing (WhatsApp, email), reminders, UPI QR | **Done** |
 
 **New here? Start with [`docs/TOUR.md`](docs/TOUR.md)** — a ten-minute guided tour (see it, generate a PDF, see what the PDF looks
 like, customise it). Sample PDFs are in [`sample-pdfs/`](sample-pdfs). If packaging fails on Windows, see
@@ -231,6 +232,13 @@ The period lives in the URL, so switching tabs keeps it.
 - **The encoder is ours, not a library** (`shared/barcode.ts`, Code 128 subset B: every printable ASCII character, which is all a SKU holds). It was checked three ways: against 696 strings from an independent implementation (bwip-js, identical output for every one, kept as reference vectors in `tests/barcode.test.ts`), structurally (11 modules a symbol, stop pattern, start B), and end to end: a label rendered by the app in a browser was decoded with ZXing and read back as exactly the SKU. A SKU with characters a barcode cannot hold (a Hindi name, an en dash) shows text instead and says so.
 - **Print sizes.** A roll prints one label per page at the label's own size (`@page` for PDF; the desktop app also hands the printer the size in microns). A sheet packs a grid per A4 page. The request travels in the print page's address (`shared/labels.ts`) and is parsed defensively: unknown sizes fall back, malformed items are dropped, and the total is capped.
 - **Scan to bill.** On New invoice (and New proforma), a scanner that types like a keyboard adds the saree whose SKU it reads, wherever focus is on the page (`useBarcodeScanner`): a burst of keys under 80 ms apart ending in Enter counts as a scan, so a person typing slowly, or pressing Enter alone, never does. Scanning the same label again adds one to the quantity; an unknown code or an out of stock saree says so. Typing an exact SKU in the item box and pressing Enter also wins over other search matches.
+
+## Sharing, reminders and UPI QR (stage 14)
+
+- **Share** on an invoice opens WhatsApp or your email program with a message ready: the invoice number, total and what is still due (and your UPI id). It is a link (`wa.me`, `mailto:`), so nothing is sent by InvoiceOn itself and you press send. A file cannot be handed to WhatsApp this way, so the PDF is attached by hand (Save PDF first); the menu says so. **Remind about payment** does the same with a reminder message, and the **Dues** screen has a *Remind* button per customer that lists their open invoices and what is overdue.
+- **Numbers and links** (`shared/share.ts`, all pure and tested): Indian numbers get `91` (a leading 0 or `+91` is handled); a missing or impossible number opens WhatsApp's own contact chooser instead of a wrong chat. Messages come from templates in **Settings, Sharing & UPI** with `{placeholders}` and a live preview; an unknown or empty placeholder becomes nothing, so `{typo}` is never sent to a customer.
+- **UPI QR.** Set your UPI id and invoices (and proformas) that still have something to pay print a QR code that opens a UPI app with the payee, the **balance due** and the invoice number filled in. It disappears once paid or cancelled. The id is live like the invoice's styling, so an older invoice shows your current one. The QR encoder is the small `qrcode-generator` library (the only dependency added for these features); a QR the app drew was decoded with ZXing and read back as the exact payment link, with the right amount.
+- The desktop shell now also lets `mailto:` links through to the system.
 
 ## Brand
 
