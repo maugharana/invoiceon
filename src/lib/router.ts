@@ -18,6 +18,7 @@ export type Route =
   | { name: 'catalogue' }
   | { name: 'restock' }
   | { name: 'locations' }
+  | { name: 'count' }
   | { name: 'inventory-add' }
   | { name: 'design'; id: string }
   | { name: 'invoices'; status: 'all' | 'open' | 'overdue' | 'cancelled' }
@@ -72,6 +73,7 @@ export function parseHash(hash: string): Route {
       if (parts[1] === 'catalogue') return { name: 'catalogue' };
       if (parts[1] === 'restock') return { name: 'restock' };
       if (parts[1] === 'locations') return { name: 'locations' };
+      if (parts[1] === 'count') return { name: 'count' };
       if (parts[1] === 'add') return { name: 'inventory-add' };
       if (parts[1] === 'designs' && id) return { name: 'design', id };
       const status = params.get('status');
@@ -148,6 +150,7 @@ export const sectionOf = (route: Route): Section => {
     case 'catalogue':
     case 'restock':
     case 'locations':
+    case 'count':
     case 'print-labels':
     case 'print-catalogue':
     case 'inventory-add':
@@ -197,6 +200,7 @@ export function routeNeeds(route: Route): Capability {
     case 'settings':
       return 'admin';
     case 'inventory-add':
+    case 'count':
       return 'stock';
     case 'invoice-new':
     case 'proforma-new':
@@ -224,6 +228,7 @@ export const paths = {
   catalogue: '/inventory/catalogue',
   restock: '/inventory/restock',
   locations: '/inventory/locations',
+  count: '/inventory/count',
   design: (id: string) => `/inventory/designs/${encodeURIComponent(id)}`,
   invoices: (status?: 'open' | 'overdue' | 'cancelled') => (status ? `/invoices?status=${status}` : '/invoices'),
   newInvoice: (customerId?: string, advance?: AdvancePreset) => {

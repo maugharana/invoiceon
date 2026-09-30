@@ -3,6 +3,7 @@ import type { CatalogueData, DesignPhoto, DesignPhotoInput } from './catalogue';
 import type { FilingFile, FilingRequest } from './filing';
 import type { MobileStatus } from './mobile';
 import type { HoldingRow, Location, TransferInput, TransferRecord } from './locations';
+import type { StockTake, StockTakeResult, StockTakeStart, StockTakeSummary } from './stocktake';
 import type { InsightParams, StockInsights } from './insights';
 import type { ContactChannel, Contact, CustomerFollowUps, FollowUp, PaymentPromise, PromiseInput } from './followup';
 import type { LoyaltyAccount, LoyaltyConfig, Offer, OfferInput } from './offers';
@@ -188,6 +189,13 @@ export interface Api {
   stockTransfer(input: TransferInput): Promise<TransferRecord>;
   transfersList(limit?: number): Promise<TransferRecord[]>;
   stockHoldings(): Promise<HoldingRow[]>;
+  /** A physical stock take: count the shelves, compare with the books, apply the differences. */
+  stockTakeCurrent(): Promise<StockTake | null>;
+  stockTakeStart(input: StockTakeStart): Promise<StockTake>;
+  stockTakeCount(takeId: string, variantId: string, counted: number | null): Promise<StockTake>;
+  stockTakeApply(takeId: string): Promise<StockTakeResult>;
+  stockTakeCancel(takeId: string): Promise<void>;
+  stockTakesList(): Promise<StockTakeSummary[]>;
   /** What to make or buy next, and what has stopped selling. Read only; shows costs, so it is a reports call. */
   stockInsights(params?: Partial<InsightParams>): Promise<StockInsights>;
   /** Chasing money: who was reminded or called, and promises to pay. */

@@ -5,6 +5,7 @@ import { catalogueData } from './services/catalogue';
 import * as followups from './services/followups';
 import { stockInsights } from './services/insights';
 import * as locations from './services/locations';
+import * as stocktake from './services/stocktake';
 import * as offers from './services/offers';
 import * as photos from './services/photos';
 import { encodeCatalogueRequest, parseCatalogueRequest } from '../shared/catalogue';
@@ -143,6 +144,12 @@ export function createApi(db: Db, host?: Host, dataDir?: string, actor?: () => A
     stockTransfer: async (input) => locations.transferStock(db, input),
     transfersList: async (limit) => locations.listTransfers(db, typeof limit === 'number' ? limit : 50),
     stockHoldings: async () => locations.holdings(db),
+    stockTakeCurrent: async () => stocktake.currentTake(db),
+    stockTakeStart: async (input) => stocktake.startTake(db, input),
+    stockTakeCount: async (takeId, variantId, counted) => stocktake.countLine(db, takeId, variantId, counted === undefined ? null : counted),
+    stockTakeApply: async (takeId) => stocktake.applyTake(db, takeId),
+    stockTakeCancel: async (takeId) => stocktake.cancelTake(db, takeId),
+    stockTakesList: async () => stocktake.listTakes(db),
     stockInsights: async (params) => stockInsights(db, params ?? undefined),
     followUps: async () => followups.followUps(db),
     customerFollowUps: async (customerId) => followups.customerFollowUps(db, customerId),

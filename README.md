@@ -305,6 +305,12 @@ The period lives in the URL, so switching tabs keeps it.
 - **Still counted as yours.** Pieces away from the shop count towards the inventory page's units and value, the stock valuation report (now and as of a past day), and Restock (pieces in a godown can be brought back, so they count as on hand when deciding what to make or buy). Low stock alerts and selling stay shop only.
 - **Checked.** Check my books adds a check that no place has given away more than it received and that every move touching the shop has its matching entry in the stock ledger.
 
+## Physical stock take (stage 25)
+
+- **Inventory, Stock take** (owners and managers). Start a count of every saree, or of one design, then walk the shelves and type in how many of each there are (or scan the SKU barcodes: each scan adds one). The page shows the books' figure beside yours and the difference, with filters for *Not counted* and *Differences* and a running total of pieces over and short and what that does to stock value at cost. *Count sheet* exports a blank sheet (deliberately without the books' figures) to count from on paper. The count survives closing the app, so it can be carried over several days.
+- **Selling carries on.** Each count records what the books said at the moment that saree was counted, and the difference is measured against that, so a sale made after you counted cannot turn a correct count into a false shortage. On *Finish and apply*, each difference becomes a normal stock adjustment ("Stock take: <name>" in the saree's history, in the activity log and in the stock ledger the books check reads); sarees not counted are left exactly as they are, and if sales since the count mean a shortage would take stock below zero, stock is set to zero and the page says which ones.
+- **Safe to abandon.** *Cancel count* throws the counts away and changes nothing. One count can be open at a time, so two people do not count against each other. Finished counts are listed with what they found.
+
 ## Brand
 
 Tokens live in `tailwind.config.js` (teal `#0F6E56`, gold `#D9A94E` for one figure per screen, status pairs, ink).

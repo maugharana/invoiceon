@@ -13,6 +13,7 @@ import { AddSareesPage } from './pages/inventory/AddSareesPage';
 import { CataloguePage } from './pages/inventory/CataloguePage';
 import { LabelsPage } from './pages/inventory/LabelsPage';
 import { LocationsPage } from './pages/inventory/LocationsPage';
+import { StockTakePage } from './pages/inventory/StockTakePage';
 import { PrintCataloguePage } from './pages/inventory/PrintCataloguePage';
 import { RestockPage } from './pages/inventory/RestockPage';
 import { PrintLabelsPage } from './pages/inventory/PrintLabelsPage';
@@ -53,6 +54,8 @@ function renderRoute(route: Route) {
       return <RestockPage />;
     case 'locations':
       return <LocationsPage />;
+    case 'count':
+      return <StockTakePage />;
     case 'inventory-add':
       return <AddSareesPage />;
     case 'design':

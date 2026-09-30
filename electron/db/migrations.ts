@@ -705,6 +705,30 @@ CREATE INDEX ix_transfers_from ON stock_transfers (from_location_id);
 CREATE INDEX ix_transfers_to ON stock_transfers (to_location_id);
 `;
 
+const V16 = `
+-- A physical stock take: walk the shelves, count each saree, see where the count differs from the books, then apply the differences as
+-- adjustments. Each line records what was counted and what the books said at that moment, so sales made while the count goes on cannot
+-- distort the difference.
+CREATE TABLE stock_takes (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  status      TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','applied','cancelled')),
+  created_at  TEXT NOT NULL,
+  finished_at TEXT
+);
+CREATE TABLE stock_take_lines (
+  id         TEXT PRIMARY KEY,
+  take_id    TEXT NOT NULL REFERENCES stock_takes (id),
+  variant_id TEXT NOT NULL REFERENCES variants (id),
+  counted    INTEGER CHECK (counted IS NULL OR counted >= 0),
+  expected   INTEGER,
+  counted_at TEXT,
+  applied    INTEGER,
+  UNIQUE (take_id, variant_id)
+);
+CREATE INDEX ix_take_lines_take ON stock_take_lines (take_id);
+`;
+
 const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 1, sql: V1 },
   { version: 2, sql: V2 },
@@ -721,6 +745,7 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 13, sql: V13 },
   { version: 14, sql: V14 },
   { version: 15, sql: V15 },
+  { version: 16, sql: V16 },
 ];
 
 export function migrate(db: DatabaseSync): void {
