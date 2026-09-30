@@ -7,6 +7,7 @@ import { api, errorMessage } from '../../lib/api';
 import { useQuery, useRefresh } from '../../lib/data';
 import { formatDateTime, plural } from '../../lib/format';
 import { IntegrityCard } from './IntegrityCard';
+import { OffsiteCard } from './OffsiteCard';
 
 const formatBytes = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 
@@ -87,6 +88,8 @@ export function DataManagementSection() {
         )}
         <p className="mt-2 text-xs text-ink-muted">Restoring replaces everything with the copy you choose. A safety copy of your current data is saved first (listed above as “Before a restore”), so a restore can be undone the same way.</p>
       </div>
+
+      <OffsiteCard />
 
       <IntegrityCard />
 

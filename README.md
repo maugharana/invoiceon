@@ -260,6 +260,13 @@ The period lives in the URL, so switching tabs keeps it.
 - **e-Way bill**: for invoices above ₹50,000 (or the ones you pick), with both places, the goods and, if you have them, the transport details (mode, distance, vehicle, transporter, document). Unregistered buyers go as `URP`.
 - **What was and was not verified.** The sums are checked by tests (sections add up to the invoices, items add up to each invoice, credit notes reverse correctly). The layouts follow the portals' published JSON schemas as I know them, but no portal or offline tool was available here to import the files, so run the first file through the portal's own validator before relying on it, and keep a human in the loop for anything filed.
 
+## Off-site copy (stage 18)
+
+- **Settings, Data Management, Off-site copy** keeps a second copy of the database in a folder you choose: one that Google Drive, OneDrive or Dropbox syncs, or a USB drive or network share. A copy is made when you turn it on, once a day when the app opens, and whenever you press *Copy now*; the newest 30 are kept and files in the folder that are not InvoiceOn's own are never touched. A copy is written to a temporary name and renamed, so a half written copy never appears, and a missing drive is reported on the screen instead of stopping the app.
+- **Optional encryption** (`electron/offsite.ts`): AES-256-GCM with a key from your passphrase (scrypt), the header authenticated too, so a wrong passphrase, a flipped bit or an edited header are all refused rather than producing garbage. The passphrase is never stored; the derived key is, on this computer, so the daily copy can encrypt without asking. On a new computer the passphrase alone opens a copy. Tests show an encrypted file contains neither the business name nor the SQLite header.
+- **Restore from off-site** goes through the same careful restore as any backup (safety copy first, schema brought up to date, damage checked). Restoring any backup keeps this computer's off-site setup, so restoring an old copy never turns the copies off or changes the key.
+- **Not included, on purpose:** live sync between two computers. That needs a server that both talk to, which this offline app does not have. A synced folder gives safe off-site copies, not simultaneous editing on two machines.
+
 ## Brand
 
 Tokens live in `tailwind.config.js` (teal `#0F6E56`, gold `#D9A94E` for one figure per screen, status pairs, ink).

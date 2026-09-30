@@ -3,6 +3,7 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createApi, invoke, type Host } from './api';
 import { backupDaily } from './backup';
+import { offsiteDaily } from './offsite';
 import { openDb } from './db/connection';
 import { UserError } from './services/common';
 
@@ -71,6 +72,13 @@ function createHost(getParent: () => BrowserWindow | null): Host {
       }
       return { saved: true, path: filePath };
     },
+    async chooseFolder() {
+      if (process.env.INVOICEON_EXPORT_DIR) return process.env.INVOICEON_EXPORT_DIR;
+      const options = { title: 'Choose a folder for off-site copies', properties: ['openDirectory' as const, 'createDirectory' as const] };
+      const parent = getParent();
+      const chosen = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
+      return chosen.canceled || !chosen.filePaths[0] ? null : chosen.filePaths[0];
+    },
     async printDocument(route, pageMm) {
       const w = await openDocumentWindow(route);
       await new Promise<void>((resolve, reject) => {
@@ -103,6 +111,7 @@ if (!app.requestSingleInstanceLock()) {
     const dataDir = app.getPath('userData');
     const db = openDb(join(dataDir, 'invoiceon.db'));
     backupDaily(db, join(dataDir, 'backups'));
+    offsiteDaily(db, dataDir);
     const api = createApi(db, createHost(() => win), dataDir);
 
     ipcMain.handle('api', (_event, method: string, args: unknown[]) => invoke(api, method, Array.isArray(args) ? args : []));

@@ -4,6 +4,7 @@ import type { Api, Envelope } from '../shared/api';
 import { encodeLabelRequest, labelSizeById, parseLabelRequest } from '../shared/labels';
 import { listAudit, withAudit, type Actor } from './audit';
 import { backupNow, listBackups, restoreBackup } from './backup';
+import { offsiteCopy, offsiteDisable, offsiteRestore, offsiteSave, offsiteStatus } from './offsite';
 import type { Db } from './db/connection';
 import { UserError } from './services/common';
 import * as access from './services/access';
@@ -34,6 +35,8 @@ export interface Host {
   /** `pageMm` sets the paper size for things that are not A4 (a roll of labels). */
   printDocument(route: string, pageMm?: { widthMm: number; heightMm: number }): Promise<void>;
   saveTextFile(fileName: string, content: string): Promise<{ saved: boolean; path?: string }>;
+  /** Lets the owner pick a folder (for off-site copies). */
+  chooseFolder?(): Promise<string | null>;
 }
 
 const DESKTOP_ONLY = 'This works in the InvoiceOn desktop app only.';
@@ -142,6 +145,22 @@ export function createApi(db: Db, host?: Host, dataDir?: string, actor?: () => A
       if (!host) throw new UserError(DESKTOP_ONLY);
       const safe = String(fileName).replace(/[\\/:*?"<>|]/g, '-').slice(0, 120) || 'report.csv';
       return host.saveTextFile(safe, String(content));
+    },
+
+    offsiteStatus: async () => offsiteStatus(db),
+    offsiteSave: async (setup) => offsiteSave(db, setup),
+    offsiteDisable: async () => offsiteDisable(db),
+    offsiteCopyNow: async () => {
+      if (!dataDir) throw new UserError(DESKTOP_ONLY);
+      return offsiteCopy(db, dataDir);
+    },
+    offsiteRestore: async (name, passphrase) => {
+      if (!dataDir) throw new UserError(DESKTOP_ONLY);
+      return offsiteRestore(db, dataDir, name, typeof passphrase === 'string' ? passphrase : undefined);
+    },
+    offsiteChooseFolder: async () => {
+      if (!host?.chooseFolder) throw new UserError(DESKTOP_ONLY);
+      return { folder: await host.chooseFolder() };
     },
 
     dashboardSummary: async () => invoices.dashboardSummary(db),

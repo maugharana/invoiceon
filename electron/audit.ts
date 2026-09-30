@@ -206,6 +206,10 @@ const RULES: Partial<Record<keyof Api, Rule>> = {
   weaverPaymentVoid: simple('weaver-payment', 'Reversed weaver payment', (c) => `Reversed payment of ${money(c.result.amountPaise)} to weaver ${c.result.weaverName}${why(c.args[1])}`),
 
   backupRestore: simple('backup', 'Restored backup', (c) => `Restored backup ${c.result.restoredFrom} (safety copy: ${c.result.restorePoint})`),
+  offsiteSave: simple('backup', 'Set up off-site copies', (c) => `Off-site copies go to ${c.result.folder}${c.result.encrypted ? ', encrypted' : ''}`),
+  offsiteDisable: simple('backup', 'Turned off off-site copies', () => 'Turned off off-site copies'),
+  offsiteCopyNow: simple('backup', 'Copied off-site', (c) => `Copied the data off-site as ${c.result.lastFile}`),
+  offsiteRestore: simple('backup', 'Restored off-site copy', (c) => `Restored off-site copy ${c.result.restoredFrom} (safety copy: ${c.result.restorePoint})`),
   sampleDataLoad: simple('settings', 'Loaded sample data', () => 'Loaded the sample data'),
 };
 

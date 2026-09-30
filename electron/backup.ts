@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { all, openDb, type Db } from './db/connection';
 import { LATEST_SCHEMA_VERSION } from './db/migrations';
@@ -11,7 +11,7 @@ const DAILY = /^invoiceon-\d{4}-\d{2}-\d{2}\.db$/;
 /** The safety copy taken just before a restore, so a restore can itself be undone. Kept like the ones you make yourself. */
 const RESTORE_POINT = /^invoiceon-before-restore-\d{4}-\d{2}-\d{2}-\d{6}(-\d+)?\.db$/;
 
-const stamp = (): string => {
+export const stamp = (): string => {
   const now = new Date();
   const p = (n: number) => String(n).padStart(2, '0');
   return `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}-${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`;
@@ -32,6 +32,14 @@ export function backupNow(db: Db, dir: string): { name: string } {
   const name = uniqueName(dir, 'invoiceon-manual');
   db.exec(`VACUUM INTO '${quote(join(dir, name))}'`);
   return { name };
+}
+
+/** Puts the bytes of a database someone handed us (an off-site copy, say) into the backups folder as a copy of your own, ready to restore. */
+export function importBackup(dir: string, bytes: Buffer): string {
+  mkdirSync(dir, { recursive: true });
+  const name = uniqueName(dir, 'invoiceon-manual');
+  writeFileSync(join(dir, name), bytes);
+  return name;
 }
 
 /** Backups on disk, newest first. */
@@ -108,6 +116,8 @@ export function restoreBackup(db: Db, dir: string, name: string): { restoredFrom
         // Who can sign in is not something a backup should change either: restoring an older copy must not bring back old PINs, or switch
         // access control off. The switch is kept as it is now, and the people are left alone.
         const accessFlag = all<{ value: string }>(db, "SELECT value FROM main.settings WHERE key = 'access_enabled'")[0]?.value;
+        // Where off-site copies go (and the key they are encrypted with) belongs to this computer, not to the data being restored.
+        const offsite = all<{ key: string; value: string }>(db, "SELECT key, value FROM main.settings WHERE key LIKE 'offsite\\_%' ESCAPE '\\'");
         for (const { name: table } of tables) {
           // The activity log is not part of what a backup restores: it keeps recording what happened, the restore included.
           if (table === 'audit_log' || table === 'users') continue;
@@ -117,6 +127,8 @@ export function restoreBackup(db: Db, dir: string, name: string): { restoredFrom
           db.exec(`INSERT INTO main."${table}" (${columns}) SELECT ${columns} FROM bk."${table}"`);
         }
         if (accessFlag !== undefined) db.exec(`INSERT INTO main.settings (key, value, updated_at) VALUES ('access_enabled', '${accessFlag === '1' ? '1' : '0'}', '${new Date().toISOString()}') ON CONFLICT(key) DO UPDATE SET value = excluded.value`);
+        db.exec("DELETE FROM main.settings WHERE key LIKE 'offsite\\_%' ESCAPE '\\'");
+        for (const o of offsite) db.prepare('INSERT INTO main.settings (key, value, updated_at) VALUES (?, ?, ?)').run(o.key, o.value, new Date().toISOString());
         const broken = all(db, 'PRAGMA foreign_key_check');
         if (broken.length > 0) throw new UserError('That backup is inconsistent (records point at things that are missing), so it was not restored. Your data is unchanged.');
         db.exec('COMMIT');

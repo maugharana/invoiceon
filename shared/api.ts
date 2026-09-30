@@ -1,5 +1,6 @@
 import type { AccessStatus, AccessUser, AccessUserInput } from './access';
 import type { FilingFile, FilingRequest } from './filing';
+import type { OffsiteSetup, OffsiteStatus } from './offsite';
 import type {
   AuditEntry,
   AuditQuery,
@@ -166,6 +167,14 @@ export interface Api {
   reportStock(asOf?: string): Promise<StockReport>;
   /** Saves text (a CSV) to a file the user chooses. Desktop app only. */
   exportSave(fileName: string, content: string): Promise<{ saved: boolean; path?: string }>;
+  /** Off-site copies: the database kept in a folder of your choice (a synced cloud folder, a USB drive), optionally encrypted. */
+  offsiteStatus(): Promise<OffsiteStatus>;
+  offsiteSave(setup: OffsiteSetup): Promise<OffsiteStatus>;
+  offsiteDisable(): Promise<OffsiteStatus>;
+  offsiteCopyNow(): Promise<OffsiteStatus>;
+  offsiteRestore(name: string, passphrase?: string): Promise<{ restoredFrom: string; restorePoint: string }>;
+  /** The desktop app's folder chooser. */
+  offsiteChooseFolder(): Promise<{ folder: string | null }>;
 
   dashboardSummary(): Promise<DashboardSummary>;
   /** Everything the dashboard shows for a period. Null means all time. */
