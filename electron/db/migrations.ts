@@ -552,6 +552,52 @@ CREATE TABLE weaver_payments (
 CREATE INDEX ix_weaver_payments_weaver ON weaver_payments (weaver_id);
 `;
 
+// The activity log: who did what, when. Append only and tamper evident.
+//  • Triggers refuse any update or delete, so the app itself cannot rewrite history.
+//  • Each entry carries the hash of the one before it (prev_hash) and its own hash over its content, so an edit made behind the app's
+//    back (a database editor, say) breaks the chain and the integrity check says where.
+//  • A backup restore leaves this table alone: the log keeps saying what happened, including the restore itself.
+const V10 = `
+CREATE TABLE audit_log (
+  id          TEXT PRIMARY KEY,
+  at          TEXT NOT NULL,
+  actor       TEXT NOT NULL,
+  actor_id    TEXT,
+  action      TEXT NOT NULL,
+  entity      TEXT NOT NULL,
+  entity_id   TEXT,
+  summary     TEXT NOT NULL,
+  detail_json TEXT,
+  prev_hash   TEXT NOT NULL,
+  hash        TEXT NOT NULL
+);
+CREATE INDEX ix_audit_at ON audit_log (at);
+CREATE INDEX ix_audit_entity ON audit_log (entity, entity_id);
+CREATE TRIGGER audit_log_no_update BEFORE UPDATE ON audit_log BEGIN SELECT RAISE(ABORT, 'The activity log cannot be changed.'); END;
+CREATE TRIGGER audit_log_no_delete BEFORE DELETE ON audit_log BEGIN SELECT RAISE(ABORT, 'The activity log cannot be changed.'); END;
+`;
+
+// People who can sign in, when the owner turns on access control (it is off until then, and the app behaves as it always has).
+//  • A PIN is never stored: only a salted scrypt hash of it.
+//  • People are deactivated, not deleted, so the activity log can still say who did what.
+const V11 = `
+CREATE TABLE users (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  role       TEXT NOT NULL CHECK (role IN ('owner','manager','staff')),
+  pin_salt   TEXT NOT NULL,
+  pin_hash   TEXT NOT NULL,
+  active     INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX ux_users_name ON users (name COLLATE NOCASE) WHERE active = 1;
+
+INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES
+  ('access_enabled', '0', strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+  ('auto_lock_minutes', '10', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
+`;
+
 // Append new migrations to the end; never edit one that has shipped.
 const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 1, sql: V1 },
@@ -563,6 +609,8 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 7, sql: V7 },
   { version: 8, sql: V8 },
   { version: 9, sql: V9 },
+  { version: 10, sql: V10 },
+  { version: 11, sql: V11 },
 ];
 
 export function migrate(db: DatabaseSync): void {

@@ -105,12 +105,18 @@ export function restoreBackup(db: Db, dir: string, name: string): { restoredFrom
       try {
         const tables = all<{ name: string }>(db, "SELECT name FROM main.sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'");
         const inBackup = new Set(all<{ name: string }>(db, "SELECT name FROM bk.sqlite_master WHERE type = 'table'").map((t) => t.name));
+        // Who can sign in is not something a backup should change either: restoring an older copy must not bring back old PINs, or switch
+        // access control off. The switch is kept as it is now, and the people are left alone.
+        const accessFlag = all<{ value: string }>(db, "SELECT value FROM main.settings WHERE key = 'access_enabled'")[0]?.value;
         for (const { name: table } of tables) {
+          // The activity log is not part of what a backup restores: it keeps recording what happened, the restore included.
+          if (table === 'audit_log' || table === 'users') continue;
           db.exec(`DELETE FROM main."${table}"`);
           if (!inBackup.has(table)) continue;
           const columns = all<{ name: string }>(db, `PRAGMA main.table_info("${table}")`).map((c) => `"${c.name}"`).join(', ');
           db.exec(`INSERT INTO main."${table}" (${columns}) SELECT ${columns} FROM bk."${table}"`);
         }
+        if (accessFlag !== undefined) db.exec(`INSERT INTO main.settings (key, value, updated_at) VALUES ('access_enabled', '${accessFlag === '1' ? '1' : '0'}', '${new Date().toISOString()}') ON CONFLICT(key) DO UPDATE SET value = excluded.value`);
         const broken = all(db, 'PRAGMA foreign_key_check');
         if (broken.length > 0) throw new UserError('That backup is inconsistent (records point at things that are missing), so it was not restored. Your data is unchanged.');
         db.exec('COMMIT');

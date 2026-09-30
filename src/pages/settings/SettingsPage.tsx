@@ -1,4 +1,4 @@
-import { Bell, Building2, ClipboardList, CreditCard, Database, FileText, Percent, Send, Settings2, Sparkles, Tag, Wallet, type LucideIcon } from 'lucide-react';
+import { Bell, Building2, ClipboardList, CreditCard, Database, FileText, KeyRound, Percent, ScrollText, Send, Settings2, Sparkles, Tag, Wallet, type LucideIcon } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useToast } from '../../components/Toast';
 import { Button, Card, ErrorNote, PageHeader, Spinner } from '../../components/ui';
@@ -6,6 +6,8 @@ import { api, errorMessage } from '../../lib/api';
 import { useQuery, useRefresh } from '../../lib/data';
 import type { SettingsSection } from '../../lib/router';
 import { paths } from '../../lib/router';
+import { AccessSection } from './AccessSection';
+import { ActivitySection } from './ActivitySection';
 import { BusinessProfileSection } from './BusinessProfileSection';
 import { DataManagementSection } from './DataManagementSection';
 import { fromDraft, toDraft, type Draft, type SetDraft } from './draft';
@@ -41,6 +43,8 @@ const SECTIONS: SectionInfo[] = [
   { id: 'sharing', label: 'Sharing & UPI', icon: Send, title: 'Sharing & UPI', subtitle: 'Your UPI id for the pay QR code, and the messages sent with invoices and reminders.', saves: true },
   { id: 'notifications', label: 'Notifications', icon: Bell, title: 'Notifications', subtitle: 'What InvoiceOn points out to you.', saves: true },
   { id: 'data', label: 'Data Management', icon: Database, title: 'Data Management', subtitle: 'Where your data is, and keeping it safe.', saves: false },
+  { id: 'access', label: 'Users & Access', icon: KeyRound, title: 'Users & Access', subtitle: 'Who can sign in, and what each person can do.', saves: true },
+  { id: 'activity', label: 'Activity Log', icon: ScrollText, title: 'Activity Log', subtitle: 'What was done, when and by whom. It cannot be edited.', saves: false },
   { id: 'preferences', label: 'Preferences', icon: Settings2, title: 'Preferences', subtitle: 'Defaults used across the app.', saves: true },
   { id: 'plus', label: 'InvoiceOn Plus', icon: Sparkles, title: 'InvoiceOn Plus', subtitle: 'Sync, teams and access from anywhere: what is planned.', saves: false },
 ];
@@ -67,6 +71,10 @@ function renderSection(id: SettingsSection, draft: Draft, set: SetDraft): ReactN
       return <NotificationsSection draft={draft} set={set} />;
     case 'data':
       return <DataManagementSection />;
+    case 'access':
+      return <AccessSection draft={draft} set={set} />;
+    case 'activity':
+      return <ActivitySection />;
     case 'preferences':
       return <PreferencesSection draft={draft} set={set} />;
     case 'plus':

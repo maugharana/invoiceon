@@ -2,7 +2,7 @@ import type { Settings } from '../../../shared/types';
 import { toNumber } from '../../lib/format';
 
 /** Number fields are edited as text so half-typed values like "2." don't fight the input. */
-const NUMERIC = ['gstRatePercent', 'defaultDueDays', 'defaultReorderLevel', 'proformaValidDays'] as const;
+const NUMERIC = ['gstRatePercent', 'defaultDueDays', 'defaultReorderLevel', 'proformaValidDays', 'autoLockMinutes'] as const;
 type NumericKey = (typeof NUMERIC)[number];
 
 export type Draft = Omit<Settings, NumericKey> & Record<NumericKey, string>;

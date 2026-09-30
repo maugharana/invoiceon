@@ -1,3 +1,4 @@
+import { LOCKED_MESSAGE } from '../../shared/access';
 import type { Api, Envelope } from '../../shared/api';
 
 declare global {
@@ -28,7 +29,11 @@ export const api = new Proxy({} as Api, {
     (_target, method: string) =>
     async (...args: unknown[]) => {
       const envelope = await transport(method, args);
-      if (!envelope.ok) throw new Error(envelope.error);
+      if (!envelope.ok) {
+        // A locked app answers every call this way; tell the access provider so it can show the sign-in page.
+        if (envelope.error === LOCKED_MESSAGE && method !== 'accessStatus') window.dispatchEvent(new Event('invoiceon:locked'));
+        throw new Error(envelope.error);
+      }
       return envelope.data;
     },
 });

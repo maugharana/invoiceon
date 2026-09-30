@@ -240,6 +240,18 @@ The period lives in the URL, so switching tabs keeps it.
 - **UPI QR.** Set your UPI id and invoices (and proformas) that still have something to pay print a QR code that opens a UPI app with the payee, the **balance due** and the invoice number filled in. It disappears once paid or cancelled. The id is live like the invoice's styling, so an older invoice shows your current one. The QR encoder is the small `qrcode-generator` library (the only dependency added for these features); a QR the app drew was decoded with ZXing and read back as the exact payment link, with the right amount.
 - The desktop shell now also lets `mailto:` links through to the system.
 
+## Activity log and "Check my books" (stage 15)
+
+- **Every change is written to an activity log** as it happens: what was done, when and by whom, in plain sentences ("Cancelled invoice INV-0042", "Changed the price of Kanjivaram Red 5.5m from ₹4,500 to ₹4,800"). It lives in **Settings, Activity Log**, with search, a kind filter, a date range and CSV export. Nothing about the existing screens changes: the log is added by wrapping the API (`electron/audit.ts`, `withAudit`), so a call that fails writes nothing, and the log entry and the change it describes are saved together.
+- **It cannot be quietly edited.** The table refuses `UPDATE` and `DELETE` (database triggers), and each entry carries a SHA-256 of the one before it, so a removed or altered entry breaks the chain. Restoring a backup never replaces the log.
+- **Check my books** (Settings, Data Management) reads the whole database, changes nothing, and reports in plain words whether it all adds up: stock against its movements, invoice and proforma totals against their lines, numbering gaps, payments against what is owed, customer and supplier balances, credit notes, purchase bills, and the log's chain. Each check says what it looked at and, when something is off, exactly which record (`electron/services/integrity.ts`).
+
+## Users, roles and PIN lock (stage 16)
+
+- **Off until you turn it on.** Until then InvoiceOn behaves exactly as before. **Settings, Users & Access** turns it on: you give your name and a PIN and become the owner, then add people. PINs are 4 to 8 digits, stored only as a salted scrypt hash, and a person who gets the PIN wrong five times waits 30 seconds (and it is logged).
+- **Three roles.** The *owner* can do everything, including settings, backups, users and the log. A *manager* sells, cancels, manages stock, purchases, weavers, expenses and reports. *Counter staff* sell (invoices, quotes, customers, payments) and cannot see costs or profit, cancel, or change stock. The screens hide what a role cannot use, and the data layer enforces it regardless (`shared/access.ts`): every API call needs one capability, and a call nobody has classified needs the owner, so a call added later is closed by default. Cost and profit fields are zeroed for counter staff before they leave the data layer.
+- **Locking.** The app shows a PIN pad (people picked by name, digits from the keyboard work) whenever nobody is signed in. It locks itself after a chosen number of idle minutes (Settings, Users & Access; 0 means never), and the lock button in the sidebar locks it at once. Anyone can change their own PIN (it needs the old one). Turning sign-in off needs the owner's PIN. Restoring a backup never turns sign-in off or brings old PINs back, and the activity log records who did what under their own name.
+
 ## Brand
 
 Tokens live in `tailwind.config.js` (teal `#0F6E56`, gold `#D9A94E` for one figure per screen, status pairs, ink).

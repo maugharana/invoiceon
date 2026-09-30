@@ -1,4 +1,8 @@
+import type { AccessStatus, AccessUser, AccessUserInput } from './access';
 import type {
+  AuditEntry,
+  AuditQuery,
+  IntegrityReport,
   BulkAddResult,
   JobMaterialInput,
   JobOrder,
@@ -226,6 +230,24 @@ export interface Api {
   weaverPaymentsList(query?: { weaverId?: string }): Promise<WeaverPayment[]>;
   weaverPaymentRecord(input: WeaverPaymentInput): Promise<WeaverPayment>;
   weaverPaymentVoid(id: string, reason: string): Promise<WeaverPayment>;
+
+  /** Whether sign-in is on and who is signed in. Works even when the app is locked. */
+  accessStatus(): Promise<AccessStatus>;
+  accessLogin(userId: string, pin: string): Promise<AccessStatus>;
+  accessLogout(): Promise<AccessStatus>;
+  /** Turns on sign-in with PINs. The first person is the owner and is signed in straight away. */
+  accessEnable(ownerName: string, pin: string): Promise<AccessStatus>;
+  /** Turns sign-in off again. Needs the signed in owner's PIN. */
+  accessDisable(pin: string): Promise<AccessStatus>;
+  accessUsers(): Promise<AccessUser[]>;
+  /** Adds someone (id null) or edits them. A PIN is required for a new person; leave it out when editing to keep theirs. */
+  accessUserSave(id: string | null, input: AccessUserInput): Promise<AccessUser>;
+  accessChangePin(oldPin: string, newPin: string): Promise<void>;
+
+  /** The activity log: who did what and when, newest first. */
+  auditList(query?: AuditQuery): Promise<AuditEntry[]>;
+  /** Checks the books add up: stock against its ledger, invoice arithmetic, payments, balances, numbering, credit notes, and the log's own chain. */
+  integrityCheck(): Promise<IntegrityReport>;
 
   /** Fills an empty database with realistic saree designs so the app can be explored. */
   sampleDataLoad(): Promise<void>;

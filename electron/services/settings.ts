@@ -61,6 +61,7 @@ const FIELDS: { [K in keyof Settings]: Field<K> } = {
   invoiceBank: text('invoice_bank'),
   invoiceFooter: text('invoice_footer'),
   invoiceShowSignature: bool('invoice_show_signature', true),
+  autoLockMinutes: num('auto_lock_minutes', 10),
   upiId: text('upi_id'),
   invoiceShowUpiQr: bool('invoice_show_upi_qr', true),
   shareInvoiceMessage: text('share_invoice_message', DEFAULT_INVOICE_MESSAGE),
@@ -149,6 +150,7 @@ function validate(patch: Partial<Settings>): Partial<Settings> {
   if (patch.invoiceBank !== undefined) v.invoiceBank = optionalText(patch.invoiceBank, 'Bank details', 300);
   if (patch.invoiceFooter !== undefined) v.invoiceFooter = optionalText(patch.invoiceFooter, 'Footer note', 200);
   if (patch.invoiceShowSignature !== undefined) v.invoiceShowSignature = !!patch.invoiceShowSignature;
+  if (patch.autoLockMinutes !== undefined) v.autoLockMinutes = requireInt(patch.autoLockMinutes, 'Auto lock minutes', { max: 600 });
   if (patch.upiId !== undefined) {
     const id = optionalText(patch.upiId, 'UPI id', 80);
     if (id && !isValidUpiId(id)) throw new UserError('A UPI id looks like name@bank, for example maugharana@sbi.');

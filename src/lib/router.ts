@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { Capability } from '../../shared/access';
 import { PERIOD_PRESETS, type PeriodPreset, type PeriodSpec } from '../../shared/periods';
 import { PAYMENT_METHODS, type PaymentMethod, type ProformaStatus } from '../../shared/types';
 
@@ -6,7 +7,7 @@ import { PAYMENT_METHODS, type PaymentMethod, type ProformaStatus } from '../../
 
 export type Section = 'dashboard' | 'inventory' | 'invoices' | 'proformas' | 'customers' | 'payments' | 'purchases' | 'expenses' | 'reports' | 'settings';
 
-export const SETTINGS_SECTIONS = ['business', 'tax', 'invoice', 'proforma', 'expenses', 'accounts', 'instructions', 'sharing', 'notifications', 'data', 'preferences', 'plus'] as const;
+export const SETTINGS_SECTIONS = ['business', 'tax', 'invoice', 'proforma', 'expenses', 'accounts', 'instructions', 'sharing', 'notifications', 'data', 'access', 'activity', 'preferences', 'plus'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 export type Route =
@@ -172,6 +173,34 @@ export const sectionOf = (route: Route): Section => {
       return 'purchases';
   }
 };
+
+/** What signing in as someone must allow for a page to be shown. (The data layer enforces this too; this only decides what is offered.) */
+export function routeNeeds(route: Route): Capability {
+  switch (route.name) {
+    case 'dashboard':
+    case 'expenses':
+    case 'reports':
+      return 'reports';
+    case 'settings':
+      return 'admin';
+    case 'inventory-add':
+      return 'stock';
+    case 'invoice-new':
+    case 'proforma-new':
+      return 'sell';
+    case 'purchases':
+    case 'bill-new':
+    case 'bill':
+    case 'suppliers':
+    case 'supplier':
+    case 'weavers':
+    case 'weaver':
+    case 'job-order':
+      return 'purchases';
+    default:
+      return 'view';
+  }
+}
 
 export const paths = {
   dashboard: '/dashboard',

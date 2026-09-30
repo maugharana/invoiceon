@@ -1,5 +1,9 @@
+import { Lock } from 'lucide-react';
+import { useEffect } from 'react';
 import { AppShell } from './components/Layout';
-import { sectionOf, useRoute, type Route } from './lib/router';
+import { EmptyState } from './components/ui';
+import { useAccess } from './lib/access';
+import { navigate, paths, routeNeeds, sectionOf, useRoute, type Route } from './lib/router';
 import { CustomerPage } from './pages/customers/CustomerPage';
 import { CustomersPage } from './pages/customers/CustomersPage';
 import { DashboardPage } from './pages/DashboardPage';
@@ -138,6 +142,12 @@ const pageKey = (r: Route): string => {
 
 export default function App() {
   const route = useRoute();
+  const { can } = useAccess();
+  const allowed = can(routeNeeds(route));
+  // Someone who may not see the dashboard lands on the invoices instead (the usual start of a counter shift).
+  useEffect(() => {
+    if (!allowed && route.name === 'dashboard') navigate(paths.invoices());
+  }, [allowed, route.name]);
   // Print/PDF export render just the paper, with none of the app around it.
   if (route.name === 'print-invoice') return <PrintInvoicePage id={route.id} />;
   if (route.name === 'print-proforma') return <PrintInvoicePage id={route.id} kind="proforma" />;
@@ -145,7 +155,7 @@ export default function App() {
   if (route.name === 'print-credit-note') return <PrintInvoicePage id={route.id} kind="credit-note" />;
   return (
     <AppShell active={sectionOf(route)} pageKey={pageKey(route)} hideFab={route.name === 'invoice-new' || route.name === 'proforma-new' || route.name === 'inventory-add' || route.name === 'bill-new'}>
-      {renderRoute(route)}
+      {allowed ? renderRoute(route) : <EmptyState icon={<Lock className="h-6 w-6" />} title="This page is not for your role" body="Ask the owner if you need to see it. Everything else in the menu is yours to use." />}
     </AppShell>
   );
 }

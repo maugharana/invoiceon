@@ -1,5 +1,7 @@
 import { ClipboardList, FileText, HandCoins, Plus, Receipt, Shirt, UserPlus, type LucideIcon } from 'lucide-react';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import type { Capability } from '../../shared/access';
+import { useAccess } from '../lib/access';
 import { ExpenseFormModal } from '../pages/expenses/ExpenseFormModal';
 import { CustomerFormModal } from '../pages/customers/CustomerFormModal';
 import { RecordPaymentModal } from '../pages/payments/RecordPaymentModal';
@@ -13,15 +15,17 @@ interface QuickItem {
   icon: LucideIcon;
   /** Pressed while the menu is open. */
   key: string;
+  /** Who is offered it, when sign-in is on. */
+  needs: Capability;
 }
 
 export const QUICK_ITEMS: QuickItem[] = [
-  { kind: 'invoice', label: 'New invoice', icon: FileText, key: 'i' },
-  { kind: 'proforma', label: 'New proforma', icon: ClipboardList, key: 'p' },
-  { kind: 'expense', label: 'New expense', icon: Receipt, key: 'e' },
-  { kind: 'customer', label: 'New customer', icon: UserPlus, key: 'c' },
-  { kind: 'sarees', label: 'Add sarees', icon: Shirt, key: 's' },
-  { kind: 'payment', label: 'Record payment', icon: HandCoins, key: 'r' },
+  { kind: 'invoice', label: 'New invoice', icon: FileText, key: 'i', needs: 'sell' },
+  { kind: 'proforma', label: 'New proforma', icon: ClipboardList, key: 'p', needs: 'sell' },
+  { kind: 'expense', label: 'New expense', icon: Receipt, key: 'e', needs: 'reports' },
+  { kind: 'customer', label: 'New customer', icon: UserPlus, key: 'c', needs: 'sell' },
+  { kind: 'sarees', label: 'Add sarees', icon: Shirt, key: 's', needs: 'stock' },
+  { kind: 'payment', label: 'Record payment', icon: HandCoins, key: 'r', needs: 'sell' },
 ];
 
 const QuickContext = createContext<{ start: (kind: QuickKind) => void }>({ start: () => {} });
@@ -63,6 +67,8 @@ export function QuickCreateProvider({ children }: { children: ReactNode }) {
 /** The round button at the bottom right. It fans out the six things you create most, each with a key. */
 export function QuickCreateFab({ hidden }: { hidden?: boolean }) {
   const { start } = useQuickCreate();
+  const { can } = useAccess();
+  const items = useMemo(() => QUICK_ITEMS.filter((i) => can(i.needs)), [can]);
   const [open, setOpen] = useState(false);
 
   // Anything that changes the page closes the menu; so does Escape.
@@ -76,7 +82,7 @@ export function QuickCreateFab({ hidden }: { hidden?: boolean }) {
         return;
       }
       if (e.ctrlKey || e.metaKey || e.altKey) return;
-      const item = QUICK_ITEMS.find((i) => i.key === e.key.toLowerCase());
+      const item = items.find((i) => i.key === e.key.toLowerCase());
       if (item) {
         e.preventDefault();
         close();
@@ -89,17 +95,17 @@ export function QuickCreateFab({ hidden }: { hidden?: boolean }) {
       window.removeEventListener('hashchange', close);
       document.removeEventListener('keydown', onKey);
     };
-  }, [open, start]);
+  }, [open, start, items]);
 
-  if (hidden) return null;
+  if (hidden || items.length === 0) return null;
   return (
     <>
       {open && <div aria-hidden onClick={() => setOpen(false)} className="animate-fade-in fixed inset-0 z-30 bg-canvas/70 backdrop-blur-[2px]" />}
       <div className="fixed bottom-7 right-8 z-30 flex flex-col items-end gap-3">
         {open && (
           <ul role="menu" aria-label="Create" className="flex flex-col items-end gap-2.5">
-            {QUICK_ITEMS.map(({ kind, label, icon: Icon, key }, i) => (
-              <li key={kind} role="none" className="animate-pop-in" style={{ animationDelay: `${(QUICK_ITEMS.length - 1 - i) * 38}ms` }}>
+            {items.map(({ kind, label, icon: Icon, key }, i) => (
+              <li key={kind} role="none" className="animate-pop-in" style={{ animationDelay: `${(items.length - 1 - i) * 38}ms` }}>
                 <button
                   type="button"
                   role="menuitem"

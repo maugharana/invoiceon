@@ -53,6 +53,8 @@ export interface Settings {
   /** A closing line, e.g. "Thank you for shopping with us". */
   invoiceFooter: string;
   invoiceShowSignature: boolean;
+  /** Minutes without use before the app locks itself, when access control is on. 0 means never. */
+  autoLockMinutes: number;
   // ── Sharing and paying ──
   /** Your UPI id (name@bank). When set, invoices show a QR code that opens a UPI app ready to pay the amount due. */
   upiId: string;
@@ -1275,4 +1277,44 @@ export interface WeaverLedgerEntry {
 export interface WeaverLedger {
   weaver: Weaver;
   entries: WeaverLedgerEntry[];
+}
+
+// ── Activity log and integrity ──────────────────────────────────────────────
+export interface AuditEntry {
+  id: string;
+  /** ISO timestamp. */
+  at: string;
+  actor: string;
+  action: string;
+  /** What kind of record: 'invoice', 'payment', 'stock', 'settings'... */
+  entity: string;
+  entityId: string | null;
+  summary: string;
+  /** Extra facts worth keeping, e.g. the old and new price. */
+  detail: Record<string, unknown> | null;
+}
+
+export interface AuditQuery {
+  search?: string;
+  entity?: string;
+  /** Local dates, YYYY-MM-DD. */
+  from?: string;
+  to?: string;
+  limit?: number;
+}
+
+export interface IntegrityCheck {
+  id: string;
+  title: string;
+  /** How many records were looked at. */
+  checked: number;
+  problemCount: number;
+  /** The first few problems, in words. */
+  problems: string[];
+}
+
+export interface IntegrityReport {
+  ranAt: string;
+  checks: IntegrityCheck[];
+  problemCount: number;
 }

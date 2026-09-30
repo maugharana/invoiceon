@@ -2,14 +2,18 @@ import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Api, Envelope } from '../shared/api';
 import { encodeLabelRequest, labelSizeById, parseLabelRequest } from '../shared/labels';
+import { listAudit, withAudit, type Actor } from './audit';
 import { backupNow, listBackups, restoreBackup } from './backup';
 import type { Db } from './db/connection';
 import { UserError } from './services/common';
+import * as access from './services/access';
+import { createSession } from './services/access';
 import * as creditNotes from './services/creditNotes';
 import * as customers from './services/customers';
 import { dashboardOverview } from './services/dashboard';
 import * as expenses from './services/expenses';
 import * as inventory from './services/inventory';
+import { integrityCheck } from './services/integrity';
 import * as invoices from './services/invoices';
 import * as materials from './services/materials';
 import * as payments from './services/payments';
@@ -36,8 +40,11 @@ const DESKTOP_ONLY = 'This works in the InvoiceOn desktop app only.';
 const labelQuery = (req: ReturnType<typeof parseLabelRequest>): string => encodeLabelRequest(req);
 
 /** Binds the data layer to one open database. This is the only place that knows which service backs which call. */
-export function createApi(db: Db, host?: Host, dataDir?: string): Api {
-  return {
+export function createApi(db: Db, host?: Host, dataDir?: string, actor?: () => Actor): Api {
+  // Who is signed in lives here, in memory. With access control off (the default) it never matters and every call goes straight through.
+  const session = createSession(db);
+  const who = actor ?? (() => session.actor());
+  const api: Api = {
     getSettings: async () => settings.getSettings(db),
     saveSettings: async (patch) => settings.saveSettings(db, patch),
 
@@ -213,7 +220,22 @@ export function createApi(db: Db, host?: Host, dataDir?: string): Api {
       if (!dataDir) throw new UserError(DESKTOP_ONLY);
       return restoreBackup(db, join(dataDir, 'backups'), name);
     },
+
+    accessStatus: async () => access.status(db, session),
+    accessLogin: async (userId, pin) => access.login(db, session, userId, pin),
+    accessLogout: async () => access.logout(db, session),
+    accessEnable: async (ownerName, pin) => access.enable(db, session, ownerName, pin),
+    accessDisable: async (pin) => access.disable(db, session, pin),
+    accessUsers: async () => access.listUsers(db),
+    accessUserSave: async (id, input) => access.saveUser(db, who(), id, input),
+    accessChangePin: async (oldPin, newPin) => access.changeOwnPin(db, session, oldPin, newPin),
+
+    auditList: async (query) => listAudit(db, query ?? {}),
+    integrityCheck: async () => integrityCheck(db),
   };
+  // Every change made through the API is recorded in the activity log once it has succeeded; reads pass straight through. Roles are
+  // enforced outside that, so a call that is refused is never logged as having happened.
+  return access.withAccess(db, withAudit(db, api, who), session);
 }
 
 /**

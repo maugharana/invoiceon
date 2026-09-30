@@ -4,7 +4,8 @@ import { createPortal } from 'react-dom';
 import { matchesAll } from '../../shared/search';
 import type { Customer, DesignSummary, InvoiceSummary, ProformaSummary } from '../../shared/types';
 import { api } from '../lib/api';
-import { navigate, paths } from '../lib/router';
+import { useAccess } from '../lib/access';
+import { navigate, parseHash, paths, routeNeeds } from '../lib/router';
 import { QUICK_ITEMS, useQuickCreate } from './QuickCreate';
 
 interface Command {
@@ -62,6 +63,7 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
 
 function Palette({ onClose }: { onClose: () => void }) {
   const { start } = useQuickCreate();
+  const { can } = useAccess();
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const [records, setRecords] = useState<Records | null>(null);
@@ -80,7 +82,7 @@ function Palette({ onClose }: { onClose: () => void }) {
   const go = (path: string) => () => navigate(path);
 
   const commands = useMemo<Command[]>(() => {
-    const create: Command[] = QUICK_ITEMS.map((q) => ({ id: `create-${q.kind}`, group: 'Create', label: q.label, icon: q.icon, keywords: 'add new create', run: () => start(q.kind) }));
+    const create: Command[] = QUICK_ITEMS.filter((q) => can(q.needs)).map((q) => ({ id: `create-${q.kind}`, group: 'Create', label: q.label, icon: q.icon, keywords: 'add new create', run: () => start(q.kind) }));
     const pages: [string, string, LucideIcon, string?][] = [
       ['Dashboard', paths.dashboard, LayoutDashboard],
       ['Inventory', paths.inventory(), Boxes, 'designs stock sarees'],
@@ -107,13 +109,13 @@ function Palette({ onClose }: { onClose: () => void }) {
     const rec = records;
     return [
       ...create,
-      ...pages.map(([label, path, icon, keywords]): Command => ({ id: `go-${path}`, group: 'Go to', label, icon, keywords, run: go(path) })),
+      ...pages.filter(([, path]) => can(routeNeeds(parseHash(path)))).map(([label, path, icon, keywords]): Command => ({ id: `go-${path}`, group: 'Go to', label, icon, keywords, run: go(path) })),
       ...(rec?.customers ?? []).map((c): Command => ({ id: `c-${c.id}`, group: 'Customers', label: c.name, hint: [c.phone, c.city].filter(Boolean).join(' · '), icon: UserRound, keywords: c.gstin, run: go(paths.customer(c.id)) })),
       ...(rec?.invoices ?? []).map((i): Command => ({ id: `i-${i.id}`, group: 'Invoices', label: i.number, hint: i.buyerName, icon: FileText, run: go(paths.invoice(i.id)) })),
       ...(rec?.proformas ?? []).map((p): Command => ({ id: `p-${p.id}`, group: 'Proformas', label: p.number, hint: p.buyerName, icon: ClipboardList, run: go(paths.proforma(p.id)) })),
       ...(rec?.designs ?? []).map((d): Command => ({ id: `d-${d.id}`, group: 'Designs', label: d.name, hint: `${d.code} · ${d.fabric}`, icon: Shirt, run: go(paths.design(d.id)) })),
     ];
-  }, [records, start]);
+  }, [records, start, can]);
 
   // Nothing typed: just the actions and pages. Typing searches everything, a few per group.
   const results = useMemo(() => {

@@ -1,6 +1,9 @@
-import { BarChart3, Boxes, ClipboardList, FileText, LayoutDashboard, Plus, Receipt, Search, Settings as SettingsIcon, Truck, Users, Wallet, type LucideIcon } from 'lucide-react';
+import { BarChart3, Boxes, ClipboardList, FileText, KeyRound, LayoutDashboard, Lock, Plus, Receipt, Search, Settings as SettingsIcon, Truck, Users, Wallet, type LucideIcon } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { ROLE_LABEL, type Capability } from '../../shared/access';
 import { api } from '../lib/api';
+import { useAccess } from '../lib/access';
+import { ChangePinDialog } from './ChangePinDialog';
 import { useQuery } from '../lib/data';
 import { navigate, paths, type Section } from '../lib/router';
 import { CommandPaletteProvider, useCommandPalette } from './CommandPalette';
@@ -46,22 +49,24 @@ export function TopBar() {
   );
 }
 
-const NAV: { section: Section; label: string; icon: LucideIcon }[] = [
-  { section: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { section: 'inventory', label: 'Inventory', icon: Boxes },
-  { section: 'invoices', label: 'Invoices', icon: FileText },
-  { section: 'proformas', label: 'Proformas', icon: ClipboardList },
-  { section: 'customers', label: 'Customers', icon: Users },
-  { section: 'payments', label: 'Payments', icon: Wallet },
-  { section: 'purchases', label: 'Purchases', icon: Truck },
-  { section: 'expenses', label: 'Expenses', icon: Receipt },
-  { section: 'reports', label: 'Reports', icon: BarChart3 },
+const NAV: { section: Section; label: string; icon: LucideIcon; needs: Capability }[] = [
+  { section: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, needs: 'reports' },
+  { section: 'inventory', label: 'Inventory', icon: Boxes, needs: 'view' },
+  { section: 'invoices', label: 'Invoices', icon: FileText, needs: 'view' },
+  { section: 'proformas', label: 'Proformas', icon: ClipboardList, needs: 'view' },
+  { section: 'customers', label: 'Customers', icon: Users, needs: 'view' },
+  { section: 'payments', label: 'Payments', icon: Wallet, needs: 'view' },
+  { section: 'purchases', label: 'Purchases', icon: Truck, needs: 'purchases' },
+  { section: 'expenses', label: 'Expenses', icon: Receipt, needs: 'reports' },
+  { section: 'reports', label: 'Reports', icon: BarChart3, needs: 'reports' },
 ];
 
 export function Sidebar({ active }: { active: Section }) {
+  const { status, can, lock } = useAccess();
+  const [changingPin, setChangingPin] = useState(false);
   const settings = useQuery(() => api.getSettings());
   const summary = useQuery(() => api.inventorySummary());
-  const dash = useQuery(() => api.dashboardSummary());
+  const dash = useQuery(() => (can('reports') ? api.dashboardSummary() : Promise.resolve(null)));
   // Settings → Notifications decides which of these counts are shown.
   const lowStock = settings.data?.notifyLowStock === false ? 0 : (summary.data?.lowStockDesigns ?? 0);
   const overdue = settings.data?.notifyOverdue === false ? 0 : (dash.data?.overdueCount ?? 0);
@@ -89,7 +94,7 @@ export function Sidebar({ active }: { active: Section }) {
         >
           <span className="absolute inset-y-2 left-0 w-[3px] rounded-full bg-brand" />
         </span>
-        {NAV.map(({ section, label, icon: Icon }) => {
+        {NAV.filter((n) => can(n.needs)).map(({ section, label, icon: Icon }) => {
           const isActive = section === active;
           return (
             <li key={section}>
@@ -116,14 +121,32 @@ export function Sidebar({ active }: { active: Section }) {
         })}
       </ul>
       <div className="mt-auto space-y-3 pt-4">
-        <a
-          href={`#${paths.settings}`}
-          aria-current={active === 'settings' ? 'page' : undefined}
-          className={`flex h-9 items-center gap-3 rounded-lg px-3 transition-colors duration-150 ${active === 'settings' ? 'bg-brand-tint font-medium text-brand' : 'text-ink-muted hover:bg-ink/5 hover:text-ink'}`}
-        >
-          <SettingsIcon className="h-[18px] w-[18px]" aria-hidden />
-          Settings
-        </a>
+        {can('admin') && (
+          <a
+            href={`#${paths.settings}`}
+            aria-current={active === 'settings' ? 'page' : undefined}
+            className={`flex h-9 items-center gap-3 rounded-lg px-3 transition-colors duration-150 ${active === 'settings' ? 'bg-brand-tint font-medium text-brand' : 'text-ink-muted hover:bg-ink/5 hover:text-ink'}`}
+          >
+            <SettingsIcon className="h-[18px] w-[18px]" aria-hidden />
+            Settings
+          </a>
+        )}
+        {status?.enabled && status.user && (
+          <div className="flex items-center justify-between gap-2 rounded-lg border border-line px-3 py-2">
+            <div className="min-w-0">
+              <div className="truncate text-sm">{status.user.name}</div>
+              <div className="text-xs text-ink-muted">{ROLE_LABEL[status.user.role]}</div>
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
+              <button type="button" title="Change my PIN" aria-label="Change my PIN" onClick={() => setChangingPin(true)} className="rounded-md p-1.5 text-ink-muted transition-colors hover:bg-ink/5 hover:text-ink">
+                <KeyRound className="h-4 w-4" aria-hidden />
+              </button>
+              <button type="button" title="Lock the app" aria-label="Lock the app" onClick={() => void lock()} className="rounded-md p-1.5 text-ink-muted transition-colors hover:bg-ink/5 hover:text-ink">
+                <Lock className="h-4 w-4" aria-hidden />
+              </button>
+            </div>
+          </div>
+        )}
         <div className="px-3 text-xs text-ink-muted">
           <div className="truncate text-ink">{settings.data?.businessName}</div>
           <div className="mt-0.5 flex items-center gap-2" title="Your data is stored on this computer and works without internet">
@@ -136,6 +159,7 @@ export function Sidebar({ active }: { active: Section }) {
           <div className="mt-0.5">InvoiceOn v0.3</div>
         </div>
       </div>
+      {changingPin && <ChangePinDialog onClose={() => setChangingPin(false)} />}
     </nav>
   );
 }
