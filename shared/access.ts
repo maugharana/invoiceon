@@ -32,7 +32,7 @@ const sell = ['contactLog', 'promiseCreate', 'promiseCancel', 'customerCreate', 
 const cancel = ['offerSave', 'offerArchive', 'loyaltyAdjust', 'invoiceCancel', 'paymentVoid', 'creditNoteCancel', 'proformaCancel', 'customerArchive'];
 const stock = ['designPhotoAdd', 'designPhotoRemove', 'designPhotoCover', 'designCreate', 'designUpdate', 'designArchive', 'inventoryBulkAdd', 'variantCreate', 'variantUpdate', 'variantArchive', 'stockAdjust', 'materialCreate', 'materialUpdate', 'materialDelete'];
 const purchases = ['suppliersList', 'supplierGet', 'supplierCreate', 'supplierUpdate', 'supplierArchive', 'supplierLedger', 'purchaseBillsList', 'purchaseBillGet', 'purchaseBillCreate', 'purchaseBillCancel', 'purchaseBillApplyAdvance', 'supplierPaymentsList', 'supplierPaymentRecord', 'supplierPaymentVoid', 'payablesReport', 'purchasesSummary', 'weaversList', 'weaverGet', 'weaverCreate', 'weaverUpdate', 'weaverArchive', 'weaverLedger', 'jobOrdersList', 'jobOrderGet', 'jobOrderCreate', 'jobOrderIssueMaterial', 'jobOrderReceive', 'jobOrderReverseReceipt', 'jobOrderClose', 'jobOrderCancel', 'weaverPaymentsList', 'weaverPaymentRecord', 'weaverPaymentVoid'];
-const reports = ['reportSales', 'reportGst', 'gstFilingExport', 'reportStock', 'dashboardOverview', 'expensesList', 'expensesOverview', 'expenseCreate', 'expenseUpdate', 'expenseDelete'];
+const reports = ['stockInsights', 'reportSales', 'reportGst', 'gstFilingExport', 'reportStock', 'dashboardOverview', 'expensesList', 'expensesOverview', 'expenseCreate', 'expenseUpdate', 'expenseDelete'];
 
 export const METHOD_CAPABILITY: Record<string, Capability> = Object.fromEntries([
   ...view.map((m) => [m, 'view']),

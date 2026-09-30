@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type { Api, Envelope } from '../shared/api';
 import { catalogueData } from './services/catalogue';
 import * as followups from './services/followups';
+import { stockInsights } from './services/insights';
 import * as offers from './services/offers';
 import * as photos from './services/photos';
 import { encodeCatalogueRequest, parseCatalogueRequest } from '../shared/catalogue';
@@ -135,6 +136,7 @@ export function createApi(db: Db, host?: Host, dataDir?: string, actor?: () => A
       return host.exportDocumentPdf(`/print/labels?${labelQuery(req)}`, 'Saree labels.pdf');
     },
 
+    stockInsights: async (params) => stockInsights(db, params ?? undefined),
     followUps: async () => followups.followUps(db),
     customerFollowUps: async (customerId) => followups.customerFollowUps(db, customerId),
     contactLog: async (customerId, channel, note) => followups.logContact(db, customerId, channel, note),

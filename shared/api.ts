@@ -2,6 +2,7 @@ import type { AccessStatus, AccessUser, AccessUserInput } from './access';
 import type { CatalogueData, DesignPhoto, DesignPhotoInput } from './catalogue';
 import type { FilingFile, FilingRequest } from './filing';
 import type { MobileStatus } from './mobile';
+import type { InsightParams, StockInsights } from './insights';
 import type { ContactChannel, Contact, CustomerFollowUps, FollowUp, PaymentPromise, PromiseInput } from './followup';
 import type { LoyaltyAccount, LoyaltyConfig, Offer, OfferInput } from './offers';
 import type { OffsiteSetup, OffsiteStatus } from './offsite';
@@ -179,6 +180,8 @@ export interface Api {
   offsiteRestore(name: string, passphrase?: string): Promise<{ restoredFrom: string; restorePoint: string }>;
   /** The desktop app's folder chooser. */
   offsiteChooseFolder(): Promise<{ folder: string | null }>;
+  /** What to make or buy next, and what has stopped selling. Read only; shows costs, so it is a reports call. */
+  stockInsights(params?: Partial<InsightParams>): Promise<StockInsights>;
   /** Chasing money: who was reminded or called, and promises to pay. */
   followUps(): Promise<FollowUp[]>;
   customerFollowUps(customerId: string): Promise<CustomerFollowUps>;

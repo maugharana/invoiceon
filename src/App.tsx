@@ -13,6 +13,7 @@ import { AddSareesPage } from './pages/inventory/AddSareesPage';
 import { CataloguePage } from './pages/inventory/CataloguePage';
 import { LabelsPage } from './pages/inventory/LabelsPage';
 import { PrintCataloguePage } from './pages/inventory/PrintCataloguePage';
+import { RestockPage } from './pages/inventory/RestockPage';
 import { PrintLabelsPage } from './pages/inventory/PrintLabelsPage';
 import { MaterialsPage } from './pages/inventory/MaterialsPage';
 import { InvoicePage } from './pages/invoices/InvoicePage';
@@ -47,6 +48,8 @@ function renderRoute(route: Route) {
       return <LabelsPage design={route.design} />;
     case 'catalogue':
       return <CataloguePage />;
+    case 'restock':
+      return <RestockPage />;
     case 'inventory-add':
       return <AddSareesPage />;
     case 'design':

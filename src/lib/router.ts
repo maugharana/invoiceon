@@ -16,6 +16,7 @@ export type Route =
   | { name: 'materials' }
   | { name: 'labels'; design: string | null }
   | { name: 'catalogue' }
+  | { name: 'restock' }
   | { name: 'inventory-add' }
   | { name: 'design'; id: string }
   | { name: 'invoices'; status: 'all' | 'open' | 'overdue' | 'cancelled' }
@@ -68,6 +69,7 @@ export function parseHash(hash: string): Route {
       if (parts[1] === 'materials') return { name: 'materials' };
       if (parts[1] === 'labels') return { name: 'labels', design: params.get('design') };
       if (parts[1] === 'catalogue') return { name: 'catalogue' };
+      if (parts[1] === 'restock') return { name: 'restock' };
       if (parts[1] === 'add') return { name: 'inventory-add' };
       if (parts[1] === 'designs' && id) return { name: 'design', id };
       const status = params.get('status');
@@ -142,6 +144,7 @@ export const sectionOf = (route: Route): Section => {
     case 'materials':
     case 'labels':
     case 'catalogue':
+    case 'restock':
     case 'print-labels':
     case 'print-catalogue':
     case 'inventory-add':
@@ -186,6 +189,7 @@ export function routeNeeds(route: Route): Capability {
     case 'dashboard':
     case 'expenses':
     case 'reports':
+    case 'restock':
       return 'reports';
     case 'settings':
       return 'admin';
@@ -215,6 +219,7 @@ export const paths = {
   labels: (designId?: string) => (designId ? `/inventory/labels?design=${encodeURIComponent(designId)}` : '/inventory/labels'),
   addSarees: '/inventory/add',
   catalogue: '/inventory/catalogue',
+  restock: '/inventory/restock',
   design: (id: string) => `/inventory/designs/${encodeURIComponent(id)}`,
   invoices: (status?: 'open' | 'overdue' | 'cancelled') => (status ? `/invoices?status=${status}` : '/invoices'),
   newInvoice: (customerId?: string, advance?: AdvancePreset) => {

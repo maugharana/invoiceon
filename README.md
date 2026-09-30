@@ -291,6 +291,13 @@ The period lives in the URL, so switching tabs keeps it.
 - **Promises are judged from the books, not typed in.** A promise is *kept* once money (not a credit note) has been received from that customer since it was made, to the promised amount, even in pieces; it stays *open* through the promised day, and is *broken* the day after if the money did not come. Reversing a payment un-keeps it. Only the facts are stored (`customer_contacts`, `payment_promises`), the state is worked out on every read (`shared/followup.ts`), so it can never disagree with the payments.
 - **Worth chasing today.** The *Only customers to follow up* filter lists customers who are overdue, have no promise still to come, and either broke a promise or have not been contacted for a week. Counter staff can log follow-ups; nothing here changes what is owed.
 
+## Restock suggestions and dead stock (stage 23)
+
+- **Inventory, Restock** (owners and managers, since it shows costs) says what to make or buy and what has stopped selling. It only reads.
+- **The rule, in full.** For each piece: pieces sold over the look-back period (90 days by default; issued invoices less returns on credit notes, cancelled invoices ignored) give a speed per day. That is projected over the lead time plus the days a batch should last (21 and 30 by default), and the pieces already on the shelf and already owed by open weaver orders are taken off. The answer is rounded up and is never negative; a piece with a reorder level is never allowed below it, even if it is not selling. A piece is *running out* when it sells and is gone, or will be, before a new batch could arrive, unless a batch is already on order. All four numbers can be changed on the page, and the page shows its reasoning. The list exports to CSV for ordering.
+- **Dead stock.** Pieces on the shelf with no sale for 90 days (changeable), or never sold and added that long ago, with the cost tied up, costliest first. A piece added recently gets that long to sell. A link goes to Offers, one way to free the money.
+- The maths is in `shared/insights.ts` and is unit tested, including on-order, returns, cancelled invoices and each setting.
+
 ## Brand
 
 Tokens live in `tailwind.config.js` (teal `#0F6E56`, gold `#D9A94E` for one figure per screen, status pairs, ink).
