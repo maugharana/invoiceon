@@ -141,7 +141,7 @@ describe('the integrity check', () => {
   it('finds nothing wrong with the sample data, which touches every part', () => {
     loadSampleData(db);
     const report = integrityCheck(db);
-    expect(report.checks.map((c) => c.id)).toEqual(['database', 'stock', 'invoices', 'proformas', 'numbering', 'payments', 'balances', 'credit-notes', 'purchases', 'audit']);
+    expect(report.checks.map((c) => c.id)).toEqual(['database', 'stock', 'invoices', 'proformas', 'numbering', 'payments', 'balances', 'credit-notes', 'purchases', 'locations', 'audit']);
     expect(report.checks.filter((c) => c.problemCount > 0)).toEqual([]);
     expect(report.problemCount).toBe(0);
     expect(report.checks.find((c) => c.id === 'invoices')!.checked).toBeGreaterThan(0);
