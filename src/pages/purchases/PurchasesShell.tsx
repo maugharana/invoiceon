@@ -5,6 +5,7 @@ import { paths } from '../../lib/router';
 const TABS = [
   { id: 'bills', label: 'Bills', href: paths.purchases() },
   { id: 'suppliers', label: 'Suppliers', href: paths.suppliers },
+  { id: 'weavers', label: 'Weavers', href: paths.weavers },
 ] as const;
 
 export type PurchasesTab = (typeof TABS)[number]['id'];

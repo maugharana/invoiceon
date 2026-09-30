@@ -25,6 +25,9 @@ export type Route =
   | { name: 'bill'; id: string }
   | { name: 'suppliers' }
   | { name: 'supplier'; id: string }
+  | { name: 'weavers' }
+  | { name: 'weaver'; id: string }
+  | { name: 'job-order'; id: string }
   | { name: 'credit-notes' }
   | { name: 'credit-note'; id: string }
   | { name: 'proformas'; status: 'all' | ProformaStatus }
@@ -78,6 +81,8 @@ export function parseHash(hash: string): Route {
       if (parts[1] === 'new') return { name: 'bill-new', supplierId: params.get('supplier') };
       if (parts[1] === 'bills' && id) return { name: 'bill', id };
       if (parts[1] === 'suppliers') return id ? { name: 'supplier', id } : { name: 'suppliers' };
+      if (parts[1] === 'weavers') return id ? { name: 'weaver', id } : { name: 'weavers' };
+      if (parts[1] === 'orders' && id) return { name: 'job-order', id };
       const status = params.get('status');
       return { name: 'purchases', status: status === 'open' || status === 'overdue' || status === 'cancelled' ? status : 'all' };
     }
@@ -155,6 +160,9 @@ export const sectionOf = (route: Route): Section => {
     case 'bill':
     case 'suppliers':
     case 'supplier':
+    case 'weavers':
+    case 'weaver':
+    case 'job-order':
       return 'purchases';
   }
 };
@@ -198,6 +206,9 @@ export const paths = {
   bill: (id: string) => `/purchases/bills/${encodeURIComponent(id)}`,
   suppliers: '/purchases/suppliers',
   supplier: (id: string) => `/purchases/suppliers/${encodeURIComponent(id)}`,
+  weavers: '/purchases/weavers',
+  weaver: (id: string) => `/purchases/weavers/${encodeURIComponent(id)}`,
+  jobOrder: (id: string) => `/purchases/orders/${encodeURIComponent(id)}`,
   creditNotes: '/credit-notes',
   creditNote: (id: string) => `/credit-notes/${encodeURIComponent(id)}`,
   customers: '/customers',

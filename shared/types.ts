@@ -1105,3 +1105,158 @@ export interface PurchasesSummary {
   monthBills: number;
   supplierCount: number;
 }
+
+// ── Weavers and job work ────────────────────────────────────────────────────
+export interface WeaverInput {
+  name: string;
+  phone: string;
+  /** Village, town or workshop. */
+  place: string;
+  notes: string;
+}
+export interface Weaver extends WeaverInput {
+  id: string;
+  openOrders: number;
+  /** Pieces still to come back across their open orders. */
+  piecesPending: number;
+  /** Wages earned on pieces received. */
+  earnedPaise: Paise;
+  paidPaise: Paise;
+  /** Positive: you owe them. Negative: you have paid ahead (an advance). */
+  balancePaise: Paise;
+}
+
+/** 'complete' and 'overdue' are worked out from the pieces received and the expected date; they are never stored. */
+export type JobOrderStatus = 'open' | 'complete' | 'closed' | 'cancelled';
+export const JOB_ORDER_STATUS_LABEL: Record<JobOrderStatus, string> = { open: 'In progress', complete: 'Received', closed: 'Closed short', cancelled: 'Cancelled' };
+
+export interface JobOrderInput {
+  weaverId: string;
+  variantId: string;
+  qty: number;
+  /** What you pay the weaver for each piece. */
+  wagePaise: Paise;
+  expectedOn: string | null;
+  note: string;
+}
+
+export interface JobOrderSummary {
+  id: string;
+  number: string;
+  weaverId: string;
+  weaverName: string;
+  variantId: string;
+  designName: string;
+  color: string;
+  size: string;
+  sku: string;
+  qty: number;
+  receivedQty: number;
+  wagePaise: Paise;
+  orderedOn: string;
+  expectedOn: string | null;
+  status: JobOrderStatus;
+  /** Still open, not all received, and past the expected date. */
+  overdue: boolean;
+}
+
+export interface JobMaterial {
+  id: string;
+  materialId: string;
+  materialName: string;
+  unit: string;
+  /** Positive: handed to the weaver. Negative: handed back. */
+  qty: number;
+  unitCostPaise: Paise;
+  issuedOn: string;
+  note: string;
+}
+
+export interface JobReceipt {
+  id: string;
+  qty: number;
+  receivedOn: string;
+  note: string;
+  reversed: boolean;
+  reverseReason: string;
+}
+
+export interface JobOrder extends JobOrderSummary {
+  note: string;
+  materials: JobMaterial[];
+  receipts: JobReceipt[];
+  /** What the raw material handed over is worth, at the cost when it was issued. */
+  materialsValuePaise: Paise;
+  /** Wages earned so far: pieces received times the wage. */
+  earnedPaise: Paise;
+  /** Wage plus the raw material per piece ordered: what each piece really costs you. */
+  realCostPerPiecePaise: Paise;
+  closedAt: string | null;
+  closeReason: string;
+}
+
+export interface JobMaterialInput {
+  orderId: string;
+  materialId: string;
+  /** Positive to hand over, negative to record material handed back. */
+  qty: number;
+  issuedOn: string;
+  note: string;
+}
+
+export interface JobReceiptInput {
+  orderId: string;
+  qty: number;
+  receivedOn: string;
+  note: string;
+  /** Set the design's cost to what these pieces really cost (wage plus material). */
+  updateCost?: boolean;
+}
+
+export interface JobOrderQuery {
+  weaverId?: string;
+  status?: 'all' | 'open' | 'overdue' | 'done';
+}
+
+export interface WeaverPaymentInput {
+  weaverId: string;
+  /** Optional: which order this is for, just as a note on the payment. */
+  orderId?: string | null;
+  amountPaise: Paise;
+  method: PaymentMethod;
+  reference: string;
+  paidOn: string;
+  note: string;
+}
+
+export interface WeaverPayment {
+  id: string;
+  weaverId: string;
+  weaverName: string;
+  orderId: string | null;
+  orderNumber: string | null;
+  amountPaise: Paise;
+  method: PaymentMethod;
+  reference: string;
+  paidOn: string;
+  note: string;
+  voided: boolean;
+  voidReason: string;
+}
+
+export interface WeaverLedgerEntry {
+  date: string;
+  kind: 'received' | 'received-reversed' | 'payment' | 'payment-voided';
+  description: string;
+  orderId?: string;
+  /** Wages earned. */
+  earnedPaise: Paise;
+  paidPaise: Paise;
+  /** Positive: you owe them. Negative: you have paid ahead. */
+  balancePaise: Paise;
+}
+
+export interface WeaverLedger {
+  weaver: Weaver;
+  entries: WeaverLedgerEntry[];
+}

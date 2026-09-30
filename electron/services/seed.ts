@@ -9,6 +9,7 @@ import { cancelInvoice, createInvoice, variantsForSale } from './invoices';
 import { createMaterial } from './materials';
 import { createBill, recordSupplierPayment } from './purchases';
 import { createSupplier } from './suppliers';
+import { createJobOrder, createWeaver, issueMaterial, recordWeaverPayment } from './weavers';
 import { recordPayment } from './payments';
 import { cancelProforma, createProforma } from './proformas';
 import { getSettings, saveSettings } from './settings';
@@ -115,6 +116,7 @@ export function loadSampleData(db: Db): void {
     addSampleExpenses(db);
     addSampleProformas(db);
     addSamplePurchases(db, { silk: silk.id, zari: zari.id });
+    addSampleWeavers(db, { silk: silk.id, zari: zari.id });
   });
 }
 
@@ -221,4 +223,18 @@ function addSamplePurchases(db: Db, ids: { silk: string; zari: string }): void {
   recordSupplierPayment(db, { supplierId: surat.id, amountPaise: rupees(10000), method: 'upi', reference: 'UPI 55120', paidOn: day(-20), note: 'Part payment', allocations: [{ billId: zariBill.id, amountPaise: rupees(10000) }] });
 
   createBill(db, { supplierId: varanasi.id, billNumber: 'VST/2098', billDate: day(-8), dueDate: day(7), notes: '', lines: [{ kind: 'material', materialId: ids.silk, qty: 4, unitPricePaise: rupees(4700), gstRatePercent: 5 }, { kind: 'material', materialId: ids.zari, qty: 0.5, unitPricePaise: rupees(9200), gstRatePercent: 5 }] });
+}
+
+/**
+ * One weaver with an order for a saree that is out of stock, yarn handed over, and an advance paid. Nothing is received, so stock
+ * is untouched; receiving the pieces from the Weavers screen is what brings them in.
+ */
+function addSampleWeavers(db: Db, ids: { silk: string; zari: string }): void {
+  const today = todayIso();
+  const weaver = createWeaver(db, { name: 'Rafiq Ansari', phone: '9876500077', place: 'Kopaganj, Mau', notes: 'Katan and organza on four looms' });
+  const blush = variantsForSale(db).find((v) => v.designName.includes('Organza') && v.color === 'Blush')!;
+  const order = createJobOrder(db, { weaverId: weaver.id, variantId: blush.variantId, qty: 4, wagePaise: rupees(1200), expectedOn: addDays(today, 12), note: 'Floral jaal, blush, same as last season' });
+  issueMaterial(db, { orderId: order.id, materialId: ids.silk, qty: 0.9, issuedOn: addDays(today, -2), note: '' });
+  issueMaterial(db, { orderId: order.id, materialId: ids.zari, qty: 0.08, issuedOn: addDays(today, -2), note: 'for the jaal' });
+  recordWeaverPayment(db, { weaverId: weaver.id, orderId: order.id, amountPaise: rupees(2000), method: 'cash', reference: '', paidOn: addDays(today, -2), note: 'Advance for yarn' });
 }

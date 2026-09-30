@@ -17,6 +17,7 @@ Windows desktop app, offline-first: your data lives in a local SQLite file, no i
 | 9 | Restore from backup | **Done** |
 | 10 | Several GST rates (per design, and by price step) | **Done** |
 | 11 | Suppliers, purchase bills, payables, input tax credit | **Done** |
+| 12 | Weavers and job work orders | **Done** |
 
 **New here? Start with [`docs/TOUR.md`](docs/TOUR.md)** — a ten-minute guided tour (see it, generate a PDF, see what the PDF looks
 like, customise it). Sample PDFs are in [`sample-pdfs/`](sample-pdfs). If packaging fails on Windows, see
@@ -213,6 +214,15 @@ The period lives in the URL, so switching tabs keeps it.
 - **Optional cost update.** Tick "update costs to this bill's prices" and each raw material's cost, and the cost of sarees bought finished, follow the bill (a saree's own cost is its bill price less its raw materials). Off by default.
 - **Input tax credit.** Bills marked eligible (default when the supplier has a GSTIN) feed the GST report's new *What you pay after input credit* table: output tax after credit notes, less input credit, set off in the order the rules require (`setOffInputCredit`: IGST credit against IGST, CGST, SGST; CGST or SGST credit against their own head, then IGST), giving cash payable and carry forward by head. Cancelled bills and bills marked not eligible are left out.
 - Purchases do not appear in *Expenses*: expenses stay for day to day costs, bills for what you buy from suppliers. Schema migration 8 adds `suppliers`, `purchase_bills`, `purchase_bill_lines`, `supplier_payments` and `supplier_payment_allocations`.
+
+## Weavers and job work (stage 12)
+
+- **Purchases → Weavers.** A weaver has orders. An **order** (`WO/2026-27/0001`) is a number of pieces of one saree at a **wage per piece**, with an expected date. While it is open you can **hand over material** (yarn, zari; a minus quantity records leftover handed back) and **receive pieces** as they come, in as many parts as needed.
+- **Receiving brings stock in through the ledger** (`production`). Pieces are refused if the number is far above the order (more than half as many again is almost always a typo); a few extra are fine. A receipt entered by mistake can be reversed: the pieces leave stock (refused if some are already sold) and the wage is no longer owed.
+- **What you owe a weaver is worked out, never stored:** wages on receipts that have not been reversed, less payments. Paying before anything arrives is an advance (the balance goes negative). Payments can be reversed; the statement keeps every reversal and its running balance always equals what the weaver's page shows.
+- **Real cost per piece** = the wage plus the raw material handed over (valued at its cost when issued) shared over the pieces ordered. Tick "set this saree's cost to what these really cost" on a receipt and the saree's making cost becomes that cost less the raw materials already in its costing, so stock valuation and margins use it.
+- An order that came up short can be **closed** (what was received stays, and stays owed); one with nothing received can be **cancelled**. "Overdue" (open and past its expected date) and "received" are worked out, not stored. A weaver with open orders or money owed either way cannot be archived.
+- Schema migration 9 adds `weavers`, `job_orders`, `job_order_materials`, `job_order_receipts` and `weaver_payments`.
 
 ## Brand
 

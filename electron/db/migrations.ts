@@ -471,6 +471,87 @@ CREATE INDEX ix_supplier_alloc_payment ON supplier_payment_allocations (payment_
 CREATE INDEX ix_supplier_alloc_bill ON supplier_payment_allocations (bill_id);
 `;
 
+// Weavers and job work.
+//  • A job order asks one weaver for some pieces of one variant at a wage per piece. Raw material handed over is recorded against it
+//    (a negative quantity is material handed back), and pieces come back in receipts, each of which brings stock in through the ledger.
+//  • What you owe a weaver is worked out, never stored: wages earned on receipts that have not been reversed, less what you paid.
+//    A payment made before any pieces arrive is simply an advance (the balance goes negative).
+const V9 = `
+CREATE TABLE weavers (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  phone      TEXT NOT NULL DEFAULT '',
+  place      TEXT NOT NULL DEFAULT '',
+  notes      TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
+);
+CREATE INDEX ix_weavers_name ON weavers (name COLLATE NOCASE);
+
+CREATE TABLE job_orders (
+  id         TEXT PRIMARY KEY,
+  number     TEXT NOT NULL,
+  fy         TEXT NOT NULL,
+  seq        INTEGER NOT NULL,
+  weaver_id  TEXT NOT NULL REFERENCES weavers (id),
+  variant_id TEXT NOT NULL REFERENCES variants (id),
+  qty        INTEGER NOT NULL CHECK (qty > 0),
+  wage_paise INTEGER NOT NULL CHECK (wage_paise >= 0),
+  ordered_on TEXT NOT NULL,
+  expected_on TEXT,
+  note       TEXT NOT NULL DEFAULT '',
+  status     TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','closed','cancelled')),
+  closed_at  TEXT,
+  close_reason TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX ux_job_orders_number ON job_orders (number);
+CREATE UNIQUE INDEX ux_job_orders_fy_seq ON job_orders (fy, seq);
+CREATE INDEX ix_job_orders_weaver ON job_orders (weaver_id);
+
+CREATE TABLE job_order_materials (
+  id              TEXT PRIMARY KEY,
+  order_id        TEXT NOT NULL REFERENCES job_orders (id),
+  material_id     TEXT NOT NULL REFERENCES raw_materials (id),
+  qty             REAL NOT NULL CHECK (qty <> 0),
+  unit_cost_paise INTEGER NOT NULL,
+  issued_on       TEXT NOT NULL,
+  note            TEXT NOT NULL DEFAULT '',
+  created_at      TEXT NOT NULL
+);
+CREATE INDEX ix_job_materials_order ON job_order_materials (order_id);
+
+CREATE TABLE job_order_receipts (
+  id              TEXT PRIMARY KEY,
+  order_id        TEXT NOT NULL REFERENCES job_orders (id),
+  qty             INTEGER NOT NULL CHECK (qty > 0),
+  received_on     TEXT NOT NULL,
+  note            TEXT NOT NULL DEFAULT '',
+  reversed_at     TEXT,
+  reverse_reason  TEXT NOT NULL DEFAULT '',
+  created_at      TEXT NOT NULL
+);
+CREATE INDEX ix_job_receipts_order ON job_order_receipts (order_id);
+
+CREATE TABLE weaver_payments (
+  id           TEXT PRIMARY KEY,
+  weaver_id    TEXT NOT NULL REFERENCES weavers (id),
+  order_id     TEXT REFERENCES job_orders (id),
+  amount_paise INTEGER NOT NULL CHECK (amount_paise > 0),
+  method       TEXT NOT NULL CHECK (method IN ('cash','upi','bank','cheque','card','other')),
+  reference    TEXT NOT NULL DEFAULT '',
+  paid_on      TEXT NOT NULL,
+  note         TEXT NOT NULL DEFAULT '',
+  voided_at    TEXT,
+  void_reason  TEXT NOT NULL DEFAULT '',
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL
+);
+CREATE INDEX ix_weaver_payments_weaver ON weaver_payments (weaver_id);
+`;
+
 // Append new migrations to the end; never edit one that has shipped.
 const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 1, sql: V1 },
@@ -481,6 +562,7 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 6, sql: V6 },
   { version: 7, sql: V7 },
   { version: 8, sql: V8 },
+  { version: 9, sql: V9 },
 ];
 
 export function migrate(db: DatabaseSync): void {

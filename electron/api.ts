@@ -18,6 +18,7 @@ import * as receivables from './services/receivables';
 import * as reports from './services/reports';
 import { loadSampleData } from './services/seed';
 import * as suppliers from './services/suppliers';
+import * as weavers from './services/weavers';
 import * as settings from './services/settings';
 
 /** Things only the desktop shell can do. Absent in browser dev mode, where those calls explain themselves. */
@@ -159,6 +160,24 @@ export function createApi(db: Db, host?: Host, dataDir?: string): Api {
     supplierPaymentVoid: async (id, reason) => purchases.voidSupplierPayment(db, id, reason),
     payablesReport: async () => purchases.payablesReport(db),
     purchasesSummary: async () => purchases.purchasesSummary(db),
+
+    weaversList: async (query) => weavers.listWeavers(db, query ?? {}),
+    weaverGet: async (id) => weavers.getWeaver(db, id),
+    weaverCreate: async (input) => weavers.createWeaver(db, input),
+    weaverUpdate: async (id, input) => weavers.updateWeaver(db, id, input),
+    weaverArchive: async (id) => weavers.archiveWeaver(db, id),
+    weaverLedger: async (id) => weavers.weaverLedger(db, id),
+    jobOrdersList: async (query) => weavers.listJobOrders(db, query ?? {}),
+    jobOrderGet: async (id) => weavers.getJobOrder(db, id),
+    jobOrderCreate: async (input) => weavers.createJobOrder(db, input),
+    jobOrderIssueMaterial: async (input) => weavers.issueMaterial(db, input),
+    jobOrderReceive: async (input) => weavers.receivePieces(db, input),
+    jobOrderReverseReceipt: async (receiptId, reason) => weavers.reverseReceipt(db, receiptId, reason),
+    jobOrderClose: async (id, reason) => weavers.closeJobOrder(db, id, reason),
+    jobOrderCancel: async (id, reason) => weavers.cancelJobOrder(db, id, reason),
+    weaverPaymentsList: async (query) => weavers.listWeaverPayments(db, query ?? {}),
+    weaverPaymentRecord: async (input) => weavers.recordWeaverPayment(db, input),
+    weaverPaymentVoid: async (id, reason) => weavers.voidWeaverPayment(db, id, reason),
 
     sampleDataLoad: async () => loadSampleData(db),
 

@@ -1,5 +1,16 @@
 import type {
   BulkAddResult,
+  JobMaterialInput,
+  JobOrder,
+  JobOrderInput,
+  JobOrderQuery,
+  JobOrderSummary,
+  JobReceiptInput,
+  Weaver,
+  WeaverInput,
+  WeaverLedger,
+  WeaverPayment,
+  WeaverPaymentInput,
   PayablesReport,
   PurchaseBill,
   PurchaseBillInput,
@@ -187,6 +198,29 @@ export interface Api {
   /** What you owe, to whom, aged by how far past due. */
   payablesReport(): Promise<PayablesReport>;
   purchasesSummary(): Promise<PurchasesSummary>;
+
+  weaversList(query?: { search?: string }): Promise<Weaver[]>;
+  weaverGet(id: string): Promise<Weaver>;
+  weaverCreate(input: WeaverInput): Promise<Weaver>;
+  weaverUpdate(id: string, input: WeaverInput): Promise<Weaver>;
+  weaverArchive(id: string): Promise<void>;
+  /** Wages earned on pieces received, less what you paid, as a running statement. */
+  weaverLedger(id: string): Promise<WeaverLedger>;
+  jobOrdersList(query?: JobOrderQuery): Promise<JobOrderSummary[]>;
+  jobOrderGet(id: string): Promise<JobOrder>;
+  /** Asks a weaver for some pieces of a design at a wage per piece. */
+  jobOrderCreate(input: JobOrderInput): Promise<JobOrder>;
+  /** Records raw material handed to the weaver for an order (a minus quantity is material handed back). */
+  jobOrderIssueMaterial(input: JobMaterialInput): Promise<JobOrder>;
+  /** Pieces come back: they go into stock and their wage becomes owed. */
+  jobOrderReceive(input: JobReceiptInput): Promise<JobOrder>;
+  jobOrderReverseReceipt(receiptId: string, reason: string): Promise<JobOrder>;
+  /** Stops waiting for the rest of an order. What was received stays. */
+  jobOrderClose(id: string, reason: string): Promise<JobOrder>;
+  jobOrderCancel(id: string, reason: string): Promise<JobOrder>;
+  weaverPaymentsList(query?: { weaverId?: string }): Promise<WeaverPayment[]>;
+  weaverPaymentRecord(input: WeaverPaymentInput): Promise<WeaverPayment>;
+  weaverPaymentVoid(id: string, reason: string): Promise<WeaverPayment>;
 
   /** Fills an empty database with realistic saree designs so the app can be explored. */
   sampleDataLoad(): Promise<void>;

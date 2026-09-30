@@ -19,6 +19,9 @@ import { NewBillPage } from './pages/purchases/NewBillPage';
 import { PurchasesPage } from './pages/purchases/PurchasesPage';
 import { SupplierPage } from './pages/purchases/SupplierPage';
 import { SuppliersPage } from './pages/purchases/SuppliersPage';
+import { JobOrderPage } from './pages/purchases/JobOrderPage';
+import { WeaverPage } from './pages/purchases/WeaverPage';
+import { WeaversPage } from './pages/purchases/WeaversPage';
 import { ProformaPage } from './pages/proformas/ProformaPage';
 import { ProformasPage } from './pages/proformas/ProformasPage';
 import { ReportsPage } from './pages/reports/ReportsPage';
@@ -56,6 +59,12 @@ function renderRoute(route: Route) {
       return <SuppliersPage />;
     case 'supplier':
       return <SupplierPage id={route.id} />;
+    case 'weavers':
+      return <WeaversPage />;
+    case 'weaver':
+      return <WeaverPage id={route.id} />;
+    case 'job-order':
+      return <JobOrderPage id={route.id} />;
     case 'credit-notes':
       return <CreditNotesPage />;
     case 'credit-note':
@@ -92,6 +101,8 @@ const pageKey = (r: Route): string => {
     case 'customer':
     case 'bill':
     case 'supplier':
+    case 'weaver':
+    case 'job-order':
     case 'credit-note':
     case 'print-invoice':
     case 'print-proforma':
