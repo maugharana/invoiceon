@@ -12,6 +12,7 @@ import * as creditNotes from './services/creditNotes';
 import * as customers from './services/customers';
 import { dashboardOverview } from './services/dashboard';
 import * as expenses from './services/expenses';
+import { gstFilingExport } from './services/filing';
 import * as inventory from './services/inventory';
 import { integrityCheck } from './services/integrity';
 import * as invoices from './services/invoices';
@@ -135,6 +136,7 @@ export function createApi(db: Db, host?: Host, dataDir?: string, actor?: () => A
 
     reportSales: async (range) => reports.salesReport(db, range),
     reportGst: async (range) => reports.gstReport(db, range),
+    gstFilingExport: async (req) => gstFilingExport(db, req),
     reportStock: async (asOf) => reports.stockReport(db, asOf ?? undefined), // ?? because JSON turns undefined into null
     exportSave: async (fileName, content) => {
       if (!host) throw new UserError(DESKTOP_ONLY);

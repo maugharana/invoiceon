@@ -12,6 +12,7 @@ import { api, errorMessage } from '../../lib/api';
 import { useQuery } from '../../lib/data';
 import { plural } from '../../lib/format';
 import { navigate, paths, type ReportTab } from '../../lib/router';
+import { FilingSection } from './FilingSection';
 
 // ── Saving a report as CSV ──────────────────────────────────────────────────
 /** Desktop: a save dialog via the main process. Browser dev mode: a normal file download. */
@@ -449,6 +450,8 @@ function GstTab({ period }: { period: PeriodSpec }) {
               </Card>
             </Section>
           )}
+
+          <FilingSection range={range} />
 
           <Section title="By HSN code" note="Taxable value and tax for each HSN, with any invoice discount shared out across its items." actions={<ExportButton label="HSN CSV" onClick={() => void exportCsv(`GST HSN ${stamp}.csv`, gstHsnCsv(r))} />}>
             <Card className="overflow-x-auto">

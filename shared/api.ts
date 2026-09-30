@@ -1,4 +1,5 @@
 import type { AccessStatus, AccessUser, AccessUserInput } from './access';
+import type { FilingFile, FilingRequest } from './filing';
 import type {
   AuditEntry,
   AuditQuery,
@@ -159,6 +160,8 @@ export interface Api {
   reportSales(range: { from: string; to: string }): Promise<SalesReport>;
   /** GST collected on invoices dated in the range, split B2B/B2C, by HSN, and as a GSTR-1-style register. */
   reportGst(range: { from: string; to: string }): Promise<GstReport>;
+  /** A JSON file for the GST portals (GSTR-1, e-invoice or e-way bill). Nothing is sent anywhere. */
+  gstFilingExport(req: FilingRequest): Promise<FilingFile>;
   /** Stock on hand, valued at cost and at selling price, as of a date (default today). */
   reportStock(asOf?: string): Promise<StockReport>;
   /** Saves text (a CSV) to a file the user chooses. Desktop app only. */

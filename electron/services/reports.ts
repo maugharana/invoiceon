@@ -9,15 +9,17 @@ import { loadPaid } from './payments';
 import { inputCreditIn } from './purchases';
 
 // ── Shared loading ──────────────────────────────────────────────────────────
-interface InvoiceRow {
+export interface InvoiceRow {
   id: string;
   number: string;
   seq: number;
   type: InvoiceType;
   customer_id: string | null;
+  seller_json: string;
   buyer_json: string;
   place_of_supply: string;
   issue_date: string;
+  intra_state: number;
   gst_rate_percent: number;
   subtotal_paise: number;
   discount_paise: number;
@@ -34,20 +36,28 @@ interface LineRow {
   invoice_id: string;
   design_id: string | null;
   design_name: string;
+  color: string;
+  size: string;
   hsn: string;
   qty: number;
+  unit_price_paise: number;
   amount_paise: number;
   unit_cost_paise: number;
   gst_rate_percent: number | null;
 }
 
 /** One line of an issued invoice with its share of the invoice's discount and tax worked out. */
-interface LineShare {
+export interface LineShare {
   designId: string | null;
   designName: string;
+  color: string;
+  size: string;
   hsn: string;
   ratePercent: number;
   qty: number;
+  unitPricePaise: number;
+  /** Quantity times price, before the invoice's discount. */
+  amountPaise: number;
   taxable: number;
   cgst: number;
   sgst: number;
@@ -55,7 +65,7 @@ interface LineShare {
   cost: number;
 }
 
-interface LoadedInvoice {
+export interface LoadedInvoice {
   row: InvoiceRow;
   buyerName: string;
   buyerGstin: string;
@@ -72,12 +82,12 @@ function checkRange(range: { from: string; to: string }): void {
  * Issued invoices dated in the range, each with its lines. An invoice-level discount and the tax are spread over the lines
  * in proportion to their value, to the exact paisa (see allocate), so anything summed from lines equals the invoice's own figures.
  */
-function loadInvoices(db: Db, range: { from: string; to: string }): LoadedInvoice[] {
+export function loadInvoices(db: Db, range: { from: string; to: string }): LoadedInvoice[] {
   const rows = all<InvoiceRow>(db, "SELECT * FROM invoices WHERE status = 'issued' AND issue_date BETWEEN ? AND ? ORDER BY issue_date, seq", range.from, range.to);
   if (rows.length === 0) return [];
   const lineRows = all<LineRow>(
     db,
-    `SELECT l.invoice_id, v.design_id, l.design_name, l.hsn, l.qty, l.amount_paise, l.unit_cost_paise, l.gst_rate_percent
+    `SELECT l.invoice_id, v.design_id, l.design_name, l.color, l.size, l.hsn, l.qty, l.unit_price_paise, l.amount_paise, l.unit_cost_paise, l.gst_rate_percent
      FROM invoice_lines l JOIN invoices i ON i.id = l.invoice_id LEFT JOIN variants v ON v.id = l.variant_id
      WHERE i.status = 'issued' AND i.issue_date BETWEEN ? AND ? ORDER BY l.position`,
     range.from,
@@ -112,7 +122,7 @@ function loadInvoices(db: Db, range: { from: string; to: string }): LoadedInvoic
       buyerName: buyer.name,
       buyerGstin: buyer.gstin,
       groups,
-      lines: lines.map((l, i): LineShare => ({ designId: l.design_id, designName: l.design_name, hsn: l.hsn, ratePercent: rateOf(l), qty: l.qty, ...shares[i]!, cost: l.qty * l.unit_cost_paise })),
+      lines: lines.map((l, i): LineShare => ({ designId: l.design_id, designName: l.design_name, color: l.color, size: l.size, hsn: l.hsn, ratePercent: rateOf(l), qty: l.qty, unitPricePaise: l.unit_price_paise, amountPaise: l.amount_paise, ...shares[i]!, cost: l.qty * l.unit_cost_paise })),
     };
   });
 }
