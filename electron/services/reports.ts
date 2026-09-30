@@ -3,7 +3,7 @@ import { bucketKeys, bucketOf, granularityFor } from '../../shared/periods';
 import type { GstReport, GstTotals, InvoiceType, PaymentMethod, ReturnsSummary, SalesReport, StockReport } from '../../shared/types';
 import { all, type Db } from '../db/connection';
 import { UserError } from './common';
-import { listDesigns, loadVariants } from './inventory';
+import { elsewhereByVariant, listDesigns, loadVariants } from './inventory';
 import { taxSummaryOf } from './invoices';
 import { loadPaid } from './payments';
 import { inputCreditIn } from './purchases';
@@ -430,6 +430,8 @@ export function stockReport(db: Db, asOf: string = todayIso()): StockReport {
   const endOfDay = new Date(y, m - 1, d + 1).toISOString();
   const historic = asOf < todayIso();
   const movedTo = new Map(all<{ variant_id: string; q: number }>(db, 'SELECT variant_id, SUM(delta) AS q FROM stock_movements WHERE created_at < ? GROUP BY variant_id', endOfDay).map((r) => [r.variant_id, r.q]));
+  // Pieces kept in another place (a godown, a stall) are still yours, so they are valued too.
+  const elsewhere = elsewhereByVariant(db, historic ? endOfDay : undefined);
   const lastSold = new Map(
     all<{ variant_id: string; d: string }>(db, "SELECT l.variant_id, MAX(i.issue_date) AS d FROM invoice_lines l JOIN invoices i ON i.id = l.invoice_id WHERE i.status = 'issued' AND i.issue_date <= ? GROUP BY l.variant_id", asOf).map((r) => [r.variant_id, r.d]),
   );
@@ -444,7 +446,7 @@ export function stockReport(db: Db, asOf: string = todayIso()): StockReport {
   const rows = listDesigns(db)
     .map((design) => {
       const variants = (variantsByDesign.get(design.id) ?? []).map((v) => {
-        const pieces = historic ? (movedTo.get(v.id) ?? 0) : v.stock;
+        const pieces = (historic ? (movedTo.get(v.id) ?? 0) : v.stock) + (elsewhere.get(v.id) ?? 0);
         return {
           variantId: v.id,
           sku: v.sku,

@@ -677,6 +677,34 @@ CREATE TABLE payment_promises (
 CREATE INDEX ix_promises_customer ON payment_promises (customer_id, created_at);
 `;
 
+const V15 = `
+-- Other places stock is kept (a godown, an exhibition stall). The shop is the selling location and is not a row here: variants.stock is
+-- what is on the shop's shelves, exactly as before, so selling, returns and every report work unchanged. A transfer moves pieces between the
+-- shop and a place, or between places; what a place holds is the sum of its transfers in less those out, never a stored figure.
+CREATE TABLE locations (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
+);
+CREATE UNIQUE INDEX ux_locations_name ON locations (name COLLATE NOCASE) WHERE deleted_at IS NULL;
+
+CREATE TABLE stock_transfers (
+  id               TEXT PRIMARY KEY,
+  variant_id       TEXT NOT NULL REFERENCES variants (id),
+  from_location_id TEXT REFERENCES locations (id),
+  to_location_id   TEXT REFERENCES locations (id),
+  qty              INTEGER NOT NULL CHECK (qty > 0),
+  note             TEXT NOT NULL DEFAULT '',
+  created_at       TEXT NOT NULL,
+  CHECK (from_location_id IS NOT to_location_id)
+);
+CREATE INDEX ix_transfers_variant ON stock_transfers (variant_id);
+CREATE INDEX ix_transfers_from ON stock_transfers (from_location_id);
+CREATE INDEX ix_transfers_to ON stock_transfers (to_location_id);
+`;
+
 const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 1, sql: V1 },
   { version: 2, sql: V2 },
@@ -692,6 +720,7 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 12, sql: V12 },
   { version: 13, sql: V13 },
   { version: 14, sql: V14 },
+  { version: 15, sql: V15 },
 ];
 
 export function migrate(db: DatabaseSync): void {

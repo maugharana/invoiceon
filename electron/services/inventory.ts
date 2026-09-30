@@ -516,14 +516,34 @@ export function listMovements(db: Db, variantId: string, limit = 200): StockMove
   }));
 }
 
+/**
+ * Pieces held outside the shop, per saree, as of the end of a day (or now). This is what valuation and restocking add to the shop's shelves,
+ * because those pieces are still yours and can be brought back.
+ */
+export function elsewhereByVariant(db: Db, before?: string): Map<string, number> {
+  const rows = all<{ variant_id: string; n: number }>(
+    db,
+    `SELECT variant_id, SUM(CASE WHEN to_location_id IS NOT NULL THEN qty ELSE 0 END) - SUM(CASE WHEN from_location_id IS NOT NULL THEN qty ELSE 0 END) AS n
+     FROM stock_transfers ${before ? 'WHERE created_at < ?' : ''} GROUP BY variant_id`,
+    ...(before ? [before] : []),
+  );
+  return new Map(rows.filter((r) => r.n > 0).map((r) => [r.variant_id, r.n]));
+}
+
 // ── Summary ─────────────────────────────────────────────────────────────────
 export function inventorySummary(db: Db): InventorySummary {
   const designs = listDesigns(db);
+  // Pieces kept in another place (a godown, a stall) are still stock: they count towards units and value, though only the shop's can be sold.
+  const elsewhere = elsewhereByVariant(db);
+  const live = loadVariants(db);
+  const elsewherePieces = live.reduce((s, v) => s + (elsewhere.get(v.id) ?? 0), 0);
+  const elsewhereValue = live.reduce((s, v) => s + (elsewhere.get(v.id) ?? 0) * v.unitCostPaise, 0);
   return {
     designCount: designs.length,
     variantCount: designs.reduce((s, d) => s + d.variantCount, 0),
-    unitsInStock: designs.reduce((s, d) => s + d.totalStock, 0),
-    stockValuePaise: designs.reduce((s, d) => s + d.stockValuePaise, 0),
+    unitsInStock: designs.reduce((s, d) => s + d.totalStock, 0) + elsewherePieces,
+    elsewherePieces,
+    stockValuePaise: designs.reduce((s, d) => s + d.stockValuePaise, 0) + elsewhereValue,
     lowStockDesigns: designs.filter((d) => d.status === 'low' || d.status === 'out').length,
     outOfStockDesigns: designs.filter((d) => d.status === 'out').length,
     materialCount: get<{ n: number }>(db, 'SELECT COUNT(*) AS n FROM raw_materials WHERE deleted_at IS NULL')?.n ?? 0,

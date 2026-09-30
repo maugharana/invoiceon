@@ -6,6 +6,8 @@
  * Data written before the rewind stays, which is the point: it plays the part of records made by the old version.
  */
 export const REWIND_TO_STAGE_2 = `
+  DROP TABLE stock_transfers;
+  DROP TABLE locations;
   DROP TABLE payment_promises;
   DROP TABLE customer_contacts;
   DROP TABLE loyalty_entries;

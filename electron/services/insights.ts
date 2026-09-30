@@ -1,7 +1,7 @@
 import { addDays, localDateOf, todayIso } from '../../shared/gst';
 import { checkParams, daysOfCover, isUrgent, perDay, suggestedQty, type DeadStockRow, type InsightParams, type ReorderRow, type StockInsights } from '../../shared/insights';
 import { all, type Db } from '../db/connection';
-import { loadVariants } from './inventory';
+import { elsewhereByVariant, loadVariants } from './inventory';
 
 /**
  * What is worth making or buying, and what is not moving. Sales are pieces on issued invoices in the look-back period, less pieces that came
@@ -44,6 +44,7 @@ export function stockInsights(db: Db, input?: Partial<InsightParams>): StockInsi
   const created = new Map(all<{ id: string; created_at: string }>(db, 'SELECT id, created_at FROM variants WHERE deleted_at IS NULL').map((r) => [r.id, localDateOf(r.created_at)]));
   const names = new Map(all<{ id: string; name: string }>(db, 'SELECT id, name FROM designs').map((r) => [r.id, r.name]));
 
+  const elsewhere = elsewhereByVariant(db);
   const reorder: ReorderRow[] = [];
   const dead: DeadStockRow[] = [];
   for (const v of loadVariants(db)) {
@@ -51,7 +52,9 @@ export function stockInsights(db: Db, input?: Partial<InsightParams>): StockInsi
     const netSold = Math.max(0, (sold.get(v.id) ?? 0) - (returned.get(v.id) ?? 0));
     const rate = perDay(netSold, params.lookbackDays);
     const ordered = onOrder.get(v.id) ?? 0;
-    const qty = suggestedQty({ stock: v.stock, onOrder: ordered, perDay: rate, reorderLevel: v.reorderLevel, leadDays: params.leadDays, coverDays: params.coverDays });
+    // Pieces in a godown can be brought to the shop, so they count as on hand when deciding what to make or buy.
+    const away = elsewhere.get(v.id) ?? 0;
+    const qty = suggestedQty({ stock: v.stock + away, onOrder: ordered, perDay: rate, reorderLevel: v.reorderLevel, leadDays: params.leadDays, coverDays: params.coverDays });
     if (qty > 0) {
       reorder.push({
         variantId: v.id,
@@ -61,12 +64,13 @@ export function stockInsights(db: Db, input?: Partial<InsightParams>): StockInsi
         size: v.size,
         sku: v.sku,
         stock: v.stock,
+        elsewhere: away,
         onOrder: ordered,
         soldInPeriod: netSold,
         perDay: rate,
-        daysOfCover: daysOfCover(v.stock, rate),
+        daysOfCover: daysOfCover(v.stock + away, rate),
         suggestedQty: qty,
-        urgent: isUrgent(v.stock, rate, params.leadDays, ordered),
+        urgent: isUrgent(v.stock + away, rate, params.leadDays, ordered),
         unitCostPaise: v.unitCostPaise,
         costOfBatchPaise: qty * v.unitCostPaise,
       });

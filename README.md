@@ -298,6 +298,13 @@ The period lives in the URL, so switching tabs keeps it.
 - **Dead stock.** Pieces on the shelf with no sale for 90 days (changeable), or never sold and added that long ago, with the cost tied up, costliest first. A piece added recently gets that long to sell. A link goes to Offers, one way to free the money.
 - The maths is in `shared/insights.ts` and is unit tested, including on-order, returns, cancelled invoices and each setting.
 
+## Stock in other places (stage 24)
+
+- **Inventory, Places** keeps track of stock kept away from the shop: a godown, an exhibition stall, a relative's shop. **The shop is the selling location**: "in stock" everywhere (invoices, low stock, barcode scan, the design page) is still what is on the shop's shelves, so selling works exactly as before and pieces in the godown cannot be sold until they are brought back.
+- **Moves.** *Move stock* shifts pieces between the shop and a place, or between two places, with a note. The shop's side goes through the normal stock ledger ("Moved to Godown", "Brought back from Godown" appear in a saree's stock history) and is refused with "Not enough stock" if the shop cannot cover it; a place cannot give away more than it holds. What a place holds is the sum of its moves in less out (`stock_transfers`), never a stored figure. A place can be closed only when empty.
+- **Still counted as yours.** Pieces away from the shop count towards the inventory page's units and value, the stock valuation report (now and as of a past day), and Restock (pieces in a godown can be brought back, so they count as on hand when deciding what to make or buy). Low stock alerts and selling stay shop only.
+- **Checked.** Check my books adds a check that no place has given away more than it received and that every move touching the shop has its matching entry in the stock ledger.
+
 ## Brand
 
 Tokens live in `tailwind.config.js` (teal `#0F6E56`, gold `#D9A94E` for one figure per screen, status pairs, ink).

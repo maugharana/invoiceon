@@ -187,6 +187,30 @@ export function integrityCheck(db: Db): IntegrityReport {
     );
   }
 
+  // 8b. Other places: no place holds a negative number of pieces, and every move that touched the shop has its entry in the stock ledger.
+  {
+    const held = all<{ variant_id: string; location_id: string; n: number; sku: string; place: string }>(
+      db,
+      `SELECT x.variant_id, x.location_id, SUM(x.n) AS n, v.sku, l.name AS place FROM (
+         SELECT variant_id, to_location_id AS location_id, qty AS n FROM stock_transfers WHERE to_location_id IS NOT NULL
+         UNION ALL SELECT variant_id, from_location_id, -qty FROM stock_transfers WHERE from_location_id IS NOT NULL
+       ) x JOIN variants v ON v.id = x.variant_id JOIN locations l ON l.id = x.location_id GROUP BY x.variant_id, x.location_id`,
+    );
+    const shopMoves = all<{ id: string; qty: number; to_location_id: string | null; from_location_id: string | null; ledger: number | null }>(
+      db,
+      "SELECT t.id, t.qty, t.to_location_id, t.from_location_id, (SELECT SUM(m.delta) FROM stock_movements m WHERE m.ref_type = 'transfer' AND m.ref_id = t.id) AS ledger FROM stock_transfers t WHERE t.from_location_id IS NULL OR t.to_location_id IS NULL",
+    );
+    checks.push(
+      check('locations', 'Stock in other places adds up', held.length + shopMoves.length, (problem) => {
+        for (const h of held) if (h.n < 0) problem(`${h.place} shows ${h.n} of ${h.sku}: more has left it than ever arrived.`);
+        for (const m of shopMoves) {
+          const want = m.from_location_id === null ? -m.qty : m.qty;
+          if ((m.ledger ?? 0) !== want) problem(`A move of ${m.qty} between the shop and another place has ${m.ledger ?? 0} in the stock ledger, expected ${want}.`);
+        }
+      }),
+    );
+  }
+
   // 9. The activity log's own chain.
   {
     const chain = verifyAuditChain(db);

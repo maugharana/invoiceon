@@ -24,6 +24,8 @@ export interface ReorderRow {
   size: string;
   sku: string;
   stock: number;
+  /** Pieces kept in another place, which count as on hand. */
+  elsewhere: number;
   /** Pieces already ordered from weavers and not yet received. */
   onOrder: number;
   soldInPeriod: number;

@@ -692,7 +692,10 @@ export interface DesignQuery {
 export interface InventorySummary {
   designCount: number;
   variantCount: number;
+  /** Every piece you own: the shop's shelves and any other place (a godown, a stall). */
   unitsInStock: number;
+  /** Of `unitsInStock`, the pieces kept outside the shop. */
+  elsewherePieces?: number;
   stockValuePaise: Paise;
   lowStockDesigns: number;
   outOfStockDesigns: number;

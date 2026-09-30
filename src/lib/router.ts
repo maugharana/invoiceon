@@ -17,6 +17,7 @@ export type Route =
   | { name: 'labels'; design: string | null }
   | { name: 'catalogue' }
   | { name: 'restock' }
+  | { name: 'locations' }
   | { name: 'inventory-add' }
   | { name: 'design'; id: string }
   | { name: 'invoices'; status: 'all' | 'open' | 'overdue' | 'cancelled' }
@@ -70,6 +71,7 @@ export function parseHash(hash: string): Route {
       if (parts[1] === 'labels') return { name: 'labels', design: params.get('design') };
       if (parts[1] === 'catalogue') return { name: 'catalogue' };
       if (parts[1] === 'restock') return { name: 'restock' };
+      if (parts[1] === 'locations') return { name: 'locations' };
       if (parts[1] === 'add') return { name: 'inventory-add' };
       if (parts[1] === 'designs' && id) return { name: 'design', id };
       const status = params.get('status');
@@ -145,6 +147,7 @@ export const sectionOf = (route: Route): Section => {
     case 'labels':
     case 'catalogue':
     case 'restock':
+    case 'locations':
     case 'print-labels':
     case 'print-catalogue':
     case 'inventory-add':
@@ -220,6 +223,7 @@ export const paths = {
   addSarees: '/inventory/add',
   catalogue: '/inventory/catalogue',
   restock: '/inventory/restock',
+  locations: '/inventory/locations',
   design: (id: string) => `/inventory/designs/${encodeURIComponent(id)}`,
   invoices: (status?: 'open' | 'overdue' | 'cancelled') => (status ? `/invoices?status=${status}` : '/invoices'),
   newInvoice: (customerId?: string, advance?: AdvancePreset) => {

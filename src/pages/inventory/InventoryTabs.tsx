@@ -9,10 +9,11 @@ const TABS = [
   { id: 'labels', label: 'Labels', href: paths.labels() },
   { id: 'catalogue', label: 'Catalogue', href: paths.catalogue },
   { id: 'restock', label: 'Restock', href: paths.restock },
+  { id: 'locations', label: 'Places', href: paths.locations },
 ] as const;
 
 /** Shared header for the top-level inventory screens. */
-export function InventoryShell({ tab, actions, children }: { tab: 'designs' | 'materials' | 'labels' | 'catalogue' | 'restock'; actions?: ReactNode; children: ReactNode }) {
+export function InventoryShell({ tab, actions, children }: { tab: 'designs' | 'materials' | 'labels' | 'catalogue' | 'restock' | 'locations'; actions?: ReactNode; children: ReactNode }) {
   const { can } = useAccess();
   return (
     <>

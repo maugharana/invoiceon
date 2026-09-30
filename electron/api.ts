@@ -4,6 +4,7 @@ import type { Api, Envelope } from '../shared/api';
 import { catalogueData } from './services/catalogue';
 import * as followups from './services/followups';
 import { stockInsights } from './services/insights';
+import * as locations from './services/locations';
 import * as offers from './services/offers';
 import * as photos from './services/photos';
 import { encodeCatalogueRequest, parseCatalogueRequest } from '../shared/catalogue';
@@ -136,6 +137,12 @@ export function createApi(db: Db, host?: Host, dataDir?: string, actor?: () => A
       return host.exportDocumentPdf(`/print/labels?${labelQuery(req)}`, 'Saree labels.pdf');
     },
 
+    locationsList: async () => locations.listLocations(db),
+    locationSave: async (id, name) => locations.saveLocation(db, id ?? null, name),
+    locationArchive: async (id) => locations.archiveLocation(db, id),
+    stockTransfer: async (input) => locations.transferStock(db, input),
+    transfersList: async (limit) => locations.listTransfers(db, typeof limit === 'number' ? limit : 50),
+    stockHoldings: async () => locations.holdings(db),
     stockInsights: async (params) => stockInsights(db, params ?? undefined),
     followUps: async () => followups.followUps(db),
     customerFollowUps: async (customerId) => followups.customerFollowUps(db, customerId),
