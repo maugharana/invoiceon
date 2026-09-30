@@ -160,6 +160,8 @@ export interface Api {
   dataInfo(): Promise<DataInfo>;
   /** Writes a snapshot of the whole database next to the automatic daily ones. */
   backupNow(): Promise<{ name: string }>;
+  /** Replaces all your data with a backup's. A safety copy of the current data is taken first, so a restore can be undone. */
+  backupRestore(name: string): Promise<{ restoredFrom: string; restorePoint: string }>;
 }
 
 export type ApiMethod = keyof Api;

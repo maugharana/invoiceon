@@ -14,6 +14,7 @@ Windows desktop app, offline-first: your data lives in a local SQLite file, no i
 | 5 | Animation & UI polish pass | **Done** |
 | 6 | Dashboard, proformas, expenses, quick-create, command palette | **Done** |
 | 8 | Credit notes and sales returns | **Done** |
+| 9 | Restore from backup | **Done** |
 
 **New here? Start with [`docs/TOUR.md`](docs/TOUR.md)** — a ten-minute guided tour (see it, generate a PDF, see what the PDF looks
 like, customise it). Sample PDFs are in [`sample-pdfs/`](sample-pdfs). If packaging fails on Windows, see
@@ -184,6 +185,13 @@ The period lives in the URL, so switching tabs keeps it.
 - **Guards.** You cannot return more than was sold, credit more than the invoice was for, or cancel an invoice that has a live credit note (cancel the credit note first). A credit note with a refund cannot be cancelled.
 - **Reports.** Sales figures stay gross and gain a *returns* strip (credit notes, refunds, net invoiced, net gross profit). The GST tab gains a credit note register (one row per note and rate, with the original invoice: the shape of GSTR-1's credit note table) and net GST. Both export to CSV.
 - Schema migration 6 adds `credit_notes`, `credit_note_lines` and two columns on `payments`. Existing databases upgrade in place.
+
+## Restore from backup (stage 9)
+
+- **Settings, Data Management** lists every backup with a **Restore** button. Restoring replaces all your data with the copy you choose, then reloads the app.
+- **It is safe by construction.** The backup is copied aside, brought up to the current schema (so an older backup restores fine), checked for damage and for having been made by a newer app, and only then is the live database refilled from it in **one transaction**: a failure leaves your data exactly as it was. Foreign keys are checked before committing.
+- **A restore can be undone.** Just before anything changes, the current data is saved as `invoiceon-before-restore-<time>.db`. It appears in the same list (marked "Before a restore") and is never cleaned up automatically, like copies you make yourself.
+- The connection stays open, so no restart is needed (`restoreBackup` in `electron/backup.ts`). Two backups in the same second get a counter on the file name rather than colliding.
 
 ## Brand
 

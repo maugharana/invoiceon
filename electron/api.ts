@@ -1,7 +1,7 @@
 import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Api, Envelope } from '../shared/api';
-import { backupNow, listBackups } from './backup';
+import { backupNow, listBackups, restoreBackup } from './backup';
 import type { Db } from './db/connection';
 import { UserError } from './services/common';
 import * as creditNotes from './services/creditNotes';
@@ -151,6 +151,10 @@ export function createApi(db: Db, host?: Host, dataDir?: string): Api {
     backupNow: async () => {
       if (!dataDir) throw new UserError(DESKTOP_ONLY);
       return backupNow(db, join(dataDir, 'backups'));
+    },
+    backupRestore: async (name) => {
+      if (!dataDir) throw new UserError(DESKTOP_ONLY);
+      return restoreBackup(db, join(dataDir, 'backups'), name);
     },
   };
 }

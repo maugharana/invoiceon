@@ -1,6 +1,7 @@
-import { DatabaseBackup, FlaskConical } from 'lucide-react';
+import { DatabaseBackup, FlaskConical, History } from 'lucide-react';
 import { useState } from 'react';
-import { useToast } from '../../components/Toast';
+import { ConfirmDialog } from '../../components/Modal';
+import { flashAfterReload, useToast } from '../../components/Toast';
 import { Button, ErrorNote, Spinner } from '../../components/ui';
 import { api, errorMessage } from '../../lib/api';
 import { useQuery, useRefresh } from '../../lib/data';
@@ -13,6 +14,7 @@ export function DataManagementSection() {
   const refresh = useRefresh();
   const info = useQuery(() => api.dataInfo());
   const [busy, setBusy] = useState<'backup' | 'sample' | null>(null);
+  const [restoring, setRestoring] = useState<string | null>(null);
 
   async function backup() {
     setBusy('backup');
@@ -70,16 +72,19 @@ export function DataManagementSection() {
               {backups.map((b) => (
                 <li key={b.name} className="flex items-center gap-4 px-4 py-2.5">
                   <span className="num min-w-0 flex-1 truncate">{b.name}</span>
-                  <span className="text-xs text-ink-muted">{b.manual ? 'Made by you' : 'Automatic'}</span>
+                  <span className="text-xs text-ink-muted">{b.kind === 'restore-point' ? 'Before a restore' : b.manual ? 'Made by you' : 'Automatic'}</span>
                   <span className="text-xs text-ink-muted">{formatDateTime(b.modifiedAt)}</span>
                   <span className="num w-16 text-right text-xs text-ink-muted">{formatBytes(b.bytes)}</span>
+                  <Button className="h-8 px-3 text-xs" icon={<History className="h-3.5 w-3.5" />} onClick={() => setRestoring(b.name)} aria-label={`Restore ${b.name}`}>
+                    Restore
+                  </Button>
                 </li>
               ))}
             </ul>
             <div className="border-t border-line bg-canvas px-4 py-2 text-xs text-ink-muted">{plural(backups.length, 'backup')} in the backups folder inside the data folder above</div>
           </div>
         )}
-        <p className="mt-2 text-xs text-ink-muted">To restore, close InvoiceOn and replace <span className="num">invoiceon.db</span> in the data folder with a backup, renamed to <span className="num">invoiceon.db</span>.</p>
+        <p className="mt-2 text-xs text-ink-muted">Restoring replaces everything with the copy you choose. A safety copy of your current data is saved first (listed above as “Before a restore”), so a restore can be undone the same way.</p>
       </div>
 
       <div>
@@ -89,6 +94,29 @@ export function DataManagementSection() {
           Load sample data
         </Button>
       </div>
+
+      {restoring && (
+        <ConfirmDialog
+          title="Restore this backup?"
+          confirmLabel="Restore backup"
+          danger
+          onClose={() => setRestoring(null)}
+          body={
+            <div className="space-y-3">
+              <p>
+                Everything in InvoiceOn (designs, stock, invoices, payments, customers, settings) will go back to how it was in <span className="num text-ink">{restoring}</span>. Anything you entered since then is replaced.
+              </p>
+              <p>Your current data is saved as a safety copy first, so you can come back to it from this list if this was a mistake. The app reloads when it is done.</p>
+            </div>
+          }
+          onConfirm={async () => {
+            await api.backupRestore(restoring);
+            flashAfterReload('Backup restored. Your previous data was kept as a safety copy.');
+            window.location.hash = '/dashboard';
+            window.location.reload();
+          }}
+        />
+      )}
     </div>
   );
 }

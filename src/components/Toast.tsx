@@ -1,5 +1,5 @@
 import { AlertCircle, CheckCircle2, Info } from 'lucide-react';
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 type Kind = 'success' | 'error' | 'info';
 
@@ -14,6 +14,16 @@ interface Toaster {
   success: (message: string) => void;
   error: (message: string) => void;
   info: (message: string) => void;
+}
+
+const FLASH_KEY = 'invoiceon-flash';
+/** Shows a message on the next page load, for actions that end by reloading the app (like restoring a backup). */
+export function flashAfterReload(message: string): void {
+  try {
+    sessionStorage.setItem(FLASH_KEY, message);
+  } catch {
+    /* storage unavailable: the reload just happens without the message */
+  }
 }
 
 const noop = () => {};
@@ -37,6 +47,18 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setTimeout(() => setItems((list) => list.map((t) => (t.id === id ? { ...t, leaving: true } : t))), kind === 'error' ? 6000 : 3200);
     setTimeout(() => setItems((list) => list.filter((t) => t.id !== id)), (kind === 'error' ? 6000 : 3200) + 160);
   }, []);
+
+  useEffect(() => {
+    try {
+      const message = sessionStorage.getItem(FLASH_KEY);
+      if (message) {
+        sessionStorage.removeItem(FLASH_KEY);
+        push('success', message);
+      }
+    } catch {
+      /* nothing to show */
+    }
+  }, [push]);
 
   const toaster = useMemo<Toaster>(() => ({ success: (m) => push('success', m), error: (m) => push('error', m), info: (m) => push('info', m) }), [push]);
 

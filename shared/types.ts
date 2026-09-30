@@ -69,7 +69,8 @@ export interface Settings {
 export interface DataInfo {
   folder: string;
   databaseBytes: number;
-  backups: { name: string; bytes: number; modifiedAt: string; manual: boolean }[];
+  /** `manual` is true for copies that are never cleaned up automatically (ones you made, and the safety copy taken before a restore). */
+  backups: { name: string; bytes: number; modifiedAt: string; manual: boolean; kind: 'daily' | 'manual' | 'restore-point' }[];
 }
 
 /** How an invoice is dressed. Applied when it is shown or printed, so a new logo or colour restyles every invoice, old ones included. */
