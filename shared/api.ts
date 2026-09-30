@@ -1,4 +1,5 @@
 import type { AccessStatus, AccessUser, AccessUserInput } from './access';
+import type { CatalogueData, DesignPhoto, DesignPhotoInput } from './catalogue';
 import type { FilingFile, FilingRequest } from './filing';
 import type { MobileStatus } from './mobile';
 import type { OffsiteSetup, OffsiteStatus } from './offsite';
@@ -176,6 +177,17 @@ export interface Api {
   offsiteRestore(name: string, passphrase?: string): Promise<{ restoredFrom: string; restorePoint: string }>;
   /** The desktop app's folder chooser. */
   offsiteChooseFolder(): Promise<{ folder: string | null }>;
+  /** Photos of a design (the first is the cover), and the small covers of every design for the lists. */
+  designPhotos(designId: string): Promise<DesignPhoto[]>;
+  designPhotoAdd(designId: string, input: DesignPhotoInput): Promise<DesignPhoto[]>;
+  designPhotoRemove(photoId: string): Promise<void>;
+  designPhotoCover(photoId: string): Promise<void>;
+  designCovers(): Promise<Record<string, string>>;
+  /** What the catalogue page prints. `query` is what encodeCatalogueRequest makes. */
+  catalogueData(query: string): Promise<CatalogueData>;
+  /** Desktop app only: prints the catalogue, or asks where to save it as a PDF. */
+  cataloguePrint(query: string): Promise<void>;
+  catalogueExportPdf(query: string): Promise<{ saved: boolean; path?: string }>;
   /** The read only phone view served on the shop's Wi-Fi. Off until switched on. */
   mobileStatus(): Promise<MobileStatus>;
   mobileEnable(): Promise<MobileStatus>;

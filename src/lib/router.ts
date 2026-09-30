@@ -15,6 +15,7 @@ export type Route =
   | { name: 'inventory'; status: 'all' | 'low' | 'out' }
   | { name: 'materials' }
   | { name: 'labels'; design: string | null }
+  | { name: 'catalogue' }
   | { name: 'inventory-add' }
   | { name: 'design'; id: string }
   | { name: 'invoices'; status: 'all' | 'open' | 'overdue' | 'cancelled' }
@@ -44,6 +45,7 @@ export type Route =
   | { name: 'print-proforma'; id: string }
   | { name: 'print-credit-note'; id: string }
   | { name: 'print-labels'; query: string }
+  | { name: 'print-catalogue'; query: string }
   | { name: 'reports'; tab: ReportTab; period: PeriodSpec; /** Stock valuation date; null means today. */ asOf: string | null };
 
 export type ReportTab = 'sales' | 'gst' | 'stock';
@@ -65,6 +67,7 @@ export function parseHash(hash: string): Route {
     case 'inventory': {
       if (parts[1] === 'materials') return { name: 'materials' };
       if (parts[1] === 'labels') return { name: 'labels', design: params.get('design') };
+      if (parts[1] === 'catalogue') return { name: 'catalogue' };
       if (parts[1] === 'add') return { name: 'inventory-add' };
       if (parts[1] === 'designs' && id) return { name: 'design', id };
       const status = params.get('status');
@@ -106,6 +109,7 @@ export function parseHash(hash: string): Route {
       return { name: 'settings', section: (SETTINGS_SECTIONS as readonly string[]).includes(parts[1] ?? '') ? (parts[1] as SettingsSection) : 'business' };
     case 'print':
       if (parts[1] === 'labels') return { name: 'print-labels', query };
+      if (parts[1] === 'catalogue') return { name: 'print-catalogue', query };
       if (parts[1] === 'invoice' && id) return { name: 'print-invoice', id };
       if (parts[1] === 'proforma' && id) return { name: 'print-proforma', id };
       if (parts[1] === 'credit-note' && id) return { name: 'print-credit-note', id };
@@ -137,7 +141,9 @@ export const sectionOf = (route: Route): Section => {
     case 'inventory':
     case 'materials':
     case 'labels':
+    case 'catalogue':
     case 'print-labels':
+    case 'print-catalogue':
     case 'inventory-add':
     case 'design':
       return 'inventory';
@@ -208,6 +214,7 @@ export const paths = {
   materials: '/inventory/materials',
   labels: (designId?: string) => (designId ? `/inventory/labels?design=${encodeURIComponent(designId)}` : '/inventory/labels'),
   addSarees: '/inventory/add',
+  catalogue: '/inventory/catalogue',
   design: (id: string) => `/inventory/designs/${encodeURIComponent(id)}`,
   invoices: (status?: 'open' | 'overdue' | 'cancelled') => (status ? `/invoices?status=${status}` : '/invoices'),
   newInvoice: (customerId?: string, advance?: AdvancePreset) => {

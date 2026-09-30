@@ -10,7 +10,9 @@ import { DashboardPage } from './pages/DashboardPage';
 import { DesignPage } from './pages/inventory/DesignPage';
 import { InventoryPage } from './pages/inventory/InventoryPage';
 import { AddSareesPage } from './pages/inventory/AddSareesPage';
+import { CataloguePage } from './pages/inventory/CataloguePage';
 import { LabelsPage } from './pages/inventory/LabelsPage';
+import { PrintCataloguePage } from './pages/inventory/PrintCataloguePage';
 import { PrintLabelsPage } from './pages/inventory/PrintLabelsPage';
 import { MaterialsPage } from './pages/inventory/MaterialsPage';
 import { InvoicePage } from './pages/invoices/InvoicePage';
@@ -43,6 +45,8 @@ function renderRoute(route: Route) {
       return <MaterialsPage />;
     case 'labels':
       return <LabelsPage design={route.design} />;
+    case 'catalogue':
+      return <CataloguePage />;
     case 'inventory-add':
       return <AddSareesPage />;
     case 'design':
@@ -97,6 +101,7 @@ function renderRoute(route: Route) {
     case 'print-proforma':
     case 'print-credit-note':
     case 'print-labels':
+    case 'print-catalogue':
       return null; // rendered outside the app shell, see App()
   }
 }
@@ -152,6 +157,7 @@ export default function App() {
   if (route.name === 'print-invoice') return <PrintInvoicePage id={route.id} />;
   if (route.name === 'print-proforma') return <PrintInvoicePage id={route.id} kind="proforma" />;
   if (route.name === 'print-labels') return <PrintLabelsPage query={route.query} />;
+  if (route.name === 'print-catalogue') return <PrintCataloguePage query={route.query} />;
   if (route.name === 'print-credit-note') return <PrintInvoicePage id={route.id} kind="credit-note" />;
   return (
     <AppShell active={sectionOf(route)} pageKey={pageKey(route)} hideFab={route.name === 'invoice-new' || route.name === 'proforma-new' || route.name === 'inventory-add' || route.name === 'bill-new'}>

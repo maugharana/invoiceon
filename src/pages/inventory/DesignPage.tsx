@@ -10,6 +10,7 @@ import { useQuery, useRefresh } from '../../lib/data';
 import { plural } from '../../lib/format';
 import { navigate, paths } from '../../lib/router';
 import { DesignFormModal } from './DesignFormModal';
+import { PhotosPanel } from './PhotosPanel';
 import { AdjustStockModal, StockHistoryModal } from './StockModals';
 import { VariantFormModal } from './VariantFormModal';
 
@@ -96,6 +97,8 @@ export function DesignPage({ id }: { id: string }) {
           <Money paise={d.stockValuePaise} fractionDigits={0} />
         </Figure>
       </div>
+
+      <PhotosPanel designId={d.id} designName={d.name} />
 
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-base">Variants</h2>

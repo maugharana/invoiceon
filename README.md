@@ -274,6 +274,11 @@ The period lives in the URL, so switching tabs keeps it.
 - **A secret link, and it is yours to revoke.** Off until switched on, remembered across restarts, answering only to a 128 bit random link compared in constant time. Guessing is slowed (20 wrong tries a minute, then a pause) while the right link is never turned away. **Make a new link** kills the old one at once, for a lost phone or a departed staff member. It stops with the app and takes the next free port if the usual one is busy.
 - **Honest limits.** It is plain `http` on a local address, not encrypted on the way, so use it on your own Wi-Fi. It works only while InvoiceOn is open on the shop computer, and not from outside the shop: reaching it from anywhere needs a server in the middle, which this offline app does not have. Windows may ask to allow network access the first time.
 
+## Design photos and a shareable catalogue (stage 20)
+
+- **Photos.** A design's page has a *Photos* panel: add up to six pictures (several at once), choose which is the cover, remove any. The app shrinks each one before saving (about 1000 px and about 100 KB, plus a small thumbnail for lists; any JPEG, PNG or WebP a browser can read), and the server checks again that the bytes really are that kind of picture, within size, and within the limit, so a renamed script can never be stored as a photo. Photos live in the database, so every backup and off-site copy carries them, and a restore brings them back. The inventory list shows each design's cover.
+- **Catalogue** (Inventory, Catalogue). Choose the designs (or use them all), a title, whether to show prices and only what is in stock, and two or three designs per row. The preview is the real page; *Save PDF* makes a file to send on WhatsApp, *Print* prints it, and in a browser it opens a print page. Each design shows its photo, code, fabric, the colours (with "out" marked when out of stock is included) and a price: the MRP range when every piece has an MRP, otherwise the selling price range plus GST. Costs are never part of it. Like labels, the request travels in the print page's address and is parsed defensively.
+
 ## Brand
 
 Tokens live in `tailwind.config.js` (teal `#0F6E56`, gold `#D9A94E` for one figure per screen, status pairs, ink).

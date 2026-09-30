@@ -6,10 +6,11 @@ const TABS = [
   { id: 'designs', label: 'Designs', href: paths.inventory() },
   { id: 'materials', label: 'Raw materials', href: paths.materials },
   { id: 'labels', label: 'Labels', href: paths.labels() },
+  { id: 'catalogue', label: 'Catalogue', href: paths.catalogue },
 ] as const;
 
 /** Shared header for the top-level inventory screens. */
-export function InventoryShell({ tab, actions, children }: { tab: 'designs' | 'materials' | 'labels'; actions?: ReactNode; children: ReactNode }) {
+export function InventoryShell({ tab, actions, children }: { tab: 'designs' | 'materials' | 'labels' | 'catalogue'; actions?: ReactNode; children: ReactNode }) {
   return (
     <>
       <PageHeader title="Inventory" subtitle="Saree designs, their colors and sizes, and what goes into making them." actions={actions} />

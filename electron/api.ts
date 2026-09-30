@@ -1,6 +1,9 @@
 import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Api, Envelope } from '../shared/api';
+import { catalogueData } from './services/catalogue';
+import * as photos from './services/photos';
+import { encodeCatalogueRequest, parseCatalogueRequest } from '../shared/catalogue';
 import { encodeLabelRequest, labelSizeById, parseLabelRequest } from '../shared/labels';
 import { listAudit, withAudit, type Actor } from './audit';
 import { backupNow, listBackups, restoreBackup } from './backup';
@@ -128,6 +131,22 @@ export function createApi(db: Db, host?: Host, dataDir?: string, actor?: () => A
       const req = parseLabelRequest(String(query));
       if (req.items.length === 0) throw new UserError('Choose at least one saree to print a label for.');
       return host.exportDocumentPdf(`/print/labels?${labelQuery(req)}`, 'Saree labels.pdf');
+    },
+
+    designPhotos: async (designId) => photos.listPhotos(db, designId),
+    designPhotoAdd: async (designId, input) => photos.addPhoto(db, designId, input),
+    designPhotoRemove: async (photoId) => void photos.removePhoto(db, photoId),
+    designPhotoCover: async (photoId) => void photos.setCover(db, photoId),
+    designCovers: async () => photos.coverThumbs(db),
+    catalogueData: async (query) => catalogueData(db, parseCatalogueRequest(String(query))),
+    cataloguePrint: async (query) => {
+      if (!host) throw new UserError(DESKTOP_ONLY);
+      return host.printDocument(`/print/catalogue?${encodeCatalogueRequest(parseCatalogueRequest(String(query)))}`);
+    },
+    catalogueExportPdf: async (query) => {
+      if (!host) throw new UserError(DESKTOP_ONLY);
+      const req = parseCatalogueRequest(String(query));
+      return host.exportDocumentPdf(`/print/catalogue?${encodeCatalogueRequest(req)}`, `${req.title.replace(/[\\/:*?"<>|]/g, '-')}.pdf`);
     },
 
     paymentsList: async (query) => payments.listPayments(db, query ?? {}),

@@ -146,6 +146,9 @@ const RULES: Partial<Record<keyof Api, Rule>> = {
   }, (db, a) => getDesign(db, a[0])),
   designArchive: rule('design', 'Archived design', (c) => ({ summary: `Archived design ${c.before.code} ${c.before.name}`, entityId: c.args[0] }), (db, a) => getDesign(db, a[0])),
   inventoryBulkAdd: rule('design', 'Added sarees in bulk', (c) => ({ summary: `Added sarees from the sheet: ${c.result.variantsCreated} pieces, ${c.result.designsCreated} new designs, ${c.result.designsExtended} extended` })),
+  designPhotoAdd: rule('design', 'Added design photo', (c) => ({ summary: `Added a photo to design ${c.before.code} ${c.before.name}`, entityId: c.args[0] }), (db, a) => getDesign(db, a[0])),
+  designPhotoRemove: simple('design', 'Removed design photo', () => 'Removed a design photo'),
+  designPhotoCover: simple('design', 'Changed cover photo', () => 'Chose a different cover photo for a design'),
   variantCreate: simple('variant', 'Added variant', (c) => `Added ${c.result.sku} at ${money(c.result.sellPricePaise)}`),
   variantUpdate: rule('variant', 'Edited variant', (c) => {
     const ch = changes(c.before, c.result, VARIANT_FIELDS);

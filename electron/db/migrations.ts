@@ -599,6 +599,21 @@ INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES
 `;
 
 // Append new migrations to the end; never edit one that has shipped.
+const V12 = `
+-- Photos of a design, stored in the database so they travel with every backup. The image is what the catalogue prints; the thumb is what
+-- the lists show. Both are made small by the app before they are saved.
+CREATE TABLE design_photos (
+  id         TEXT PRIMARY KEY,
+  design_id  TEXT NOT NULL REFERENCES designs (id),
+  position   INTEGER NOT NULL,
+  mime       TEXT NOT NULL CHECK (mime IN ('image/jpeg','image/png','image/webp')),
+  image      BLOB NOT NULL,
+  thumb      BLOB NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX ix_design_photos_design ON design_photos (design_id, position);
+`;
+
 const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 1, sql: V1 },
   { version: 2, sql: V2 },
@@ -611,6 +626,7 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 9, sql: V9 },
   { version: 10, sql: V10 },
   { version: 11, sql: V11 },
+  { version: 12, sql: V12 },
 ];
 
 export function migrate(db: DatabaseSync): void {

@@ -28,6 +28,7 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
   const summary = useQuery(() => api.inventorySummary());
   const designs = useQuery(() => api.designsList({ search: debounced, status: filter }), [debounced, filter]);
   const suggestedCode = useQuery(() => api.designNextCode());
+  const covers = useQuery(() => api.designCovers());
 
   const s = summary.data;
   const isEmptyInventory = s?.designCount === 0;
@@ -146,8 +147,13 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
                       className="animate-fade-in group cursor-pointer border-b border-line/70 transition-colors duration-150 last:border-0 hover:bg-canvas focus-visible:bg-canvas"
                     >
                       <td className="td">
-                        <div>{d.name}</div>
-                        <div className="text-xs text-ink-muted">{d.code}</div>
+                        <div className="flex items-center gap-3">
+                          {covers.data?.[d.id] ? <img src={covers.data[d.id]} alt="" className="h-11 w-9 shrink-0 rounded-md border border-line object-cover" /> : null}
+                          <div>
+                            <div>{d.name}</div>
+                            <div className="text-xs text-ink-muted">{d.code}</div>
+                          </div>
+                        </div>
                       </td>
                       <td className="td text-ink-muted">{d.fabric || '—'}</td>
                       <td className="td num text-right">{d.variantCount}</td>
