@@ -70,10 +70,12 @@ function createHost(getParent: () => BrowserWindow | null): Host {
       }
       return { saved: true, path: filePath };
     },
-    async printDocument(route) {
+    async printDocument(route, pageMm) {
       const w = await openDocumentWindow(route);
       await new Promise<void>((resolve, reject) => {
-        w.webContents.print({ silent: false, printBackground: true }, (success, reason) => {
+        // A roll of labels is not A4: give the printer the label's own size (in microns) and no margins.
+        const paper = pageMm ? { pageSize: { width: Math.round(pageMm.widthMm * 1000), height: Math.round(pageMm.heightMm * 1000) }, margins: { marginType: 'none' as const } } : {};
+        w.webContents.print({ silent: false, printBackground: true, ...paper }, (success, reason) => {
           w.destroy();
           // Closing the dialog without printing isn't an error.
           if (success || /cancel/i.test(reason)) resolve();

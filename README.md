@@ -18,6 +18,7 @@ Windows desktop app, offline-first: your data lives in a local SQLite file, no i
 | 10 | Several GST rates (per design, and by price step) | **Done** |
 | 11 | Suppliers, purchase bills, payables, input tax credit | **Done** |
 | 12 | Weavers and job work orders | **Done** |
+| 13 | Barcode labels and scan to bill | **Done** |
 
 **New here? Start with [`docs/TOUR.md`](docs/TOUR.md)** — a ten-minute guided tour (see it, generate a PDF, see what the PDF looks
 like, customise it). Sample PDFs are in [`sample-pdfs/`](sample-pdfs). If packaging fails on Windows, see
@@ -223,6 +224,13 @@ The period lives in the URL, so switching tabs keeps it.
 - **Real cost per piece** = the wage plus the raw material handed over (valued at its cost when issued) shared over the pieces ordered. Tick "set this saree's cost to what these really cost" on a receipt and the saree's making cost becomes that cost less the raw materials already in its costing, so stock valuation and margins use it.
 - An order that came up short can be **closed** (what was received stays, and stays owed); one with nothing received can be **cancelled**. "Overdue" (open and past its expected date) and "received" are worked out, not stored. A weaver with open orders or money owed either way cannot be archived.
 - Schema migration 9 adds `weavers`, `job_orders`, `job_order_materials`, `job_order_receipts` and `weaver_payments`.
+
+## Barcode labels and scan to bill (stage 13)
+
+- **Inventory → Labels** prints a label per saree: shop name, design, colour and size, a **Code 128 barcode of its SKU**, and the price (MRP if set, else the selling price plus GST). Choose how many of each (one button fills in what is in stock), the size (three roll sizes, or A4 sheets of 24 or 10), then **Print** or **Save PDF**. A design's page has a *Labels* button that starts with that design. In a plain browser the print view opens in a tab with a print button.
+- **The encoder is ours, not a library** (`shared/barcode.ts`, Code 128 subset B: every printable ASCII character, which is all a SKU holds). It was checked three ways: against 696 strings from an independent implementation (bwip-js, identical output for every one, kept as reference vectors in `tests/barcode.test.ts`), structurally (11 modules a symbol, stop pattern, start B), and end to end: a label rendered by the app in a browser was decoded with ZXing and read back as exactly the SKU. A SKU with characters a barcode cannot hold (a Hindi name, an en dash) shows text instead and says so.
+- **Print sizes.** A roll prints one label per page at the label's own size (`@page` for PDF; the desktop app also hands the printer the size in microns). A sheet packs a grid per A4 page. The request travels in the print page's address (`shared/labels.ts`) and is parsed defensively: unknown sizes fall back, malformed items are dropped, and the total is capped.
+- **Scan to bill.** On New invoice (and New proforma), a scanner that types like a keyboard adds the saree whose SKU it reads, wherever focus is on the page (`useBarcodeScanner`): a burst of keys under 80 ms apart ending in Enter counts as a scan, so a person typing slowly, or pressing Enter alone, never does. Scanning the same label again adds one to the quantity; an unknown code or an out of stock saree says so. Typing an exact SKU in the item box and pressing Enter also wins over other search matches.
 
 ## Brand
 

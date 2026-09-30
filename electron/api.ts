@@ -1,6 +1,7 @@
 import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Api, Envelope } from '../shared/api';
+import { encodeLabelRequest, labelSizeById, parseLabelRequest } from '../shared/labels';
 import { backupNow, listBackups, restoreBackup } from './backup';
 import type { Db } from './db/connection';
 import { UserError } from './services/common';
@@ -25,11 +26,14 @@ import * as settings from './services/settings';
 export interface Host {
   /** `route` is the print page for the document, e.g. "/print/invoice/<id>". */
   exportDocumentPdf(route: string, fileName: string): Promise<{ saved: boolean; path?: string }>;
-  printDocument(route: string): Promise<void>;
+  /** `pageMm` sets the paper size for things that are not A4 (a roll of labels). */
+  printDocument(route: string, pageMm?: { widthMm: number; heightMm: number }): Promise<void>;
   saveTextFile(fileName: string, content: string): Promise<{ saved: boolean; path?: string }>;
 }
 
 const DESKTOP_ONLY = 'This works in the InvoiceOn desktop app only.';
+/** The request re-encoded from what was parsed, so only understood values ever reach the print window. */
+const labelQuery = (req: ReturnType<typeof parseLabelRequest>): string => encodeLabelRequest(req);
 
 /** Binds the data layer to one open database. This is the only place that knows which service backs which call. */
 export function createApi(db: Db, host?: Host, dataDir?: string): Api {
@@ -97,6 +101,20 @@ export function createApi(db: Db, host?: Host, dataDir?: string): Api {
       if (!host) throw new UserError(DESKTOP_ONLY);
       creditNotes.getCreditNote(db, id);
       return host.printDocument(`/print/credit-note/${encodeURIComponent(id)}`);
+    },
+
+    labelsPrint: async (query) => {
+      if (!host) throw new UserError(DESKTOP_ONLY);
+      const req = parseLabelRequest(String(query));
+      if (req.items.length === 0) throw new UserError('Choose at least one saree to print a label for.');
+      const size = labelSizeById(req.size);
+      return host.printDocument(`/print/labels?${labelQuery(req)}`, size.sheet ? undefined : { widthMm: size.widthMm, heightMm: size.heightMm });
+    },
+    labelsExportPdf: async (query) => {
+      if (!host) throw new UserError(DESKTOP_ONLY);
+      const req = parseLabelRequest(String(query));
+      if (req.items.length === 0) throw new UserError('Choose at least one saree to print a label for.');
+      return host.exportDocumentPdf(`/print/labels?${labelQuery(req)}`, 'Saree labels.pdf');
     },
 
     paymentsList: async (query) => payments.listPayments(db, query ?? {}),

@@ -189,9 +189,10 @@ export function variantsForSale(db: Db): SaleVariant[] {
     stock: number;
     sell_price_paise: number;
     gst_rate_percent: number | null;
+    mrp_paise: number;
   }>(
     db,
-    `SELECT v.id, v.design_id, d.code, d.name AS design_name, d.hsn_code, v.color, v.size, v.sku, v.stock, v.sell_price_paise, d.gst_rate_percent
+    `SELECT v.id, v.design_id, d.code, d.name AS design_name, d.hsn_code, v.color, v.size, v.sku, v.stock, v.sell_price_paise, d.gst_rate_percent, v.mrp_paise
      FROM variants v JOIN designs d ON d.id = v.design_id
      WHERE v.deleted_at IS NULL AND d.deleted_at IS NULL
      ORDER BY d.name COLLATE NOCASE, v.color COLLATE NOCASE, v.size COLLATE NOCASE`,
@@ -207,6 +208,7 @@ export function variantsForSale(db: Db): SaleVariant[] {
     stock: r.stock,
     sellPricePaise: r.sell_price_paise,
     designGstRatePercent: r.gst_rate_percent,
+    mrpPaise: r.mrp_paise,
   }));
 }
 

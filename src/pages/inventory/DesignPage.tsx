@@ -1,4 +1,4 @@
-import { Archive, ArrowLeft, History, Package, Pencil, PackagePlus, Plus } from 'lucide-react';
+import { Archive, ArrowLeft, History, Package, Pencil, PackagePlus, Plus, ScanBarcode } from 'lucide-react';
 import { useState } from 'react';
 import { formatMoney } from '../../../shared/money';
 import type { Variant } from '../../../shared/types';
@@ -71,6 +71,9 @@ export function DesignPage({ id }: { id: string }) {
         subtitle={[d.code, d.fabric, d.hsnCode && `HSN ${d.hsnCode}`].filter(Boolean).join(' · ')}
         actions={
           <>
+            <Button icon={<ScanBarcode className="h-4 w-4" />} onClick={() => navigate(paths.labels(d.id))}>
+              Labels
+            </Button>
             <Button icon={<Pencil className="h-4 w-4" />} onClick={() => setDialog({ kind: 'edit-design' })}>
               Edit
             </Button>

@@ -133,6 +133,11 @@ export interface Api {
   creditNoteExportPdf(id: string): Promise<{ saved: boolean; path?: string }>;
   creditNotePrint(id: string): Promise<void>;
 
+  /** Desktop app only: prints saree labels. `query` is what encodeLabelRequest makes. */
+  labelsPrint(query: string): Promise<void>;
+  /** Desktop app only: asks where to save, then writes the labels as a PDF. */
+  labelsExportPdf(query: string): Promise<{ saved: boolean; path?: string }>;
+
   paymentsList(query?: PaymentQuery): Promise<Payment[]>;
   /** Records money received. Each part goes to the invoices named in `allocations`; any remainder is held as the customer's advance. */
   paymentRecord(input: PaymentInput): Promise<Payment>;

@@ -10,6 +10,7 @@ import { Button, Card, ErrorNote, Field, Input, Money, MoneyInput, PageHeader, S
 import { api, errorMessage } from '../../lib/api';
 import { useQuery, useRefresh } from '../../lib/data';
 import { toNumber } from '../../lib/format';
+import { useBarcodeScanner } from '../../lib/scanner';
 import { navigate, paths, type AdvancePreset } from '../../lib/router';
 import { CustomerFormModal } from '../customers/CustomerFormModal';
 
@@ -112,7 +113,7 @@ function CustomerPicker({ customers, type, value, onChange, onCreate }: { custom
 }
 
 // ── Item picker ─────────────────────────────────────────────────────────────
-function ItemPicker({ variants, taken, onPick, allowOutOfStock = false }: { variants: SaleVariant[]; taken: Set<string>; onPick: (v: SaleVariant) => void; allowOutOfStock?: boolean }) {
+function ItemPicker({ variants, taken, onPick, onNotice, allowOutOfStock = false }: { variants: SaleVariant[]; taken: Set<string>; onPick: (v: SaleVariant) => void; onNotice: (message: string) => void; allowOutOfStock?: boolean }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -152,8 +153,17 @@ function ItemPicker({ variants, taken, onPick, allowOutOfStock = false }: { vari
             setActive((a) => Math.max(a - 1, 0));
           } else if (e.key === 'Enter') {
             e.preventDefault();
-            const v = results[active];
+            // A scanner types a whole SKU and presses Enter: an exact SKU always wins over whatever else the search turned up.
+            const code = q.trim().toLowerCase();
+            const exact = code ? variants.find((x) => x.sku.toLowerCase() === code) : undefined;
+            if (exact && exact.stock <= 0 && !allowOutOfStock) {
+              onNotice(`${exact.designName} (${exact.color}, ${exact.size}) is out of stock.`);
+              setQ('');
+              return;
+            }
+            const v = exact ?? results[active];
             if (v) pick(v);
+            else if (code) onNotice(`No saree found for "${q.trim()}".`);
           } else if (e.key === 'Escape') setOpen(false);
         }}
         className="h-9 w-full rounded-lg border border-dashed border-line bg-surface pl-9 pr-3 text-sm transition-[border-color,box-shadow] duration-150 placeholder:text-ink-muted/60 hover:border-ink/25 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/15"
@@ -284,6 +294,17 @@ export function NewInvoicePage({ presetCustomerId, advance, mode = 'invoice' }: 
       return [...ls, { variantId: v.variantId, qty: '1', price: v.sellPricePaise }];
     });
   }
+
+  // A barcode scanner (one that types like a keyboard) adds the saree whose SKU it reads, wherever focus is on the page.
+  useBarcodeScanner((code) => {
+    const v = (variants.data ?? []).find((x) => x.sku.toLowerCase() === code.trim().toLowerCase());
+    if (!v) toast.error(`No saree found for "${code}".`);
+    else if (v.stock <= 0 && !quote) toast.error(`${v.designName} (${v.color}, ${v.size}) is out of stock.`);
+    else {
+      addVariant(v);
+      toast.success(`Added ${v.designName} (${v.color}, ${v.size})`);
+    }
+  });
 
   async function submit() {
     setSaving(true);
@@ -428,7 +449,7 @@ export function NewInvoicePage({ presetCustomerId, advance, mode = 'invoice' }: 
               </table>
             )}
             <div className="p-4">
-              <ItemPicker variants={variants.data ?? []} taken={new Set(lines.map((l) => l.variantId))} onPick={addVariant} allowOutOfStock={quote} />
+              <ItemPicker variants={variants.data ?? []} taken={new Set(lines.map((l) => l.variantId))} onPick={addVariant} onNotice={toast.error} allowOutOfStock={quote} />
               {variants.data?.length === 0 && <p className="mt-2 text-xs text-ink-muted">There's nothing to sell yet — add designs and stock under Inventory first.</p>}
             </div>
           </Card>

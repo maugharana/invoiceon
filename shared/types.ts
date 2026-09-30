@@ -494,6 +494,8 @@ export interface SaleVariant {
   sellPricePaise: Paise;
   /** The design's own GST rate, or null to use the shop's rate / slabs. */
   designGstRatePercent: number | null;
+  /** The printed maximum retail price, GST included. 0 when not set. */
+  mrpPaise: Paise;
 }
 
 export interface DashboardSummary {
