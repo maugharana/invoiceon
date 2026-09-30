@@ -372,6 +372,105 @@ ALTER TABLE proformas ADD COLUMN tax_summary_json TEXT;
 INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES ('gst_slabs_enabled', '0', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
 `;
 
+// Suppliers and purchase bills.
+//  • A bill freezes the supplier's details and its own tax, like an invoice does, and is cancelled rather than deleted.
+//  • Payments to suppliers mirror payments from customers: a payment is split across bills, and what is not on a bill is an advance
+//    paid to that supplier. Nothing is stored for "outstanding" or "advance": both are worked out from the records.
+//  • Lines are of three kinds: a raw material (updates its cost if asked), a finished saree (comes into stock through the ledger),
+//    or anything else (freight, packing).
+const V8 = `
+CREATE TABLE suppliers (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  gstin      TEXT NOT NULL DEFAULT '',
+  phone      TEXT NOT NULL DEFAULT '',
+  email      TEXT NOT NULL DEFAULT '',
+  address    TEXT NOT NULL DEFAULT '',
+  city       TEXT NOT NULL DEFAULT '',
+  state      TEXT NOT NULL DEFAULT '',
+  pincode    TEXT NOT NULL DEFAULT '',
+  notes      TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
+);
+CREATE INDEX ix_suppliers_name ON suppliers (name COLLATE NOCASE);
+
+CREATE TABLE purchase_bills (
+  id               TEXT PRIMARY KEY,
+  supplier_id      TEXT NOT NULL REFERENCES suppliers (id),
+  bill_number      TEXT NOT NULL,
+  bill_date        TEXT NOT NULL,
+  due_date         TEXT,
+  supplier_json    TEXT NOT NULL,
+  place_of_supply  TEXT NOT NULL,
+  intra_state      INTEGER NOT NULL CHECK (intra_state IN (0,1)),
+  itc_eligible     INTEGER NOT NULL DEFAULT 1 CHECK (itc_eligible IN (0,1)),
+  tax_summary_json TEXT NOT NULL,
+  subtotal_paise   INTEGER NOT NULL,
+  taxable_paise    INTEGER NOT NULL,
+  cgst_paise       INTEGER NOT NULL DEFAULT 0,
+  sgst_paise       INTEGER NOT NULL DEFAULT 0,
+  igst_paise       INTEGER NOT NULL DEFAULT 0,
+  round_off_paise  INTEGER NOT NULL DEFAULT 0,
+  total_paise      INTEGER NOT NULL,
+  notes            TEXT NOT NULL DEFAULT '',
+  status           TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','cancelled')),
+  cancelled_at     TEXT,
+  cancel_reason    TEXT NOT NULL DEFAULT '',
+  created_at       TEXT NOT NULL,
+  updated_at       TEXT NOT NULL
+);
+-- The same supplier bill number can't be entered twice while it is live (a cancelled one can be entered again, corrected).
+CREATE UNIQUE INDEX ux_purchase_bills_number ON purchase_bills (supplier_id, bill_number COLLATE NOCASE) WHERE status = 'open';
+CREATE INDEX ix_purchase_bills_supplier ON purchase_bills (supplier_id);
+CREATE INDEX ix_purchase_bills_date ON purchase_bills (bill_date);
+
+CREATE TABLE purchase_bill_lines (
+  id               TEXT PRIMARY KEY,
+  bill_id          TEXT NOT NULL REFERENCES purchase_bills (id),
+  position         INTEGER NOT NULL,
+  kind             TEXT NOT NULL CHECK (kind IN ('material','variant','other')),
+  material_id      TEXT REFERENCES raw_materials (id),
+  variant_id       TEXT REFERENCES variants (id),
+  description      TEXT NOT NULL DEFAULT '',
+  hsn              TEXT NOT NULL DEFAULT '',
+  qty              REAL NOT NULL CHECK (qty > 0),
+  unit             TEXT NOT NULL DEFAULT '',
+  unit_price_paise INTEGER NOT NULL CHECK (unit_price_paise >= 0),
+  amount_paise     INTEGER NOT NULL,
+  gst_rate_percent REAL NOT NULL
+);
+CREATE INDEX ix_purchase_bill_lines_bill ON purchase_bill_lines (bill_id);
+
+CREATE TABLE supplier_payments (
+  id           TEXT PRIMARY KEY,
+  supplier_id  TEXT NOT NULL REFERENCES suppliers (id),
+  amount_paise INTEGER NOT NULL CHECK (amount_paise > 0),
+  method       TEXT NOT NULL CHECK (method IN ('cash','upi','bank','cheque','card','other')),
+  reference    TEXT NOT NULL DEFAULT '',
+  paid_on      TEXT NOT NULL,
+  note         TEXT NOT NULL DEFAULT '',
+  voided_at    TEXT,
+  void_reason  TEXT NOT NULL DEFAULT '',
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL
+);
+CREATE INDEX ix_supplier_payments_supplier ON supplier_payments (supplier_id);
+CREATE INDEX ix_supplier_payments_date ON supplier_payments (paid_on);
+
+CREATE TABLE supplier_payment_allocations (
+  id           TEXT PRIMARY KEY,
+  payment_id   TEXT NOT NULL REFERENCES supplier_payments (id),
+  bill_id      TEXT NOT NULL REFERENCES purchase_bills (id),
+  amount_paise INTEGER NOT NULL CHECK (amount_paise > 0),
+  released_at  TEXT,
+  created_at   TEXT NOT NULL
+);
+CREATE INDEX ix_supplier_alloc_payment ON supplier_payment_allocations (payment_id);
+CREATE INDEX ix_supplier_alloc_bill ON supplier_payment_allocations (bill_id);
+`;
+
 // Append new migrations to the end; never edit one that has shipped.
 const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 1, sql: V1 },
@@ -381,6 +480,7 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 5, sql: V5 },
   { version: 6, sql: V6 },
   { version: 7, sql: V7 },
+  { version: 8, sql: V8 },
 ];
 
 export function migrate(db: DatabaseSync): void {

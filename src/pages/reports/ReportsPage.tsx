@@ -397,6 +397,59 @@ function GstTab({ period }: { period: PeriodSpec }) {
             </Card>
           </Section>
 
+          {(r.inputCredit.bills > 0 || r.liability.outputTaxPaise > 0) && (
+            <Section
+              title="What you pay after input credit"
+              note={
+                <>
+                  GST on your sales (after credit notes) less the GST on {plural(r.inputCredit.bills, 'purchase bill')} you can claim back, set off in the order the GST rules require. Bills are entered under{' '}
+                  <a href={`#${paths.purchases()}`} className="text-brand underline-offset-2 hover:underline">
+                    Purchases
+                  </a>
+                  .
+                </>
+              }
+            >
+              <Card className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-line">
+                      <th className="th">Head</th>
+                      <th className="th text-right">Tax on sales</th>
+                      <th className="th text-right">Input credit</th>
+                      <th className="th text-right">Pay in cash</th>
+                      <th className="th text-right">Carry forward</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(
+                      [
+                        ['CGST', r.netTotals.cgstPaise, r.inputCredit.cgstPaise, r.liability.payable.cgstPaise, r.liability.carryForward.cgstPaise],
+                        ['SGST', r.netTotals.sgstPaise, r.inputCredit.sgstPaise, r.liability.payable.sgstPaise, r.liability.carryForward.sgstPaise],
+                        ['IGST', r.netTotals.igstPaise, r.inputCredit.igstPaise, r.liability.payable.igstPaise, r.liability.carryForward.igstPaise],
+                      ] as const
+                    ).map(([head, out, credit, pay, carry]) => (
+                      <tr key={head} className="border-b border-line/70">
+                        <td className="td">{head}</td>
+                        <td className="td text-right"><Money paise={out} /></td>
+                        <td className="td text-right"><Money paise={credit} /></td>
+                        <td className="td text-right"><Money paise={pay} /></td>
+                        <td className="td text-right"><Money paise={carry} /></td>
+                      </tr>
+                    ))}
+                    <tr className="font-medium">
+                      <td className="td">Total</td>
+                      <td className="td text-right"><Money paise={r.netTotals.taxPaise} /></td>
+                      <td className="td text-right"><Money paise={r.inputCredit.taxPaise} /></td>
+                      <td className="td text-right"><Money paise={r.liability.payable.totalPaise} /></td>
+                      <td className="td text-right"><Money paise={r.liability.carryForward.totalPaise} /></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </Card>
+            </Section>
+          )}
+
           <Section title="By HSN code" note="Taxable value and tax for each HSN, with any invoice discount shared out across its items." actions={<ExportButton label="HSN CSV" onClick={() => void exportCsv(`GST HSN ${stamp}.csv`, gstHsnCsv(r))} />}>
             <Card className="overflow-x-auto">
               <table className="w-full">

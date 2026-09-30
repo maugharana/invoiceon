@@ -16,6 +16,7 @@ Windows desktop app, offline-first: your data lives in a local SQLite file, no i
 | 8 | Credit notes and sales returns | **Done** |
 | 9 | Restore from backup | **Done** |
 | 10 | Several GST rates (per design, and by price step) | **Done** |
+| 11 | Suppliers, purchase bills, payables, input tax credit | **Done** |
 
 **New here? Start with [`docs/TOUR.md`](docs/TOUR.md)** — a ten-minute guided tour (see it, generate a PDF, see what the PDF looks
 like, customise it). Sample PDFs are in [`sample-pdfs/`](sample-pdfs). If packaging fails on Windows, see
@@ -202,6 +203,16 @@ The period lives in the URL, so switching tabs keeps it.
 - **The discount is shared across the pieces** in proportion to their value before each rate's tax is worked out. Tax is rounded once per rate, and the invoice total to the whole rupee, as before.
 - **Reports.** The GST report's HSN table and its B2B register have one row per HSN and rate (register rows per invoice and rate, with the round-off on the invoice's last row so rows add to the invoice total), and the retail summary is by state and rate. In the HSN CSV the rate is the last column, so existing columns keep their places. Credit notes on a mixed invoice credit each piece at the rate it was sold at.
 - Schema migration 7 adds nullable rate columns and `tax_summary_json`. `tests/helpers/oldSchema.ts` holds the SQL that rewinds a database to an old shape for the upgrade tests: every migration adds its undo there.
+
+## Suppliers and purchase bills (stage 11)
+
+- **Purchases** (sidebar) has *Bills* and *Suppliers*. A supplier is like a customer: name, GSTIN, state, and a running statement. A **bill** is the supplier's own bill copied in: their bill number, dates, and items of three kinds: a **raw material** (metres or kilos), a **finished saree** (comes into stock through the ledger as a `purchase`, with the bill's cost), or **other** (freight, packing). Each item has its own GST rate. A supplier with no GSTIN cannot charge GST, so their bill must be at 0%.
+- **Tax** is worked out per rate with the same helper invoices use (`taxByRate`): CGST + SGST when the supplier is in your state, IGST otherwise, rounded to the rupee. If the total printed on their bill differs by a few rupees, type it in (up to ₹5 either way is accepted as rounding; more means something is mistyped).
+- **Bills freeze** the supplier's details and tax, and are cancelled rather than deleted. A cancelled bill takes its stock back out (refused if those pieces are already sold) and any money paid against it becomes an advance with the supplier. The same supplier bill number can't be entered twice while live, but can again after a cancellation.
+- **Payables mirror receivables.** A payment to a supplier is split across their bills; what is left is an advance paid to that supplier, which can be set against a later bill. Outstanding and advance are worked out from the records, never stored; a payment can be reversed; the supplier ledger's running balance always equals outstanding less advance. *Payables* (`payablesReport`) ages what you owe by how far each bill is past its due date.
+- **Optional cost update.** Tick "update costs to this bill's prices" and each raw material's cost, and the cost of sarees bought finished, follow the bill (a saree's own cost is its bill price less its raw materials). Off by default.
+- **Input tax credit.** Bills marked eligible (default when the supplier has a GSTIN) feed the GST report's new *What you pay after input credit* table: output tax after credit notes, less input credit, set off in the order the rules require (`setOffInputCredit`: IGST credit against IGST, CGST, SGST; CGST or SGST credit against their own head, then IGST), giving cash payable and carry forward by head. Cancelled bills and bills marked not eligible are left out.
+- Purchases do not appear in *Expenses*: expenses stay for day to day costs, bills for what you buy from suppliers. Schema migration 8 adds `suppliers`, `purchase_bills`, `purchase_bill_lines`, `supplier_payments` and `supplier_payment_allocations`.
 
 ## Brand
 

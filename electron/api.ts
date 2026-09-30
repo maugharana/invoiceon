@@ -13,9 +13,11 @@ import * as invoices from './services/invoices';
 import * as materials from './services/materials';
 import * as payments from './services/payments';
 import * as proformas from './services/proformas';
+import * as purchases from './services/purchases';
 import * as receivables from './services/receivables';
 import * as reports from './services/reports';
 import { loadSampleData } from './services/seed';
+import * as suppliers from './services/suppliers';
 import * as settings from './services/settings';
 
 /** Things only the desktop shell can do. Absent in browser dev mode, where those calls explain themselves. */
@@ -139,6 +141,24 @@ export function createApi(db: Db, host?: Host, dataDir?: string): Api {
       proformas.getProforma(db, id);
       return host.printDocument(`/print/proforma/${encodeURIComponent(id)}`);
     },
+
+    suppliersList: async (query) => suppliers.listSuppliers(db, query ?? {}),
+    supplierGet: async (id) => suppliers.getSupplier(db, id),
+    supplierCreate: async (input) => suppliers.createSupplier(db, input),
+    supplierUpdate: async (id, input) => suppliers.updateSupplier(db, id, input),
+    supplierArchive: async (id) => suppliers.archiveSupplier(db, id),
+    supplierLedger: async (id) => purchases.supplierLedger(db, id),
+
+    purchaseBillsList: async (query) => purchases.listBills(db, query ?? {}),
+    purchaseBillGet: async (id) => purchases.getBill(db, id),
+    purchaseBillCreate: async (input) => purchases.createBill(db, input),
+    purchaseBillCancel: async (id, reason) => purchases.cancelBill(db, id, reason),
+    purchaseBillApplyAdvance: async (billId) => purchases.applyAdvanceToBill(db, billId),
+    supplierPaymentsList: async (query) => purchases.listSupplierPayments(db, query ?? {}),
+    supplierPaymentRecord: async (input) => purchases.recordSupplierPayment(db, input),
+    supplierPaymentVoid: async (id, reason) => purchases.voidSupplierPayment(db, id, reason),
+    payablesReport: async () => purchases.payablesReport(db),
+    purchasesSummary: async () => purchases.purchasesSummary(db),
 
     sampleDataLoad: async () => loadSampleData(db),
 

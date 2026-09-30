@@ -4,7 +4,7 @@ import { PAYMENT_METHODS, type PaymentMethod, type ProformaStatus } from '../../
 
 // A tiny hash router — hash URLs are the one kind that also work when the app is loaded from a file.
 
-export type Section = 'dashboard' | 'inventory' | 'invoices' | 'proformas' | 'customers' | 'payments' | 'expenses' | 'reports' | 'settings';
+export type Section = 'dashboard' | 'inventory' | 'invoices' | 'proformas' | 'customers' | 'payments' | 'purchases' | 'expenses' | 'reports' | 'settings';
 
 export const SETTINGS_SECTIONS = ['business', 'tax', 'invoice', 'proforma', 'expenses', 'accounts', 'instructions', 'notifications', 'data', 'preferences', 'plus'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
@@ -20,6 +20,11 @@ export type Route =
   | { name: 'payments' }
   | { name: 'dues' }
   | { name: 'invoice'; id: string }
+  | { name: 'purchases'; status: 'all' | 'open' | 'overdue' | 'cancelled' }
+  | { name: 'bill-new'; supplierId: string | null }
+  | { name: 'bill'; id: string }
+  | { name: 'suppliers' }
+  | { name: 'supplier'; id: string }
   | { name: 'credit-notes' }
   | { name: 'credit-note'; id: string }
   | { name: 'proformas'; status: 'all' | ProformaStatus }
@@ -68,6 +73,13 @@ export function parseHash(hash: string): Route {
       if (parts[1]) return { name: 'invoice', id: decodeURIComponent(parts[1]) };
       const status = params.get('status');
       return { name: 'invoices', status: status === 'open' || status === 'overdue' || status === 'cancelled' ? status : 'all' };
+    }
+    case 'purchases': {
+      if (parts[1] === 'new') return { name: 'bill-new', supplierId: params.get('supplier') };
+      if (parts[1] === 'bills' && id) return { name: 'bill', id };
+      if (parts[1] === 'suppliers') return id ? { name: 'supplier', id } : { name: 'suppliers' };
+      const status = params.get('status');
+      return { name: 'purchases', status: status === 'open' || status === 'overdue' || status === 'cancelled' ? status : 'all' };
     }
     case 'credit-notes':
       return parts[1] ? { name: 'credit-note', id: decodeURIComponent(parts[1]) } : { name: 'credit-notes' };
@@ -138,6 +150,12 @@ export const sectionOf = (route: Route): Section => {
     case 'payments':
     case 'dues':
       return 'payments';
+    case 'purchases':
+    case 'bill-new':
+    case 'bill':
+    case 'suppliers':
+    case 'supplier':
+      return 'purchases';
   }
 };
 
@@ -175,6 +193,11 @@ export const paths = {
     return `/reports/${tab}${q.size ? `?${q}` : ''}`;
   },
   invoice: (id: string) => `/invoices/${encodeURIComponent(id)}`,
+  purchases: (status?: 'open' | 'overdue' | 'cancelled') => (status ? `/purchases?status=${status}` : '/purchases'),
+  newBill: (supplierId?: string) => (supplierId ? `/purchases/new?supplier=${encodeURIComponent(supplierId)}` : '/purchases/new'),
+  bill: (id: string) => `/purchases/bills/${encodeURIComponent(id)}`,
+  suppliers: '/purchases/suppliers',
+  supplier: (id: string) => `/purchases/suppliers/${encodeURIComponent(id)}`,
   creditNotes: '/credit-notes',
   creditNote: (id: string) => `/credit-notes/${encodeURIComponent(id)}`,
   customers: '/customers',

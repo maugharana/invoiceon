@@ -1,4 +1,4 @@
-import { BarChart3, Boxes, ClipboardList, CornerDownLeft, FileText, LayoutDashboard, Receipt, Search, Settings as SettingsIcon, Shirt, UserRound, Users, Wallet, type LucideIcon } from 'lucide-react';
+import { BarChart3, Boxes, ClipboardList, CornerDownLeft, FileText, LayoutDashboard, Receipt, Search, Settings as SettingsIcon, Shirt, Truck, UserRound, Users, Wallet, type LucideIcon } from 'lucide-react';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { matchesAll } from '../../shared/search';
@@ -88,6 +88,9 @@ function Palette({ onClose }: { onClose: () => void }) {
       ['Add sarees', paths.addSarees, Shirt, 'bulk sheet designs new stock import'],
       ['Invoices', paths.invoices(), FileText],
       ['Credit notes', paths.creditNotes, FileText, 'returns refund adjustment'],
+      ['Purchases', paths.purchases(), Truck, 'bills suppliers payables buy'],
+      ['Suppliers', paths.suppliers, Truck, 'vendors weavers'],
+      ['Enter a supplier bill', paths.newBill(), Truck, 'purchase bill buy'],
       ['Proformas', paths.proformas(), ClipboardList, 'quotes quotations'],
       ['Customers', paths.customers, Users],
       ['Payments', paths.payments, Wallet],

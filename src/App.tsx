@@ -14,6 +14,11 @@ import { PrintInvoicePage } from './pages/invoices/PrintInvoicePage';
 import { CreditNotePage, CreditNotesPage } from './pages/invoices/CreditNotesPage';
 import { ExpensesPage } from './pages/expenses/ExpensesPage';
 import { DuesPage, PaymentsPage } from './pages/payments/PaymentsPage';
+import { BillPage } from './pages/purchases/BillPage';
+import { NewBillPage } from './pages/purchases/NewBillPage';
+import { PurchasesPage } from './pages/purchases/PurchasesPage';
+import { SupplierPage } from './pages/purchases/SupplierPage';
+import { SuppliersPage } from './pages/purchases/SuppliersPage';
 import { ProformaPage } from './pages/proformas/ProformaPage';
 import { ProformasPage } from './pages/proformas/ProformasPage';
 import { ReportsPage } from './pages/reports/ReportsPage';
@@ -41,6 +46,16 @@ function renderRoute(route: Route) {
       return <DuesPage />;
     case 'invoice':
       return <InvoicePage id={route.id} />;
+    case 'purchases':
+      return <PurchasesPage initialStatus={route.status} />;
+    case 'bill-new':
+      return <NewBillPage presetSupplierId={route.supplierId} />;
+    case 'bill':
+      return <BillPage id={route.id} />;
+    case 'suppliers':
+      return <SuppliersPage />;
+    case 'supplier':
+      return <SupplierPage id={route.id} />;
     case 'credit-notes':
       return <CreditNotesPage />;
     case 'credit-note':
@@ -75,6 +90,8 @@ const pageKey = (r: Route): string => {
     case 'invoice':
     case 'proforma':
     case 'customer':
+    case 'bill':
+    case 'supplier':
     case 'credit-note':
     case 'print-invoice':
     case 'print-proforma':
@@ -86,6 +103,10 @@ const pageKey = (r: Route): string => {
       return `${r.name}:${r.status}`;
     case 'proforma-new':
       return `proforma-new:${r.customerId ?? ''}`;
+    case 'purchases':
+      return `purchases:${r.status}`;
+    case 'bill-new':
+      return `bill-new:${r.supplierId ?? ''}`;
     case 'invoice-new':
       return `new:${r.customerId ?? ''}:${r.advance?.amountPaise ?? 0}`;
     case 'settings':
@@ -104,7 +125,7 @@ export default function App() {
   if (route.name === 'print-proforma') return <PrintInvoicePage id={route.id} kind="proforma" />;
   if (route.name === 'print-credit-note') return <PrintInvoicePage id={route.id} kind="credit-note" />;
   return (
-    <AppShell active={sectionOf(route)} pageKey={pageKey(route)} hideFab={route.name === 'invoice-new' || route.name === 'proforma-new' || route.name === 'inventory-add'}>
+    <AppShell active={sectionOf(route)} pageKey={pageKey(route)} hideFab={route.name === 'invoice-new' || route.name === 'proforma-new' || route.name === 'inventory-add' || route.name === 'bill-new'}>
       {renderRoute(route)}
     </AppShell>
   );

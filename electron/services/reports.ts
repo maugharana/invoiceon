@@ -1,4 +1,4 @@
-import { allocate, isIsoDate, todayIso, type RateGroup } from '../../shared/gst';
+import { allocate, isIsoDate, setOffInputCredit, todayIso, type RateGroup } from '../../shared/gst';
 import { bucketKeys, bucketOf, granularityFor } from '../../shared/periods';
 import type { GstReport, GstTotals, InvoiceType, PaymentMethod, ReturnsSummary, SalesReport, StockReport } from '../../shared/types';
 import { all, type Db } from '../db/connection';
@@ -6,6 +6,7 @@ import { UserError } from './common';
 import { listDesigns, loadVariants } from './inventory';
 import { taxSummaryOf } from './invoices';
 import { loadPaid } from './payments';
+import { inputCreditIn } from './purchases';
 
 // ── Shared loading ──────────────────────────────────────────────────────────
 interface InvoiceRow {
@@ -360,11 +361,22 @@ export function gstReport(db: Db, range: { from: string; to: string }): GstRepor
     invoiceValuePaise: totals.invoiceValuePaise - creditTotals.invoiceValuePaise,
   };
 
+  // GST paid to suppliers can be set off against what is due. The rules fix the order, so cash payable and carry forward come out by head.
+  const inputCredit = inputCreditIn(db, range);
+  const setOff = setOffInputCredit(netTotals, inputCredit);
+  const headTotal = (h: { cgstPaise: number; sgstPaise: number; igstPaise: number }) => h.cgstPaise + h.sgstPaise + h.igstPaise;
+
   return {
     range,
     creditNotes: creditTotals,
     creditNoteRegister,
     netTotals,
+    inputCredit,
+    liability: {
+      outputTaxPaise: netTotals.taxPaise,
+      payable: { ...setOff.payable, totalPaise: headTotal(setOff.payable) },
+      carryForward: { ...setOff.carryForward, totalPaise: headTotal(setOff.carryForward) },
+    },
     totals,
     b2b,
     b2c,

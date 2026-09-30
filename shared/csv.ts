@@ -104,6 +104,16 @@ export const gstCsv = (r: GstReport): string =>
     ['HSN summary'],
     ...hsnRows(r),
     ...(r.creditNoteRegister.length > 0 ? [[], ['Credit notes'], ...creditNoteRows(r), [], ['Net GST after credit notes', rs(r.netTotals.taxPaise)]] : []),
+    ...(r.inputCredit.bills > 0
+      ? [
+          [],
+          ['Input credit and GST payable', 'CGST', 'SGST', 'IGST', 'Total'],
+          ['Tax on sales (net of credit notes)', rs(r.netTotals.cgstPaise), rs(r.netTotals.sgstPaise), rs(r.netTotals.igstPaise), rs(r.netTotals.taxPaise)],
+          ['Input credit from purchase bills', rs(r.inputCredit.cgstPaise), rs(r.inputCredit.sgstPaise), rs(r.inputCredit.igstPaise), rs(r.inputCredit.taxPaise)],
+          ['Payable in cash', rs(r.liability.payable.cgstPaise), rs(r.liability.payable.sgstPaise), rs(r.liability.payable.igstPaise), rs(r.liability.payable.totalPaise)],
+          ['Carry forward', rs(r.liability.carryForward.cgstPaise), rs(r.liability.carryForward.sgstPaise), rs(r.liability.carryForward.igstPaise), rs(r.liability.carryForward.totalPaise)],
+        ]
+      : []),
   ]);
 
 export function stockCsv(r: StockReport): string {

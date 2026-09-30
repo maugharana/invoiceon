@@ -1,5 +1,16 @@
 import type {
   BulkAddResult,
+  PayablesReport,
+  PurchaseBill,
+  PurchaseBillInput,
+  PurchaseBillQuery,
+  PurchaseBillSummary,
+  PurchasesSummary,
+  Supplier,
+  SupplierInput,
+  SupplierLedger,
+  SupplierPayment,
+  SupplierPaymentInput,
   CreditNote,
   CreditNoteInput,
   CreditNoteQuery,
@@ -152,6 +163,30 @@ export interface Api {
   proformaConvert(id: string): Promise<Invoice>;
   proformaExportPdf(id: string): Promise<{ saved: boolean; path?: string }>;
   proformaPrint(id: string): Promise<void>;
+
+  suppliersList(query?: { search?: string }): Promise<Supplier[]>;
+  supplierGet(id: string): Promise<Supplier>;
+  supplierCreate(input: SupplierInput): Promise<Supplier>;
+  supplierUpdate(id: string, input: SupplierInput): Promise<Supplier>;
+  /** Archives; bills already entered keep their own copy of the supplier's details. */
+  supplierArchive(id: string): Promise<void>;
+  /** A running statement with the supplier: bills add to what you owe, payments reduce it. */
+  supplierLedger(id: string): Promise<SupplierLedger>;
+
+  purchaseBillsList(query?: PurchaseBillQuery): Promise<PurchaseBillSummary[]>;
+  purchaseBillGet(id: string): Promise<PurchaseBill>;
+  /** Enters a supplier's bill: sarees on it come into stock, and you can say what you paid or set an advance against it. */
+  purchaseBillCreate(input: PurchaseBillInput): Promise<PurchaseBill>;
+  /** Cancels a mistaken bill. Stock it brought in goes out again; money paid against it becomes an advance with the supplier. */
+  purchaseBillCancel(id: string, reason: string): Promise<PurchaseBill>;
+  /** Puts the advance you hold with the supplier toward one of their open bills. */
+  purchaseBillApplyAdvance(billId: string): Promise<PurchaseBill>;
+  supplierPaymentsList(query?: { supplierId?: string }): Promise<SupplierPayment[]>;
+  supplierPaymentRecord(input: SupplierPaymentInput): Promise<SupplierPayment>;
+  supplierPaymentVoid(id: string, reason: string): Promise<SupplierPayment>;
+  /** What you owe, to whom, aged by how far past due. */
+  payablesReport(): Promise<PayablesReport>;
+  purchasesSummary(): Promise<PurchasesSummary>;
 
   /** Fills an empty database with realistic saree designs so the app can be explored. */
   sampleDataLoad(): Promise<void>;

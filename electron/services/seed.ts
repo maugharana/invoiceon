@@ -7,6 +7,8 @@ import { createExpense } from './expenses';
 import { createDesign, createVariant, nextDesignCode } from './inventory';
 import { cancelInvoice, createInvoice, variantsForSale } from './invoices';
 import { createMaterial } from './materials';
+import { createBill, recordSupplierPayment } from './purchases';
+import { createSupplier } from './suppliers';
 import { recordPayment } from './payments';
 import { cancelProforma, createProforma } from './proformas';
 import { getSettings, saveSettings } from './settings';
@@ -112,6 +114,7 @@ export function loadSampleData(db: Db): void {
     addSampleSales(db);
     addSampleExpenses(db);
     addSampleProformas(db);
+    addSamplePurchases(db, { silk: silk.id, zari: zari.id });
   });
 }
 
@@ -198,4 +201,24 @@ function addSampleProformas(db: Db): void {
   createProforma(db, { ...base, type: 'B2C', customerId: idOf('Sunita'), issueDate: day(-25), validUntil: day(-10), lines: [item('Chanderi', 'Lemon', 2)] });
   const dropped = createProforma(db, { ...base, type: 'B2B', customerId: idOf('Kanchan'), issueDate: day(-15), validUntil: day(-1), lines: [item('Tanchoi', 'Onion pink', 4)] });
   cancelProforma(db, dropped.id, 'Customer bought elsewhere');
+}
+
+/**
+ * Two suppliers and their bills: yarn from a registered dealer in the same state (CGST and SGST) and zari from another state (IGST), one
+ * part paid, one paid, and one unpaid and overdue. Bills here are for raw materials only, so stock and the sample sales are untouched.
+ */
+function addSamplePurchases(db: Db, ids: { silk: string; zari: string }): void {
+  const today = todayIso();
+  const day = (n: number) => addDays(today, n);
+  const blank = { email: '', address: '', pincode: '', notes: '' };
+  const varanasi = createSupplier(db, { ...blank, name: 'Varanasi Silk Traders', gstin: '09AABCK1234M1ZI', phone: '9876500055', address: 'Pili Kothi', city: 'Varanasi', state: 'Uttar Pradesh' });
+  const surat = createSupplier(db, { ...blank, name: 'Surat Zari House', gstin: '24AAACS1234C1Z4', phone: '9876500066', address: 'Ring Road', city: 'Surat', state: 'Gujarat' });
+
+  const silkBill = createBill(db, { supplierId: varanasi.id, billNumber: 'VST/2041', billDate: day(-50), dueDate: day(-35), notes: 'Silk yarn, 8 kg', lines: [{ kind: 'material', materialId: ids.silk, qty: 8, unitPricePaise: rupees(4600), gstRatePercent: 5 }] });
+  recordSupplierPayment(db, { supplierId: varanasi.id, amountPaise: silkBill.totalPaise, method: 'bank', reference: 'NEFT 88121', paidOn: day(-40), note: '', allocations: [{ billId: silkBill.id, amountPaise: silkBill.totalPaise }] });
+
+  const zariBill = createBill(db, { supplierId: surat.id, billNumber: 'SZH/770', billDate: day(-27), dueDate: day(-12), notes: 'Zari thread, 2.4 kg', lines: [{ kind: 'material', materialId: ids.zari, qty: 2.4, unitPricePaise: rupees(9000), gstRatePercent: 5 }, { kind: 'other', description: 'Courier', qty: 1, unitPricePaise: rupees(450), gstRatePercent: 18 }] });
+  recordSupplierPayment(db, { supplierId: surat.id, amountPaise: rupees(10000), method: 'upi', reference: 'UPI 55120', paidOn: day(-20), note: 'Part payment', allocations: [{ billId: zariBill.id, amountPaise: rupees(10000) }] });
+
+  createBill(db, { supplierId: varanasi.id, billNumber: 'VST/2098', billDate: day(-8), dueDate: day(7), notes: '', lines: [{ kind: 'material', materialId: ids.silk, qty: 4, unitPricePaise: rupees(4700), gstRatePercent: 5 }, { kind: 'material', materialId: ids.zari, qty: 0.5, unitPricePaise: rupees(9200), gstRatePercent: 5 }] });
 }

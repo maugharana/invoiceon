@@ -58,6 +58,32 @@ export function resolveGstRate(rule: RateRule, designRatePercent: number | null 
   return rule.gstRatePercent;
 }
 
+// ── Input tax credit ────────────────────────────────────────────────────────
+export interface TaxHeads {
+  cgstPaise: Paise;
+  sgstPaise: Paise;
+  igstPaise: Paise;
+}
+
+/**
+ * Sets input tax credit off against output tax in the order the GST rules require: IGST credit first against IGST, then CGST, then
+ * SGST; CGST credit against CGST, then IGST; SGST credit against SGST, then IGST (CGST and SGST credit never cross). What is left
+ * of the tax is payable in cash; what is left of a credit is carried forward.
+ */
+export function setOffInputCredit(output: TaxHeads, credit: TaxHeads): { payable: TaxHeads; carryForward: TaxHeads } {
+  const out = { c: output.cgstPaise, s: output.sgstPaise, i: output.igstPaise };
+  const cr = { c: credit.cgstPaise, s: credit.sgstPaise, i: credit.igstPaise };
+  const use = (from: 'c' | 's' | 'i', to: 'c' | 's' | 'i') => {
+    const n = Math.min(cr[from], out[to]);
+    cr[from] -= n;
+    out[to] -= n;
+  };
+  use('i', 'i'); use('i', 'c'); use('i', 's');
+  use('c', 'c'); use('c', 'i');
+  use('s', 's'); use('s', 'i');
+  return { payable: { cgstPaise: out.c, sgstPaise: out.s, igstPaise: out.i }, carryForward: { cgstPaise: cr.c, sgstPaise: cr.s, igstPaise: cr.i } };
+}
+
 // ── Several rates on one document ───────────────────────────────────────────
 /** The tax on one rate's share of a document. */
 export interface RateGroup {

@@ -604,6 +604,16 @@ export interface GstReport {
   }[];
   /** Invoices less credit notes: what is actually due to the government. */
   netTotals: GstTotals;
+  /** GST paid to suppliers on purchase bills dated in the period that can be claimed back (bills marked as eligible, not cancelled). */
+  inputCredit: { bills: number; taxablePaise: Paise; cgstPaise: Paise; sgstPaise: Paise; igstPaise: Paise; taxPaise: Paise };
+  /** Output tax (net of credit notes) with input credit set off in the order the GST rules require. */
+  liability: {
+    outputTaxPaise: Paise;
+    /** What is left to pay in cash, by head. */
+    payable: { cgstPaise: Paise; sgstPaise: Paise; igstPaise: Paise; totalPaise: Paise };
+    /** Credit left over after setting off, to carry into the next period. */
+    carryForward: { cgstPaise: Paise; sgstPaise: Paise; igstPaise: Paise; totalPaise: Paise };
+  };
 }
 
 export interface StockVariantRow {
@@ -897,4 +907,201 @@ export interface ReturnsSummary {
   piecesReturned: number;
   /** Taxable value credited less the cost of the pieces that went back on the shelf. */
   profitLostPaise: Paise;
+}
+
+// ── Suppliers and purchase bills ────────────────────────────────────────────
+export interface SupplierInput {
+  name: string;
+  gstin: string;
+  phone: string;
+  email: string;
+  address: string;
+  city: string;
+  state: string;
+  pincode: string;
+  notes: string;
+}
+export interface Supplier extends SupplierInput {
+  id: string;
+  billCount: number;
+  billedPaise: Paise;
+  /** What you still owe them on bills. */
+  outstandingPaise: Paise;
+  /** Money you have paid them that is not on any bill yet. */
+  advancePaise: Paise;
+}
+
+export type BillLineKind = 'material' | 'variant' | 'other';
+export const BILL_LINE_KIND_LABEL: Record<BillLineKind, string> = { material: 'Raw material', variant: 'Finished saree', other: 'Other' };
+
+export interface BillLineInput {
+  kind: BillLineKind;
+  /** For a raw material line. */
+  materialId?: string;
+  /** For a finished saree line: the pieces come into stock. */
+  variantId?: string;
+  /** For an "other" line (freight, packing...); also a note on the others. */
+  description?: string;
+  hsn?: string;
+  /** Whole pieces for a saree; metres, kilos and so on for a material. */
+  qty: number;
+  /** Before GST. */
+  unitPricePaise: Paise;
+  gstRatePercent: number;
+}
+
+export interface PurchaseBillInput {
+  supplierId: string;
+  /** The supplier's own bill or invoice number. */
+  billNumber: string;
+  billDate: string;
+  dueDate: string | null;
+  /** Whether the GST on this bill can be claimed as input credit. Defaults to yes when the supplier has a GSTIN. */
+  itcEligible?: boolean;
+  /** The total printed on the supplier's bill, if it differs from the lines by a few rupees of rounding. */
+  billTotalPaise?: Paise;
+  /** Set each material's cost, and each saree's cost, to this bill's price. */
+  updateCosts?: boolean;
+  notes: string;
+  lines: BillLineInput[];
+  /** Money you hand over as the bill is entered. */
+  paidNow?: { amountPaise: Paise; method: PaymentMethod; reference: string };
+  /** How much of the advance you hold with this supplier to put toward the bill. */
+  applyAdvancePaise?: Paise;
+}
+
+export interface BillLine {
+  id: string;
+  kind: BillLineKind;
+  materialId: string | null;
+  variantId: string | null;
+  description: string;
+  hsn: string;
+  qty: number;
+  unit: string;
+  unitPricePaise: Paise;
+  amountPaise: Paise;
+  gstRatePercent: number;
+}
+
+export interface BillPayment {
+  paymentId: string;
+  paidOn: string;
+  method: PaymentMethod;
+  reference: string;
+  amountPaise: Paise;
+}
+
+export interface PurchaseBillSummary {
+  id: string;
+  supplierId: string;
+  supplierName: string;
+  billNumber: string;
+  billDate: string;
+  dueDate: string | null;
+  totalPaise: Paise;
+  paidPaise: Paise;
+  /** Same words as an invoice: unpaid, partly paid, paid, overdue, cancelled. */
+  status: InvoiceStatus;
+  itcEligible: boolean;
+}
+
+export interface PurchaseBill extends PurchaseBillSummary {
+  supplier: Party;
+  placeOfSupply: string;
+  intraState: boolean;
+  taxSummary: RateGroup[];
+  subtotalPaise: Paise;
+  taxablePaise: Paise;
+  cgstPaise: Paise;
+  sgstPaise: Paise;
+  igstPaise: Paise;
+  roundOffPaise: Paise;
+  notes: string;
+  lines: BillLine[];
+  payments: BillPayment[];
+  cancelledAt: string | null;
+  cancelReason: string;
+  createdAt: string;
+}
+
+export interface PurchaseBillQuery {
+  search?: string;
+  status?: 'all' | 'open' | 'overdue' | 'cancelled';
+  supplierId?: string;
+}
+
+export interface SupplierPaymentInput {
+  supplierId: string;
+  amountPaise: Paise;
+  method: PaymentMethod;
+  reference: string;
+  paidOn: string;
+  note: string;
+  /** How much of the payment settles which bill. What is left over is held as an advance with the supplier. */
+  allocations: { billId: string; amountPaise: Paise }[];
+}
+
+export interface SupplierPayment {
+  id: string;
+  supplierId: string;
+  supplierName: string;
+  amountPaise: Paise;
+  method: PaymentMethod;
+  reference: string;
+  paidOn: string;
+  note: string;
+  allocations: { billId: string; billNumber: string; amountPaise: Paise }[];
+  appliedPaise: Paise;
+  advancePaise: Paise;
+  voided: boolean;
+  voidReason: string;
+}
+
+export interface SupplierLedgerEntry {
+  date: string;
+  kind: 'bill' | 'bill-cancelled' | 'payment' | 'payment-voided';
+  description: string;
+  billId?: string;
+  /** Adds to what you owe. */
+  billedPaise: Paise;
+  /** Reduces what you owe. */
+  paidPaise: Paise;
+  /** Running balance. Positive = you owe them; negative = they hold your advance. */
+  balancePaise: Paise;
+}
+
+export interface SupplierLedger {
+  supplier: Supplier;
+  entries: SupplierLedgerEntry[];
+  billedPaise: Paise;
+  paidPaise: Paise;
+  balancePaise: Paise;
+}
+
+export interface PayablesRow extends DuesBuckets {
+  supplierId: string;
+  supplierName: string;
+  phone: string;
+  openBills: number;
+  outstandingPaise: Paise;
+  overduePaise: Paise;
+  oldestDueDate: string | null;
+  advancePaise: Paise;
+}
+
+export interface PayablesReport extends DuesBuckets {
+  rows: PayablesRow[];
+  outstandingPaise: Paise;
+  overduePaise: Paise;
+  advancePaidPaise: Paise;
+}
+
+export interface PurchasesSummary {
+  outstandingPaise: Paise;
+  overduePaise: Paise;
+  openBills: number;
+  monthBilledPaise: Paise;
+  monthBills: number;
+  supplierCount: number;
 }

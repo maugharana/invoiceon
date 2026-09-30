@@ -1,4 +1,4 @@
-import { BarChart3, Boxes, ClipboardList, FileText, LayoutDashboard, Plus, Receipt, Search, Settings as SettingsIcon, Users, Wallet, type LucideIcon } from 'lucide-react';
+import { BarChart3, Boxes, ClipboardList, FileText, LayoutDashboard, Plus, Receipt, Search, Settings as SettingsIcon, Truck, Users, Wallet, type LucideIcon } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { api } from '../lib/api';
 import { useQuery } from '../lib/data';
@@ -53,6 +53,7 @@ const NAV: { section: Section; label: string; icon: LucideIcon }[] = [
   { section: 'proformas', label: 'Proformas', icon: ClipboardList },
   { section: 'customers', label: 'Customers', icon: Users },
   { section: 'payments', label: 'Payments', icon: Wallet },
+  { section: 'purchases', label: 'Purchases', icon: Truck },
   { section: 'expenses', label: 'Expenses', icon: Receipt },
   { section: 'reports', label: 'Reports', icon: BarChart3 },
 ];
