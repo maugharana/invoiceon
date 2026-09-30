@@ -2,6 +2,7 @@ import type { AccessStatus, AccessUser, AccessUserInput } from './access';
 import type { CatalogueData, DesignPhoto, DesignPhotoInput } from './catalogue';
 import type { FilingFile, FilingRequest } from './filing';
 import type { MobileStatus } from './mobile';
+import type { ContactChannel, Contact, CustomerFollowUps, FollowUp, PaymentPromise, PromiseInput } from './followup';
 import type { LoyaltyAccount, LoyaltyConfig, Offer, OfferInput } from './offers';
 import type { OffsiteSetup, OffsiteStatus } from './offsite';
 import type {
@@ -178,6 +179,12 @@ export interface Api {
   offsiteRestore(name: string, passphrase?: string): Promise<{ restoredFrom: string; restorePoint: string }>;
   /** The desktop app's folder chooser. */
   offsiteChooseFolder(): Promise<{ folder: string | null }>;
+  /** Chasing money: who was reminded or called, and promises to pay. */
+  followUps(): Promise<FollowUp[]>;
+  customerFollowUps(customerId: string): Promise<CustomerFollowUps>;
+  contactLog(customerId: string, channel: ContactChannel, note: string): Promise<Contact>;
+  promiseCreate(customerId: string, input: PromiseInput): Promise<PaymentPromise>;
+  promiseCancel(id: string): Promise<void>;
   /** Offers (named discounts with rules) and loyalty points. */
   offersList(): Promise<Offer[]>;
   offerSave(id: string | null, input: OfferInput): Promise<Offer>;

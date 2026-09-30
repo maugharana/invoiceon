@@ -285,6 +285,12 @@ The period lives in the URL, so switching tabs keeps it.
 - **Loyalty points**: off until switched on. A saved customer earns whole points on the taxable value after discount (for example 1 point per ₹100), and can spend points as part of the discount (for example ₹1 a point, a minimum per use). A ledger records every change (`loyalty_entries`); the balance is always the sum, never a stored figure. Cancelling an invoice takes back what it earned and gives back what it spent; a credit note takes back the share the returned goods earned (never more than was earned, across several returns), and cancelling the credit note gives it back. Points that were spent are not refunded on a return. The customer's page shows the balance and history, with a manual *Adjust* (with a reason) for managers and owners.
 - **Nothing existing changes.** An invoice's `discount_paise` is still the whole discount, so every total, tax figure, report and credit note works exactly as before; the new columns only record how the discount was made up.
 
+## Dues follow-up and promises to pay (stage 22)
+
+- **Who has been chased.** The Dues screen now shows under each customer when they were last contacted and what they promised, and **Remind** (WhatsApp) records itself as a contact. **Follow up** logs a call, visit or other contact with a note and, in the same step, an optional *promise to pay* (an amount by a day). A customer's page has a Follow-ups card with their promises and contact log.
+- **Promises are judged from the books, not typed in.** A promise is *kept* once money (not a credit note) has been received from that customer since it was made, to the promised amount, even in pieces; it stays *open* through the promised day, and is *broken* the day after if the money did not come. Reversing a payment un-keeps it. Only the facts are stored (`customer_contacts`, `payment_promises`), the state is worked out on every read (`shared/followup.ts`), so it can never disagree with the payments.
+- **Worth chasing today.** The *Only customers to follow up* filter lists customers who are overdue, have no promise still to come, and either broke a promise or have not been contacted for a week. Counter staff can log follow-ups; nothing here changes what is owed.
+
 ## Brand
 
 Tokens live in `tailwind.config.js` (teal `#0F6E56`, gold `#D9A94E` for one figure per screen, status pairs, ink).

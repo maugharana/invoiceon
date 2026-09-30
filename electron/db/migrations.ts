@@ -653,6 +653,30 @@ ALTER TABLE invoices ADD COLUMN points_redeemed INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE invoices ADD COLUMN points_redeemed_paise INTEGER NOT NULL DEFAULT 0;
 `;
 
+const V14 = `
+-- Chasing money. A contact is one reminder, call or visit; a promise is "I will pay 5,000 on the 10th". Whether a promise was kept is worked
+-- out from the payments received since (see shared/followup.ts), so only the facts are stored here.
+CREATE TABLE customer_contacts (
+  id          TEXT PRIMARY KEY,
+  customer_id TEXT NOT NULL REFERENCES customers (id),
+  channel     TEXT NOT NULL CHECK (channel IN ('whatsapp','call','visit','other')),
+  note        TEXT NOT NULL DEFAULT '',
+  created_at  TEXT NOT NULL
+);
+CREATE INDEX ix_contacts_customer ON customer_contacts (customer_id, created_at);
+
+CREATE TABLE payment_promises (
+  id           TEXT PRIMARY KEY,
+  customer_id  TEXT NOT NULL REFERENCES customers (id),
+  promised_on  TEXT NOT NULL,
+  amount_paise INTEGER NOT NULL CHECK (amount_paise > 0),
+  note         TEXT NOT NULL DEFAULT '',
+  cancelled_at TEXT,
+  created_at   TEXT NOT NULL
+);
+CREATE INDEX ix_promises_customer ON payment_promises (customer_id, created_at);
+`;
+
 const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 1, sql: V1 },
   { version: 2, sql: V2 },
@@ -667,6 +691,7 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 11, sql: V11 },
   { version: 12, sql: V12 },
   { version: 13, sql: V13 },
+  { version: 14, sql: V14 },
 ];
 
 export function migrate(db: DatabaseSync): void {

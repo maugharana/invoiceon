@@ -1,6 +1,8 @@
 import { Ban, HandCoins, MessageCircle, Plus, SearchX, Undo2 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
-import { formatDate } from '../../../shared/gst';
+import { ago, needsFollowUp, PROMISE_LABEL, type FollowUp } from '../../../shared/followup';
+import { formatDate, localDateOf, todayIso } from '../../../shared/gst';
+import { formatMoney } from '../../../shared/money';
 import { whatsappUrl } from '../../../shared/share';
 import { PAYMENT_METHOD_LABEL, type DuesRow, type Payment } from '../../../shared/types';
 import { ConfirmDialog } from '../../components/Modal';
@@ -11,6 +13,7 @@ import { useQuery, useRefresh } from '../../lib/data';
 import { plural } from '../../lib/format';
 import { navigate, paths } from '../../lib/router';
 import { customerReminder } from '../../lib/share';
+import { FollowUpDialog } from './FollowUpDialog';
 import { RecordPaymentModal } from './RecordPaymentModal';
 
 function Tabs({ tab }: { tab: 'payments' | 'dues' }) {
@@ -222,11 +225,23 @@ export function DuesPage() {
   const dues = useQuery(() => api.duesReport());
   const settings = useQuery(() => api.getSettings());
   const openInvoices = useQuery(() => api.invoicesList({ status: 'open' }));
+  const followUps = useQuery(() => api.followUps());
+  const refresh = useRefresh();
   const [paying, setPaying] = useState<DuesRow | null>(null);
+  const [following, setFollowing] = useState<DuesRow | null>(null);
+  const [onlyChase, setOnlyChase] = useState(false);
+  const today = todayIso();
+  const followOf = (id: string | null): FollowUp | undefined => (id ? followUps.data?.find((f) => f.customerId === id) : undefined);
+  const chase = (r: DuesRow) => {
+    const f = followOf(r.customerId);
+    return !!r.customerId && needsFollowUp({ overduePaise: r.overduePaise, lastContactDate: f?.lastContactAt ? localDateOf(f.lastContactAt) : null, promise: f?.promise ?? null }, today);
+  };
   const remind = (r: DuesRow) => {
     if (!settings.data) return;
     const mine = (openInvoices.data ?? []).filter((i) => (i.customerId ?? null) === r.customerId && i.totalPaise - i.paidPaise > 0);
     window.open(whatsappUrl(r.phone, customerReminder(settings.data, r, mine)), '_blank', 'noopener');
+    // Sending a reminder is itself a contact, so the list can say who has been chased and when.
+    if (r.customerId) void api.contactLog(r.customerId, 'whatsapp', '').then(refresh, () => undefined);
   };
   const d = dues.data;
   const total = d?.outstandingPaise ?? 0;
@@ -264,6 +279,13 @@ export function DuesPage() {
               </dl>
             </Card>
 
+            <div className="mb-3 flex items-center justify-between">
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={onlyChase} onChange={(e) => setOnlyChase(e.target.checked)} />
+                Only customers to follow up ({d.rows.filter(chase).length})
+              </label>
+              <span className="text-xs text-ink-muted">Overdue, nobody in touch for a week, and no promise still to come.</span>
+            </div>
             <Card className="overflow-x-auto">
               <table className="w-full">
                 <thead>
@@ -278,7 +300,7 @@ export function DuesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {d.rows.map((r) => (
+                  {d.rows.filter((r) => !onlyChase || chase(r)).map((r) => (
                     <tr
                       key={r.customerId ?? 'walk-in'}
                       tabIndex={r.customerId ? 0 : undefined}
@@ -293,6 +315,7 @@ export function DuesPage() {
                           {r.oldestDueDate && <> · oldest due {formatDate(r.oldestDueDate)}</>}
                           {r.advancePaise > 0 && <span className="text-status-partial-fg"> · <Money paise={r.advancePaise} fractionDigits={0} /> advance held</span>}
                         </div>
+                        <FollowUpNote f={followOf(r.customerId)} today={today} chase={chase(r)} />
                       </td>
                       <Cell paise={r.currentPaise} />
                       <Cell paise={r.days1to30Paise} />
@@ -304,6 +327,11 @@ export function DuesPage() {
                           {r.customerId && settings.data && (
                             <Button className="h-8 px-2.5 text-xs" icon={<MessageCircle className="h-3.5 w-3.5" />} title={r.phone ? `Remind ${r.customerName} on WhatsApp` : 'No phone number on file: you will choose the contact'} onClick={() => remind(r)}>
                               Remind
+                            </Button>
+                          )}
+                          {r.customerId && (
+                            <Button className="h-8 px-2.5 text-xs" onClick={() => setFollowing(r)}>
+                              Follow up
                             </Button>
                           )}
                           {r.customerId && (
@@ -322,7 +350,28 @@ export function DuesPage() {
         )
       )}
       {paying?.customerId && <CustomerPaymentModal customerId={paying.customerId} onClose={() => setPaying(null)} />}
+      {following?.customerId && <FollowUpDialog customerId={following.customerId} customerName={following.customerName} owedPaise={following.overduePaise || following.outstandingPaise} onClose={() => setFollowing(null)} />}
     </PaymentsShell>
+  );
+}
+
+/** Under a customer's name on the dues list: when they were last chased, and what they promised. */
+function FollowUpNote({ f, today, chase }: { f: FollowUp | undefined; today: string; chase: boolean }) {
+  const p = f?.promise;
+  const tone = p?.state === 'broken' ? 'text-status-overdue-fg' : p?.state === 'kept' ? 'text-brand' : 'text-ink-muted';
+  return (
+    <div className="mt-0.5 space-y-0.5 text-xs">
+      {p && (
+        <div className={tone}>
+          {PROMISE_LABEL[p.state]}: <Money paise={p.amountPaise} fractionDigits={0} /> by {formatDate(p.promisedOn)}
+          {p.state === 'open' && p.paidSincePaise > 0 && <> ({formatMoney(p.paidSincePaise, { fractionDigits: 0 })} paid so far)</>}
+        </div>
+      )}
+      <div className="text-ink-muted">
+        {f?.lastContactAt ? `Last contacted ${ago(localDateOf(f.lastContactAt), today)}` : 'Not contacted yet'}
+        {chase && <span className="ml-1.5 rounded-full bg-status-partial-bg px-1.5 py-px text-status-partial-fg">Follow up</span>}
+      </div>
+    </div>
   );
 }
 

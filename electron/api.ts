@@ -2,6 +2,7 @@ import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Api, Envelope } from '../shared/api';
 import { catalogueData } from './services/catalogue';
+import * as followups from './services/followups';
 import * as offers from './services/offers';
 import * as photos from './services/photos';
 import { encodeCatalogueRequest, parseCatalogueRequest } from '../shared/catalogue';
@@ -133,6 +134,12 @@ export function createApi(db: Db, host?: Host, dataDir?: string, actor?: () => A
       if (req.items.length === 0) throw new UserError('Choose at least one saree to print a label for.');
       return host.exportDocumentPdf(`/print/labels?${labelQuery(req)}`, 'Saree labels.pdf');
     },
+
+    followUps: async () => followups.followUps(db),
+    customerFollowUps: async (customerId) => followups.customerFollowUps(db, customerId),
+    contactLog: async (customerId, channel, note) => followups.logContact(db, customerId, channel, note),
+    promiseCreate: async (customerId, input) => followups.createPromise(db, customerId, input),
+    promiseCancel: async (id) => followups.cancelPromise(db, id),
 
     offersList: async () => offers.listOffers(db),
     offerSave: async (id, input) => offers.saveOffer(db, id ?? null, input),
