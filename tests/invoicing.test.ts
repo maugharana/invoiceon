@@ -8,6 +8,7 @@ import { loadSampleData } from '../electron/services/seed';
 import { getSettings, saveSettings } from '../electron/services/settings';
 import { addDays, computeTotals, financialYear, formatInvoiceNumber, invoiceStatus, isValidGstin, rupeesInWords, todayIso } from '../shared/gst';
 import type { CustomerInput, InvoiceInput } from '../shared/types';
+import { isValidUpiId, upiPayLink } from '../shared/upi';
 
 let db: Db;
 beforeEach(() => {
@@ -52,6 +53,15 @@ describe('GST maths', () => {
     expect(t.cgstPaise).toBe(453); // the odd paisa goes to SGST
     expect(t.totalPaise % 100).toBe(0);
     expect(t.totalPaise - t.roundOffPaise).toBe(t.taxablePaise + t.taxPaise);
+  });
+
+  it('carves GST out of a GST-inclusive price instead of adding it on top', () => {
+    const t = computeTotals({ lineAmounts: [rupees(1000)], discountPaise: 0, ratePercent: 5, intraState: true, inclusive: true });
+    // 1000 / 1.05 = 952.38 taxable + 47.62 GST = 1000 — the customer pays exactly the price.
+    expect(t).toMatchObject({ taxablePaise: 95238, taxPaise: 4762, cgstPaise: 2381, sgstPaise: 2381, totalPaise: rupees(1000), roundOffPaise: 0 });
+    expect(computeTotals({ lineAmounts: [rupees(1000)], discountPaise: 0, ratePercent: 5, intraState: false, inclusive: true })).toMatchObject({ igstPaise: 4762, totalPaise: rupees(1000) });
+    // a discount comes off the inclusive price before the tax is worked out
+    expect(computeTotals({ lineAmounts: [rupees(1000)], discountPaise: rupees(100), ratePercent: 5, intraState: true, inclusive: true })).toMatchObject({ taxablePaise: 85714, taxPaise: 4286, totalPaise: rupees(900) });
   });
 
   it('caps a discount at the subtotal', () => {
@@ -169,6 +179,19 @@ describe('issuing invoices', () => {
     expect(() => invoices.createInvoice(db, invoiceFor(v.id, { discountPaise: rupees(5000) }, 2))).toThrow(/discount can't be more/);
   });
 
+  it('bills a GST-inclusive price at that price, and keeps the choice frozen on the invoice', () => {
+    const { v } = stocked();
+    const before = invoices.createInvoice(db, invoiceFor(v.id, {}, 1)); // exclusive: 1,000 + 50
+    saveSettings(db, { pricesIncludeGst: true });
+    const inv = invoices.createInvoice(db, invoiceFor(v.id, {}, 1));
+    expect(inv).toMatchObject({ pricesIncludeGst: true, subtotalPaise: rupees(1000), taxablePaise: 95238, cgstPaise: 2381, sgstPaise: 2381, totalPaise: rupees(1000) });
+    expect(inv.lines[0]).toMatchObject({ unitPricePaise: rupees(1000), amountPaise: rupees(1000) });
+    // switching the setting later never rewrites an invoice already issued
+    saveSettings(db, { pricesIncludeGst: false });
+    expect(invoices.getInvoice(db, inv.id)).toMatchObject({ pricesIncludeGst: true, totalPaise: rupees(1000) });
+    expect(invoices.getInvoice(db, before.id)).toMatchObject({ pricesIncludeGst: false, totalPaise: rupees(1050) });
+  });
+
   it('rolls the whole invoice back when any line is short of stock', () => {
     const { d, v } = stocked(5);
     const other = inventory.createVariant(db, d.id, { color: 'Wine', size: '6.3 m', sellPricePaise: 100000, baseCostPaise: 0, reorderLevel: 0, openingStock: 1, bom: [] });
@@ -259,6 +282,21 @@ describe('lists, customer stats, dashboard', () => {
     expect(invoices.listInvoices(db, { customerId: c.id })).toHaveLength(1);
   });
 
+  it('filters invoices by date, inclusive at both ends, and refuses a bad date', () => {
+    const { v } = stocked(50);
+    const old = invoices.createInvoice(db, invoiceFor(v.id, { issueDate: addDays(today, -40), dueDate: addDays(today, -40) }));
+    const mid = invoices.createInvoice(db, invoiceFor(v.id, { issueDate: addDays(today, -10), dueDate: addDays(today, -10) }));
+    const recent = invoices.createInvoice(db, invoiceFor(v.id));
+    const ids = (q: Parameters<typeof invoices.listInvoices>[1]) => invoices.listInvoices(db, q).map((i) => i.id).sort();
+    expect(ids({ from: addDays(today, -10) })).toEqual([mid.id, recent.id].sort());
+    expect(ids({ to: addDays(today, -10) })).toEqual([old.id, mid.id].sort());
+    expect(ids({ from: addDays(today, -10), to: addDays(today, -10) })).toEqual([mid.id]);
+    expect(ids({ from: addDays(today, 1) })).toEqual([]);
+    expect(ids({ from: '', to: '' })).toHaveLength(3); // blank means no limit
+    expect(() => invoices.listInvoices(db, { from: '10-09-2026' })).toThrow(/valid "from" date/);
+    expect(() => invoices.listInvoices(db, { to: 'soon' })).toThrow(/valid "to" date/);
+  });
+
   it('counts a customer\'s issued invoices and what they have been billed, excluding cancelled ones', () => {
     saveSettings(db, { gstin: '09AABCK1234M1ZI' });
     const { v } = stocked(50);
@@ -322,5 +360,36 @@ describe('sample data & api', () => {
     expect(() => saveSettings(db, { state: 'Atlantis' })).toThrow(/from the list/);
     expect(() => saveSettings(db, { invoicePrefix: 'a/b' })).toThrow(/letters, numbers/);
     expect(getSettings(db).defaultDueDays).toBe(15);
+  });
+});
+
+describe('UPI payment link and QR setting', () => {
+  it('recognises UPI IDs', () => {
+    for (const ok of ['maugharana@sbi', 'shop.name-1@okhdfcbank', '9876543210@ybl']) expect(isValidUpiId(ok)).toBe(true);
+    for (const bad of ['', 'nope', '@sbi', 'a@', 'a b@sbi', 'name@1bank', 'name@@sbi']) expect(isValidUpiId(bad)).toBe(false);
+  });
+
+  it('builds the link a UPI app opens, with the amount in rupees and the text escaped', () => {
+    expect(upiPayLink({ upiId: 'maugharana@sbi', payeeName: 'Mau Gharana', amountPaise: 105050, note: 'MG/2026-27/0004' })).toBe('upi://pay?pa=maugharana%40sbi&pn=Mau%20Gharana&am=1050.50&cu=INR&tn=MG%2F2026-27%2F0004');
+    expect(upiPayLink({ upiId: 'a@b', payeeName: 'X & Y', amountPaise: 0, note: '' })).toBe('upi://pay?pa=a%40b&pn=X%20%26%20Y&cu=INR'); // no amount: the customer types it
+  });
+
+  it('saves a UPI ID tidied of spaces, refuses a malformed one, and can be cleared', () => {
+    expect(saveSettings(db, { upiId: ' maugharana @sbi ' }).upiId).toBe('maugharana@sbi');
+    expect(() => saveSettings(db, { upiId: 'not a upi id' })).toThrow(/UPI ID/);
+    expect(saveSettings(db, { upiId: '' }).upiId).toBe('');
+    expect(getSettings(db).invoiceShowUpiQr).toBe(true); // on by default
+    expect(saveSettings(db, { invoiceShowUpiQr: false }).invoiceShowUpiQr).toBe(false);
+  });
+
+  it('freezes the UPI ID on each invoice, while whether to print the QR follows the current setting', () => {
+    const { v } = stocked(10);
+    saveSettings(db, { upiId: 'old@sbi' });
+    const inv = invoices.createInvoice(db, invoiceFor(v.id));
+    saveSettings(db, { upiId: 'new@sbi', invoiceShowUpiQr: false });
+    const again = invoices.getInvoice(db, inv.id);
+    expect(again.seller.upiId).toBe('old@sbi');
+    expect(again.branding.showUpiQr).toBe(false);
+    expect(invoices.createInvoice(db, invoiceFor(v.id)).seller.upiId).toBe('new@sbi');
   });
 });

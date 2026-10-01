@@ -33,7 +33,7 @@ function renderRoute(route: Route) {
     case 'invoices':
       return <InvoicesPage initialStatus={route.status} />;
     case 'invoice-new':
-      return <NewInvoicePage presetCustomerId={route.customerId} advance={route.advance} />;
+      return <NewInvoicePage presetCustomerId={route.customerId} advance={route.advance} copyFrom={route.copyFrom} />;
     case 'payments':
       return <PaymentsPage />;
     case 'dues':
@@ -79,7 +79,7 @@ const pageKey = (r: Route): string => {
     case 'proforma-new':
       return `proforma-new:${r.customerId ?? ''}`;
     case 'invoice-new':
-      return `new:${r.customerId ?? ''}:${r.advance?.amountPaise ?? 0}`;
+      return `new:${r.customerId ?? ''}:${r.advance?.amountPaise ?? 0}:${r.copyFrom ?? ''}`;
     case 'settings':
       return 'settings'; // moving between sections keeps the page (and any unsaved edits) alive
     case 'reports':

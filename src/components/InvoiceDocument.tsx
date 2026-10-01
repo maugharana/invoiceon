@@ -1,7 +1,9 @@
 import type { CSSProperties } from 'react';
 import { formatDate, localDateOf, rupeesInWords } from '../../shared/gst';
 import { formatMoney } from '../../shared/money';
+import { upiPayLink } from '../../shared/upi';
 import type { Invoice, Party } from '../../shared/types';
+import { QrCode } from './UpiQr';
 
 // The paper invoice. The on-screen preview, the print dialog and the exported PDF all render this one
 // component, so what you see is what you print. B2B gets a GST tax invoice (GSTIN, HSN, tax breakup);
@@ -28,6 +30,9 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
   const totalTax = inv.cgstPaise + inv.sgstPaise + inv.igstPaise;
   const half = inv.gstRatePercent / 2;
   const rateLabel = (r: number) => `${+r.toFixed(2)}%`; // 2.5%, 6%, 9%
+  // A QR that opens a UPI payment for what is still owed (the whole total on a quote). Not on cancelled or settled invoices.
+  const owed = proforma ? inv.totalPaise : inv.totalPaise - inv.paidPaise;
+  const upi = inv.branding.showUpiQr && inv.seller.upiId && !cancelled && owed > 0 ? upiPayLink({ upiId: inv.seller.upiId, payeeName: inv.seller.name, amountPaise: owed, note: inv.number }) : null;
 
   return (
     <article
@@ -98,7 +103,7 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
             <th className="py-2 pr-2">Description</th>
             {tax && <th className="w-16 py-2 pr-2">HSN</th>}
             <th className="w-12 py-2 pr-2 text-right">Qty</th>
-            <th className="w-24 py-2 pr-2 text-right">Rate (₹)</th>
+            <th className="w-24 py-2 pr-2 text-right">{inv.pricesIncludeGst ? 'Rate incl. GST (₹)' : 'Rate (₹)'}</th>
             <th className="w-28 py-2 text-right">Amount (₹)</th>
           </tr>
         </thead>
@@ -132,9 +137,9 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
           )}
         </div>
         <div>
-          <Row label="Subtotal" value={formatMoney(inv.subtotalPaise)} />
+          <Row label={inv.pricesIncludeGst ? 'Subtotal (incl. GST)' : 'Subtotal'} value={formatMoney(inv.subtotalPaise)} />
           {inv.discountPaise > 0 && <Row label="Discount" value={`− ${formatMoney(inv.discountPaise)}`} />}
-          {inv.discountPaise > 0 && <Row label="Taxable value" value={formatMoney(inv.taxablePaise)} />}
+          {(inv.discountPaise > 0 || inv.pricesIncludeGst) && <Row label="Taxable value" value={formatMoney(inv.taxablePaise)} />}
           {tax && inv.intraState ? (
             <>
               <Row label={`CGST @ ${rateLabel(half)}`} value={formatMoney(inv.cgstPaise)} />
@@ -186,10 +191,19 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
       <footer className="mt-8 break-inside-avoid border-t border-line pt-4">
         <div className={`grid items-end gap-8 ${inv.branding.showSignature ? 'grid-cols-[1fr_14rem]' : 'grid-cols-1'}`}>
           <div className="space-y-3 text-[10px] text-ink-muted">
-            {inv.seller.bank && (
-              <div>
-                <div className="mb-0.5 uppercase tracking-wider">Pay to</div>
-                <div className="whitespace-pre-line text-ink">{inv.seller.bank}</div>
+            {(inv.seller.bank || upi) && (
+              <div className="flex items-start gap-4">
+                <div>
+                  <div className="mb-0.5 uppercase tracking-wider">Pay to</div>
+                  <div className="whitespace-pre-line text-ink">{inv.seller.bank}</div>
+                  {inv.seller.upiId && !inv.seller.bank.includes(inv.seller.upiId) && <div className="text-ink">UPI: {inv.seller.upiId}</div>}
+                </div>
+                {upi && (
+                  <div className="text-center">
+                    <QrCode text={upi} size={78} label={`QR code to pay ${formatMoney(owed)} by UPI`} />
+                    <div className="mt-0.5 text-ink">Scan to pay <span className="num">{formatMoney(owed, { fractionDigits: owed % 100 === 0 ? 0 : 2 })}</span></div>
+                  </div>
+                )}
               </div>
             )}
             {inv.seller.terms && (

@@ -285,6 +285,17 @@ const V5 = `
 ALTER TABLE variants ADD COLUMN mrp_paise INTEGER NOT NULL DEFAULT 0;
 `;
 
+// Stage 8: a one-word short name for each design ("Kadhua" for Banarasi Katan Kadhua), used to find and call out a saree quickly.
+const V6 = `
+ALTER TABLE designs ADD COLUMN nickname TEXT NOT NULL DEFAULT '';
+`;
+
+// Stage 9: whether the prices on a document already included GST, frozen at issue so old invoices redraw the way they were made.
+const V7 = `
+ALTER TABLE invoices ADD COLUMN prices_include_gst INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE proformas ADD COLUMN prices_include_gst INTEGER NOT NULL DEFAULT 0;
+`;
+
 // Append new migrations to the end; never edit one that has shipped.
 const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 1, sql: V1 },
@@ -292,6 +303,8 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 3, sql: V3 },
   { version: 4, sql: V4 },
   { version: 5, sql: V5 },
+  { version: 6, sql: V6 },
+  { version: 7, sql: V7 },
 ];
 
 export function migrate(db: DatabaseSync): void {

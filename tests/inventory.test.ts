@@ -3,12 +3,16 @@ import { openDb, tx, type Db } from '../electron/db/connection';
 import { LATEST_SCHEMA_VERSION } from '../electron/db/migrations';
 import { createApi, invoke } from '../electron/api';
 import * as inventory from '../electron/services/inventory';
+import * as invoices from '../electron/services/invoices';
 import * as materials from '../electron/services/materials';
 import { loadSampleData } from '../electron/services/seed';
 import { getSettings, saveSettings } from '../electron/services/settings';
 import { UserError } from '../electron/services/common';
+import { addDays, todayIso } from '../shared/gst';
 import { formatMoney, mulPaise, parseMoney } from '../shared/money';
+import { NO_FILTERS, applyDesignFilters, fabricsOf, filtersActive, type DesignFilters } from '../shared/designFilters';
 import { designStatus, variantStatus } from '../shared/stock';
+import type { DesignSummary } from '../shared/types';
 
 let db: Db;
 beforeEach(() => {
@@ -306,5 +310,141 @@ describe('api envelope', () => {
     const failed = await invoke(api, 'designsList', []);
     expect(failed.ok).toBe(false);
     expect(JSON.stringify(failed)).not.toContain('SQLITE_CORRUPT');
+  });
+});
+
+describe('design margin, price range, last sold and days of stock', () => {
+  const sell = (variantId: string, qty: number, daysAgo = 0) =>
+    invoices.createInvoice(db, { type: 'B2C', customerId: null, issueDate: addDays(todayIso(), -daysAgo), dueDate: null, discountPaise: 0, notes: '', lines: [{ variantId, qty, unitPricePaise: 100000 }] });
+
+  it('works out the price range and margin from the variants that have a price', () => {
+    const d = design();
+    inventory.createVariant(db, d.id, variantInput({ color: 'Red', sellPricePaise: 100000, baseCostPaise: 60000, openingStock: 5 }));
+    inventory.createVariant(db, d.id, variantInput({ color: 'Blue', sellPricePaise: 200000, baseCostPaise: 100000, openingStock: 5 }));
+    inventory.createVariant(db, d.id, variantInput({ color: 'Plain', sellPricePaise: 0, baseCostPaise: 50000, openingStock: 5 })); // unpriced: ignored
+    const s = inventory.listDesigns(db)[0]!;
+    expect(s).toMatchObject({ minPricePaise: 100000, maxPricePaise: 200000 });
+    expect(s.marginPercent).toBeCloseTo(((300000 - 160000) / 300000) * 100, 5);
+  });
+
+  it('has no margin and no price range for a design nothing is priced on', () => {
+    const d = design();
+    inventory.createVariant(db, d.id, variantInput({ sellPricePaise: 0 }));
+    expect(inventory.listDesigns(db)[0]).toMatchObject({ minPricePaise: 0, maxPricePaise: 0, marginPercent: null });
+    expect(inventory.createDesign(db, { code: 'MG-002', name: 'Empty', fabric: '', hsnCode: '', description: '', defaultPricePaise: 0 })).toMatchObject({ marginPercent: null, lastSoldOn: null, daysOfStock: 0 });
+  });
+
+  it('knows when a design last sold and how long its stock will last at the recent pace', () => {
+    const d = design();
+    const v = inventory.createVariant(db, d.id, variantInput({ sellPricePaise: 100000, baseCostPaise: 0, openingStock: 40 }));
+    expect(inventory.getDesign(db, d.id)).toMatchObject({ lastSoldOn: null, soldLast30Days: 0, daysOfStock: null }); // never sold: no pace to go by
+    sell(v.id, 3, 5);
+    sell(v.id, 7, 20);
+    sell(v.id, 4, 50); // older than 30 days: the date counts, the pace doesn't
+    const s = inventory.listDesigns(db)[0]!;
+    expect(s.lastSoldOn).toBe(addDays(todayIso(), -5));
+    expect(s.soldLast30Days).toBe(10);
+    expect(s.totalStock).toBe(26); // 40 - 3 - 7 - 4
+    expect(s.daysOfStock).toBe(Math.round(26 / (10 / 30))); // 78 days
+    expect(inventory.getDesign(db, d.id).daysOfStock).toBe(78);
+  });
+
+  it('ignores cancelled invoices, and says 0 days when there is nothing left', () => {
+    const d = design();
+    const v = inventory.createVariant(db, d.id, variantInput({ sellPricePaise: 100000, baseCostPaise: 0, openingStock: 5 }));
+    invoices.cancelInvoice(db, sell(v.id, 2).id, '');
+    expect(inventory.listDesigns(db)[0]).toMatchObject({ lastSoldOn: null, soldLast30Days: 0, daysOfStock: null });
+    sell(v.id, 5);
+    expect(inventory.listDesigns(db)[0]).toMatchObject({ totalStock: 0, daysOfStock: 0, soldLast30Days: 5 });
+  });
+});
+
+describe('design list filters', () => {
+  const row = (over: Partial<DesignSummary>): DesignSummary => ({
+    id: 'd', code: 'MG-1', name: 'D', nickname: '', fabric: 'Silk', hsnCode: '', description: '', defaultPricePaise: 0, variantCount: 1, totalStock: 1, stockValuePaise: 0, status: 'ok',
+    minPricePaise: 100000, maxPricePaise: 200000, marginPercent: 30, lastSoldOn: null, soldLast30Days: 0, daysOfStock: null, ...over,
+  });
+  const today = '2026-10-02';
+  const names = (rows: DesignSummary[], f: Partial<DesignFilters>) => applyDesignFilters(rows, { ...NO_FILTERS, ...f }, today).map((r) => r.id);
+
+  it('lets everything through when no filter is set', () => {
+    expect(filtersActive(NO_FILTERS)).toBe(false);
+    expect(names([row({ id: 'a' }), row({ id: 'b' })], {})).toEqual(['a', 'b']);
+  });
+
+  it('filters by fabric, ignoring case and stray spaces', () => {
+    const rows = [row({ id: 'a', fabric: 'Silk' }), row({ id: 'b', fabric: ' cotton ' }), row({ id: 'c', fabric: '' })];
+    expect(names(rows, { fabric: 'COTTON' })).toEqual(['b']);
+    expect(fabricsOf([...rows, row({ fabric: 'silk' })])).toEqual(['cotton', 'Silk']);
+  });
+
+  it('filters by price range: a design matches if any of its prices falls in the range', () => {
+    const rows = [row({ id: 'cheap', minPricePaise: 50000, maxPricePaise: 80000 }), row({ id: 'wide', minPricePaise: 90000, maxPricePaise: 300000 }), row({ id: 'dear', minPricePaise: 400000, maxPricePaise: 500000 }), row({ id: 'unpriced', minPricePaise: 0, maxPricePaise: 0 })];
+    expect(names(rows, { minPricePaise: 100000 })).toEqual(['wide', 'dear']);
+    expect(names(rows, { maxPricePaise: 95000 })).toEqual(['cheap', 'wide']);
+    expect(names(rows, { minPricePaise: 100000, maxPricePaise: 350000 })).toEqual(['wide']);
+  });
+
+  it('filters by margin band, with the edges falling in the middle band', () => {
+    const rows = [row({ id: 'n', marginPercent: null }), row({ id: 'low', marginPercent: 19.9 }), row({ id: 'e20', marginPercent: 20 }), row({ id: 'e40', marginPercent: 40 }), row({ id: 'high', marginPercent: 40.1 }), row({ id: 'loss', marginPercent: -5 })];
+    expect(names(rows, { margin: 'none' })).toEqual(['n']);
+    expect(names(rows, { margin: 'low' })).toEqual(['low', 'loss']);
+    expect(names(rows, { margin: 'mid' })).toEqual(['e20', 'e40']);
+    expect(names(rows, { margin: 'high' })).toEqual(['high']);
+  });
+
+  it('filters by when it last sold', () => {
+    const rows = [row({ id: 'today', lastSoldOn: '2026-10-02' }), row({ id: 'day30', lastSoldOn: '2026-09-03' }), row({ id: 'day31', lastSoldOn: '2026-09-02' }), row({ id: 'old', lastSoldOn: '2026-05-01' }), row({ id: 'never', lastSoldOn: null })];
+    expect(names(rows, { sold: 'recent' })).toEqual(['today', 'day30']);
+    expect(names(rows, { sold: 'stale' })).toEqual(['old', 'never']);
+    expect(names(rows, { sold: 'never' })).toEqual(['never']);
+  });
+
+  it('combines filters, and reports when any is active', () => {
+    const rows = [row({ id: 'a', fabric: 'Silk', marginPercent: 50 }), row({ id: 'b', fabric: 'Silk', marginPercent: 10 }), row({ id: 'c', fabric: 'Cotton', marginPercent: 50 })];
+    expect(names(rows, { fabric: 'Silk', margin: 'high' })).toEqual(['a']);
+    expect(filtersActive({ ...NO_FILTERS, sold: 'never' })).toBe(true);
+  });
+});
+
+describe('duplicate design', () => {
+  it('copies the details, variants, prices and costing, but not the stock', () => {
+    const silk = materials.createMaterial(db, { name: 'Silk yarn', unit: 'kg', unitCostPaise: 300000 });
+    const d = design({ description: 'Hand woven', defaultPricePaise: 980000 });
+    inventory.createVariant(db, d.id, variantInput({ color: 'Maroon', sellPricePaise: 1000000, mrpPaise: 1200000, baseCostPaise: 200000, reorderLevel: 3, openingStock: 7, bom: [{ materialId: silk.id, qty: 0.5 }] }));
+    inventory.createVariant(db, d.id, variantInput({ color: 'Teal', size: '5.5 m', openingStock: 2 }));
+
+    const copy = inventory.duplicateDesign(db, d.id);
+    expect(copy.id).not.toBe(d.id);
+    expect(copy).toMatchObject({ code: 'MG-002', name: 'Mau Silk Butidar (copy)', fabric: 'Silk', hsnCode: '5007', description: 'Hand woven', defaultPricePaise: 980000, variantCount: 2, totalStock: 0 });
+    const maroon = copy.variants.find((v) => v.color === 'Maroon')!;
+    expect(maroon).toMatchObject({ sellPricePaise: 1000000, mrpPaise: 1200000, baseCostPaise: 200000, reorderLevel: 3, stock: 0, materialCostPaise: 150000 });
+    expect(maroon.bom).toHaveLength(1);
+    expect(copy.variants.map((v) => v.sku)).not.toContain(d.variants?.[0]?.sku); // new SKUs from the new code
+    expect(new Set([...copy.variants, ...inventory.getDesign(db, d.id).variants].map((v) => v.sku)).size).toBe(4);
+    // The original is untouched.
+    expect(inventory.getDesign(db, d.id)).toMatchObject({ name: 'Mau Silk Butidar', totalStock: 9 });
+  });
+
+  it('can be repeated, and refuses a design that is gone', () => {
+    const d = design();
+    inventory.createVariant(db, d.id, variantInput());
+    expect(inventory.duplicateDesign(db, d.id).code).toBe('MG-002');
+    expect(inventory.duplicateDesign(db, d.id).code).toBe('MG-003');
+    inventory.archiveDesign(db, d.id);
+    expect(() => inventory.duplicateDesign(db, d.id)).toThrow(/no longer exists/);
+  });
+
+  it('works through the API', async () => {
+    const d = design();
+    inventory.createVariant(db, d.id, variantInput());
+    expect((await createApi(db).designDuplicate(d.id)).variantCount).toBe(1);
+  });
+});
+
+describe('duplicate design keeps the code style', () => {
+  it('continues a prefix other than MG', () => {
+    const d = inventory.createDesign(db, { code: 'BN-007', name: 'Banarasi', fabric: '', hsnCode: '', description: '', defaultPricePaise: 0 });
+    expect(inventory.duplicateDesign(db, d.id).code).toBe('BN-008');
   });
 });

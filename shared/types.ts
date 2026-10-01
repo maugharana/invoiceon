@@ -33,11 +33,15 @@ export interface Settings {
   email: string;
   /** Single GST rate applied to every invoice (not multi-slab). */
   gstRatePercent: number;
+  /** True when the prices you enter already include GST, so the tax is carved out of them instead of added on top. */
+  pricesIncludeGst: boolean;
   invoicePrefix: string;
   /** Days until a B2B invoice falls due. B2C is due on the day. */
   defaultDueDays: number;
   /** Prefilled reorder level for new variants. */
   defaultReorderLevel: number;
+  /** What the business hopes to invoice each month, in paise, shown as a progress bar on the dashboard. 0 means no target. */
+  monthlyTargetPaise: Paise;
   /** Printed at the foot of every invoice. */
   invoiceTerms: string;
   // ── Invoice design (see InvoiceBranding for which of these apply to old invoices) ──
@@ -50,6 +54,10 @@ export interface Settings {
   /** A closing line, e.g. "Thank you for shopping with us". */
   invoiceFooter: string;
   invoiceShowSignature: boolean;
+  /** Your UPI ID (like name@bank). With it, invoices can print a QR code that opens a payment for the balance. '' for none. */
+  upiId: string;
+  /** Print that QR code on invoices that still have a balance. Needs a UPI ID. */
+  invoiceShowUpiQr: boolean;
   // ── Proforma invoices (a quote to pay against; no stock or tax effect) ──
   proformaPrefix: string;
   /** Days a proforma stays valid. */
@@ -75,6 +83,7 @@ export interface InvoiceBranding {
   accent: string;
   logo: string;
   showSignature: boolean;
+  showUpiQr: boolean;
 }
 
 // ── Raw materials ───────────────────────────────────────────────────────────
@@ -127,6 +136,8 @@ export interface DesignSummary {
   id: string;
   code: string;
   name: string;
+  /** A special one-word name for the saree, e.g. "Kadhua". Empty when it has none. */
+  nickname: string;
   fabric: string;
   hsnCode: string;
   description: string;
@@ -135,6 +146,17 @@ export interface DesignSummary {
   totalStock: number;
   stockValuePaise: Paise;
   status: StockStatus;
+  /** The lowest and highest selling price among the variants that have one, before GST. Both 0 when none is priced. */
+  minPricePaise: Paise;
+  maxPricePaise: Paise;
+  /** Profit as a share of the selling price, across the variants that have a price. Null when none is priced. */
+  marginPercent: number | null;
+  /** The day the design last sold, or null if it never has. */
+  lastSoldOn: string | null;
+  /** Pieces sold in the last 30 days. */
+  soldLast30Days: number;
+  /** At the last 30 days' pace, how many days the stock on hand will last. Null when nothing sold recently, 0 when out of stock. */
+  daysOfStock: number | null;
 }
 export interface DesignDetail extends DesignSummary {
   variants: Variant[];
@@ -143,6 +165,8 @@ export interface DesignDetail extends DesignSummary {
 export interface DesignInput {
   code: string;
   name: string;
+  /** Optional. One word. */
+  nickname?: string;
   fabric: string;
   hsnCode: string;
   description: string;
@@ -170,6 +194,8 @@ export interface VariantInput {
  */
 export interface BulkSareeRow {
   name: string;
+  /** The special one-word name. Optional; taken from the first row that has one in each design. */
+  nickname?: string;
   /** The Saree ID. Left blank to generate one from the design code, colour and size. */
   sku: string;
   color: string;
@@ -410,11 +436,13 @@ export interface Invoice extends InvoiceSummary {
    * The seller's details as they were when the invoice was issued. Content that matters legally or to the customer (address,
    * GSTIN, terms, where to pay) is frozen here; how it's dressed is `branding`, below.
    */
-  seller: Party & { email: string; terms: string; bank: string; footer: string };
+  seller: Party & { email: string; terms: string; bank: string; footer: string; upiId: string };
   branding: InvoiceBranding;
   buyer: Party;
   placeOfSupply: string;
   gstRatePercent: number;
+  /** Prices (and the subtotal and discount) include GST; the tax is carved out of them. */
+  pricesIncludeGst: boolean;
   intraState: boolean;
   subtotalPaise: Paise;
   discountPaise: Paise;
@@ -454,6 +482,9 @@ export interface InvoiceQuery {
   type?: 'all' | InvoiceType;
   status?: 'all' | 'open' | 'overdue' | 'cancelled';
   customerId?: string;
+  /** Only invoices dated on or after / on or before these days ("YYYY-MM-DD"). */
+  from?: string;
+  to?: string;
 }
 
 /** One sellable variant, flattened for the invoice item picker. */
@@ -462,6 +493,7 @@ export interface SaleVariant {
   designId: string;
   designCode: string;
   designName: string;
+  designNickname: string;
   hsn: string;
   color: string;
   size: string;
@@ -669,11 +701,13 @@ export interface ProformaSummary {
 }
 
 export interface Proforma extends ProformaSummary {
-  seller: Party & { email: string; terms: string; bank: string; footer: string };
+  seller: Party & { email: string; terms: string; bank: string; footer: string; upiId: string };
   branding: InvoiceBranding;
   buyer: Party;
   placeOfSupply: string;
   gstRatePercent: number;
+  /** Prices (and the subtotal and discount) include GST; the tax is carved out of them. */
+  pricesIncludeGst: boolean;
   intraState: boolean;
   subtotalPaise: Paise;
   discountPaise: Paise;
@@ -714,6 +748,115 @@ export interface TrendPoint {
   expensesPaise: Paise;
 }
 
+/** What happened today, whatever period the dashboard is showing. */
+export interface DashboardToday {
+  date: string;
+  /** Invoices issued today (cancelled ones left out). */
+  invoiceCount: number;
+  invoicedPaise: Paise;
+  /** Payments that arrived today. */
+  collectedPaise: Paise;
+  paymentCount: number;
+  expensesPaise: Paise;
+  /** Unpaid invoices whose due date is today. */
+  dueCount: number;
+  duePaise: Paise;
+}
+
+/** This calendar month so far, whatever period the dashboard is showing. */
+export interface DashboardMonth {
+  /** The first and last day of the month. */
+  range: { from: string; to: string };
+  invoiceCount: number;
+  invoicedPaise: Paise;
+  /** GST charged on this month's invoices, by invoice date (when the tax falls due). Input credit isn't tracked yet. */
+  gstPaise: Paise;
+  cgstPaise: Paise;
+  sgstPaise: Paise;
+  igstPaise: Paise;
+  /** The monthly sales target from Settings, or 0 when none is set. Measured against `invoicedPaise`. */
+  targetPaise: Paise;
+  /** How many days of the month have passed, today included, and how many it has. */
+  daysElapsed: number;
+  daysInMonth: number;
+}
+
+/** Stock on the shelf that hasn't sold for a long while. */
+export interface DeadStock {
+  /** How many days without a sale counts as not selling. */
+  days: number;
+  /** Across all such designs, not just the ones listed. */
+  designCount: number;
+  pieces: number;
+  /** What those pieces cost, i.e. the money sitting on the shelf. */
+  costValuePaise: Paise;
+  /** The biggest few by money tied up. A design's `lastSoldOn` is null when none of its pieces has ever sold. */
+  designs: { designId: string; name: string; pieces: number; variants: number; costValuePaise: Paise; lastSoldOn: string | null }[];
+}
+
+/** One variant that is low on stock or out of it, for building a reorder note. */
+export interface ReorderRow {
+  designId: string;
+  designName: string;
+  /** The saree's one-word name, or ''. */
+  nickname: string;
+  color: string;
+  size: string;
+  stock: number;
+  reorderLevel: number;
+}
+
+/** What a festival's shopping season brought in. */
+export interface FestivalFigures {
+  range: { from: string; to: string };
+  invoicedPaise: Paise;
+  piecesSold: number;
+  invoiceCount: number;
+}
+
+/**
+ * This year's festival season set beside last year's. While the season is running, both sides are cut to the same number of
+ * days so the comparison is fair; before it starts, only last year's is shown; afterwards, the two whole seasons.
+ */
+export interface FestivalComparison {
+  festivalId: string;
+  name: string;
+  /** 'unknown' when this year's date isn't in the festival list. */
+  state: 'upcoming' | 'running' | 'done' | 'unknown';
+  /** The festival's date this year and last year, when listed. */
+  date: string | null;
+  lastDate: string | null;
+  /** The full season this year, for showing when it begins and ends. */
+  season: { from: string; to: string } | null;
+  /** Days until the season begins. Null once it has. */
+  startsInDays: number | null;
+  /** Null until the season starts. */
+  thisSeason: FestivalFigures | null;
+  /** Null if last year's date isn't listed. */
+  lastSeason: FestivalFigures | null;
+}
+
+export type AttentionKind = 'payment-reversed' | 'quote-expiring' | 'below-cost';
+
+/** Something on the dashboard's "needs attention" list. `link` says where to go to deal with it. */
+export interface AttentionItem {
+  kind: AttentionKind;
+  /** Stable, so the list can be keyed. */
+  id: string;
+  title: string;
+  detail: string;
+  link: { to: 'customer' | 'proforma' | 'design'; id: string } | { to: 'payments' };
+}
+
+/** The dashboard's "right now" figures: they ignore the period menu because they are about today, not a stretch of time. */
+export interface DashboardNow {
+  today: DashboardToday;
+  month: DashboardMonth;
+  /** Most urgent first. */
+  attention: AttentionItem[];
+  deadStock: DeadStock;
+}
+
 export interface DashboardOverview {
   /** The dates actually used. For "All time" this runs from the first record to today. */
   range: { from: string; to: string };
@@ -729,16 +872,30 @@ export interface DashboardOverview {
   overduePaise: Paise;
   overdueCount: number;
   expensesPaise: Paise;
+  /** Sales before GST, less what the pieces sold had cost (the cost recorded at the time of sale). */
+  grossProfitPaise: Paise;
+  /** Gross profit as a share of sales before GST. Null when there were no sales. */
+  marginPercent: number | null;
+  /** Gross profit less the period's expenses. Can be negative. */
+  netProfitPaise: Paise;
   /** Average days between issuing an invoice and its final payment, over invoices paid in full. Null if none yet. */
   avgPaymentDays: number | null;
   paidInvoiceCount: number;
-  /** The same figures for the period just before, for "vs previous" arrows. Null for all time. */
-  previous: { invoicedPaise: Paise; receivedPaise: Paise; expensesPaise: Paise } | null;
+  /** What `previous` was measured against: the stretch just before, or the same dates a year earlier. */
+  compare: 'previous' | 'last-year';
+  /** The dates `previous` covers. Null for all time. */
+  compareRange: { from: string; to: string } | null;
+  /** The same figures for the comparison stretch, for the up/down arrows. Null for all time. */
+  previous: { invoicedPaise: Paise; receivedPaise: Paise; expensesPaise: Paise; netProfitPaise: Paise } | null;
   granularity: 'day' | 'week' | 'month';
   trend: TrendPoint[];
   /** Everything owed today, by how old the invoice is (days since it was issued). Not limited to the period. */
   aging: { label: string; paise: Paise; count: number }[];
   topClients: { customerId: string | null; name: string; invoicedPaise: Paise }[];
+  /** Payments that arrived in the period, by how they were paid (cash, UPI, bank…), biggest first. */
+  receivedByMethod: { method: PaymentMethod; count: number; paise: Paise }[];
+  /** The designs that brought in the most (before GST) in the period, as in the Sales report. `designId` is '' if the design is no longer on file. */
+  bestSellers: { designId: string; name: string; pieces: number; revenuePaise: Paise }[];
   expensesByCategory: { category: string; paise: Paise }[];
   recent: InvoiceSummary[];
 }

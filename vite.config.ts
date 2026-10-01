@@ -18,14 +18,17 @@ const productionCsp = (): Plugin => ({
   ],
 });
 
-const BRIDGE_PORT = 5199; // keep in sync with electron/bridge.ts
+// Both ports can be overridden (PORT for the page, INVOICEON_BRIDGE_PORT for the data layer) so several previews can run side by side.
+// scripts/dev-web.mjs sets INVOICEON_BRIDGE_PORT for the data layer and for this proxy alike.
+const WEB_PORT = Number(process.env.PORT) || 5173;
+const BRIDGE_PORT = Number(process.env.INVOICEON_BRIDGE_PORT) || 5199; // keep the default in sync with electron/bridge.ts
 
 export default defineConfig({
   plugins: [react(), productionCsp()],
   base: './',
   build: { outDir: 'dist', emptyOutDir: true },
   server: {
-    port: 5173,
+    port: WEB_PORT,
     strictPort: true,
     // Browser-only dev mode (npm run dev:web): the renderer talks to the SQLite bridge over HTTP.
     proxy: { '/rpc': `http://127.0.0.1:${BRIDGE_PORT}` },

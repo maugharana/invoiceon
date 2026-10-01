@@ -25,6 +25,7 @@ interface InvoiceRow {
   issue_date: string;
   due_date: string | null;
   gst_rate_percent: number;
+  prices_include_gst: number;
   intra_state: number;
   subtotal_paise: number;
   discount_paise: number;
@@ -56,7 +57,7 @@ interface LineRow {
 
 export function brandingOf(db: Db): InvoiceBranding {
   const s = getSettings(db);
-  return { accent: s.invoiceAccent, logo: s.invoiceLogo, showSignature: s.invoiceShowSignature };
+  return { accent: s.invoiceAccent, logo: s.invoiceLogo, showSignature: s.invoiceShowSignature, showUpiQr: s.invoiceShowUpiQr };
 }
 
 // ── Mapping ─────────────────────────────────────────────────────────────────
@@ -95,12 +96,13 @@ function toInvoice(db: Db, r: InvoiceRow): Invoice {
     ...toSummary(r, paidFor(db, r.id)),
     payments: paymentsOnInvoice(db, r.id),
     // Content is frozen at issue. Invoices from before "bank" and "footer" existed simply have none.
-    seller: { bank: '', footer: '', ...JSON.parse(r.seller_json) },
+    seller: { bank: '', footer: '', upiId: '', ...JSON.parse(r.seller_json) },
     // Styling is not frozen: change the logo or colour and every invoice, old ones included, is redrawn with it.
     branding: brandingOf(db),
     buyer: JSON.parse(r.buyer_json),
     placeOfSupply: r.place_of_supply,
     gstRatePercent: r.gst_rate_percent,
+    pricesIncludeGst: r.prices_include_gst === 1,
     intraState: r.intra_state === 1,
     subtotalPaise: r.subtotal_paise,
     discountPaise: r.discount_paise,
@@ -135,6 +137,16 @@ export function listInvoices(db: Db, query: InvoiceQuery = {}): InvoiceSummary[]
     where.push('customer_id = ?');
     params.push(query.customerId);
   }
+  if (query.from !== undefined && query.from !== '') {
+    if (!isIsoDate(query.from)) throw new UserError('Enter a valid "from" date.');
+    where.push('issue_date >= ?');
+    params.push(query.from);
+  }
+  if (query.to !== undefined && query.to !== '') {
+    if (!isIsoDate(query.to)) throw new UserError('Enter a valid "to" date.');
+    where.push('issue_date <= ?');
+    params.push(query.to);
+  }
   const rows = all<InvoiceRow>(db, `SELECT * FROM invoices ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY issue_date DESC, seq DESC, created_at DESC`, ...params);
   const paid = loadPaid(db);
   return rows
@@ -154,6 +166,7 @@ export function variantsForSale(db: Db): SaleVariant[] {
     design_id: string;
     code: string;
     design_name: string;
+    design_nickname: string;
     hsn_code: string;
     color: string;
     size: string;
@@ -162,7 +175,7 @@ export function variantsForSale(db: Db): SaleVariant[] {
     sell_price_paise: number;
   }>(
     db,
-    `SELECT v.id, v.design_id, d.code, d.name AS design_name, d.hsn_code, v.color, v.size, v.sku, v.stock, v.sell_price_paise
+    `SELECT v.id, v.design_id, d.code, d.name AS design_name, d.nickname AS design_nickname, d.hsn_code, v.color, v.size, v.sku, v.stock, v.sell_price_paise
      FROM variants v JOIN designs d ON d.id = v.design_id
      WHERE v.deleted_at IS NULL AND d.deleted_at IS NULL
      ORDER BY d.name COLLATE NOCASE, v.color COLLATE NOCASE, v.size COLLATE NOCASE`,
@@ -171,6 +184,7 @@ export function variantsForSale(db: Db): SaleVariant[] {
     designId: r.design_id,
     designCode: r.code,
     designName: r.design_name,
+    designNickname: r.design_nickname,
     hsn: r.hsn_code,
     color: r.color,
     size: r.size,
@@ -233,7 +247,7 @@ export function checkDocument(db: Db, settings: Settings, input: DocumentInput) 
 
 /** Seller details as they are right now, to be frozen onto a document. `terms` differ between an invoice and a proforma. */
 export function sellerSnapshot(settings: Settings, terms: string) {
-  return { name: settings.businessName, gstin: settings.gstin, address: settings.addressLine, city: settings.city, state: settings.state, pincode: settings.pincode, phone: settings.phone, email: settings.email, terms, bank: settings.invoiceBank, footer: settings.invoiceFooter };
+  return { name: settings.businessName, gstin: settings.gstin, address: settings.addressLine, city: settings.city, state: settings.state, pincode: settings.pincode, phone: settings.phone, email: settings.email, terms, bank: settings.invoiceBank, footer: settings.invoiceFooter, upiId: settings.upiId };
 }
 
 /** Prices and descriptions are frozen from the variant as it is right now; the discount and tax are worked out once. */
@@ -245,7 +259,7 @@ export function priceLines(db: Db, settings: Settings, lines: DocumentInput['lin
   });
   const subtotal = items.reduce((s, i) => s + i.amount, 0);
   if (discount > subtotal) throw new UserError("The discount can't be more than the invoice subtotal.");
-  const totals = computeTotals({ lineAmounts: items.map((i) => i.amount), discountPaise: discount, ratePercent: settings.gstRatePercent, intraState });
+  const totals = computeTotals({ lineAmounts: items.map((i) => i.amount), discountPaise: discount, ratePercent: settings.gstRatePercent, intraState, inclusive: settings.pricesIncludeGst });
   return { items, totals };
 }
 
@@ -274,10 +288,10 @@ export function createInvoice(db: Db, input: InvoiceInput): Invoice {
     try {
       run(
         db,
-        `INSERT INTO invoices (id, number, fy, seq, type, customer_id, seller_json, buyer_json, place_of_supply, issue_date, due_date, gst_rate_percent, intra_state,
+        `INSERT INTO invoices (id, number, fy, seq, type, customer_id, seller_json, buyer_json, place_of_supply, issue_date, due_date, gst_rate_percent, prices_include_gst, intra_state,
            subtotal_paise, discount_paise, taxable_paise, cgst_paise, sgst_paise, igst_paise, round_off_paise, total_paise, notes, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        id, number, fy, seq, type, customer?.id ?? null, JSON.stringify(seller), JSON.stringify(buyer), placeOfSupply, input.issueDate, input.dueDate, settings.gstRatePercent, intraState ? 1 : 0,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        id, number, fy, seq, type, customer?.id ?? null, JSON.stringify(seller), JSON.stringify(buyer), placeOfSupply, input.issueDate, input.dueDate, settings.gstRatePercent, settings.pricesIncludeGst ? 1 : 0, intraState ? 1 : 0,
         totals.subtotalPaise, totals.discountPaise, totals.taxablePaise, totals.cgstPaise, totals.sgstPaise, totals.igstPaise, totals.roundOffPaise, totals.totalPaise, notes, now, now,
       );
     } catch (err) {

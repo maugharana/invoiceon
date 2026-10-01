@@ -351,7 +351,7 @@ describe('upgrading an existing database', () => {
     const v = inventory.createVariant(first, d.id, { color: 'Red', size: '6 m', sellPricePaise: 100000, baseCostPaise: 0, reorderLevel: 0, openingStock: 5, bom: [] });
     const legacy = invoices.createInvoice(first, { type: 'B2C', customerId: null, issueDate: today, dueDate: today, discountPaise: 0, notes: '', lines: [{ variantId: v.id, qty: 2, unitPricePaise: 100000 }] });
     // Put the file back into exactly the shape stage 2 left it in.
-    first.exec('ALTER TABLE variants DROP COLUMN mrp_paise; DROP TABLE proforma_lines; DROP TABLE proformas; DROP TABLE expenses; DROP TABLE payment_allocations; DROP TABLE payments; PRAGMA user_version = 2;');
+    first.exec('ALTER TABLE designs DROP COLUMN nickname; ALTER TABLE variants DROP COLUMN mrp_paise; DROP TABLE proforma_lines; DROP TABLE proformas; DROP TABLE expenses; DROP TABLE payment_allocations; DROP TABLE payments; ALTER TABLE invoices DROP COLUMN prices_include_gst; PRAGMA user_version = 2;');
     first.close();
 
     const upgraded = openDb(file);
@@ -436,7 +436,7 @@ describe('invoice design settings', () => {
     saveSettings(db, { invoiceBank: 'New Bank A/c 2', invoiceFooter: 'New footer', invoiceAccent: '#1F3A6E', invoiceLogo: 'data:image/png;base64,iVBORw0KGgo=' });
     const again = invoices.getInvoice(db, inv.id);
     expect(again.seller).toMatchObject({ bank: 'Old Bank A/c 1', footer: 'Old footer' }); // what was promised on the invoice doesn't change
-    expect(again.branding).toEqual({ accent: '#1F3A6E', logo: 'data:image/png;base64,iVBORw0KGgo=', showSignature: true }); // but the look does
+    expect(again.branding).toEqual({ accent: '#1F3A6E', logo: 'data:image/png;base64,iVBORw0KGgo=', showSignature: true, showUpiQr: true }); // but the look does
   });
 
   it('reads an invoice issued before bank and footer existed', () => {

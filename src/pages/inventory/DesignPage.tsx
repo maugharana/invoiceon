@@ -1,11 +1,11 @@
-import { Archive, ArrowLeft, History, Package, Pencil, PackagePlus, Plus } from 'lucide-react';
+import { Archive, ArrowLeft, Copy, History, Package, Pencil, PackagePlus, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { formatMoney } from '../../../shared/money';
 import type { Variant } from '../../../shared/types';
 import { ConfirmDialog } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { Button, Card, EmptyState, ErrorNote, Figure, IconButton, Money, PageHeader, Spinner, StockPill } from '../../components/ui';
-import { api } from '../../lib/api';
+import { api, errorMessage } from '../../lib/api';
 import { useQuery, useRefresh } from '../../lib/data';
 import { plural } from '../../lib/format';
 import { navigate, paths } from '../../lib/router';
@@ -34,6 +34,21 @@ export function DesignPage({ id }: { id: string }) {
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const d = design.data;
   const close = () => setDialog(null);
+  const [copying, setCopying] = useState(false);
+
+  async function duplicate() {
+    setCopying(true);
+    try {
+      const copy = await api.designDuplicate(id);
+      refresh();
+      toast.success(`Copied as ${copy.code}. Rename it and add its stock.`);
+      navigate(paths.design(copy.id));
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setCopying(false);
+    }
+  }
 
   const back = (
     <a href={`#${paths.inventory()}`} className="inline-flex items-center gap-1.5 rounded-lg text-ink-muted transition-colors hover:text-ink">
@@ -68,11 +83,14 @@ export function DesignPage({ id }: { id: string }) {
             <StockPill status={d.status} />
           </span>
         }
-        subtitle={[d.code, d.fabric, d.hsnCode && `HSN ${d.hsnCode}`].filter(Boolean).join(' · ')}
+        subtitle={[d.nickname, d.code, d.fabric, d.hsnCode && `HSN ${d.hsnCode}`].filter(Boolean).join(' · ')}
         actions={
           <>
             <Button icon={<Pencil className="h-4 w-4" />} onClick={() => setDialog({ kind: 'edit-design' })}>
               Edit
+            </Button>
+            <Button icon={<Copy className="h-4 w-4" />} loading={copying} onClick={() => void duplicate()} title="Make a new design with the same details, variants, prices and costing, but no stock">
+              Duplicate
             </Button>
             <Button variant="danger" icon={<Archive className="h-4 w-4" />} onClick={() => setDialog({ kind: 'archive-design' })}>
               Archive

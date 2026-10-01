@@ -12,7 +12,7 @@ export function sampleInvoice(s: Settings): Invoice {
     { id: 'l1', variantId: 'v1', designName: 'Mau Silk Butidar', color: 'Maroon', size: '6.3 m', sku: 'MG-001-MAR-6.3M', hsn: '5007', qty: 2, unitPricePaise: 980000 },
     { id: 'l2', variantId: 'v2', designName: 'Cotton Silk Chanderi', color: 'Sky blue', size: '5.5 m', sku: 'MG-004-SB-5.5M', hsn: '5208', qty: 3, unitPricePaise: 340000 },
   ].map((l) => ({ ...l, amountPaise: l.qty * l.unitPricePaise }));
-  const t = computeTotals({ lineAmounts: lines.map((l) => l.amountPaise), discountPaise: 0, ratePercent: s.gstRatePercent, intraState: true });
+  const t = computeTotals({ lineAmounts: lines.map((l) => l.amountPaise), discountPaise: 0, ratePercent: s.gstRatePercent, intraState: true, inclusive: s.pricesIncludeGst });
   const paid = 1000000;
   return {
     id: 'sample',
@@ -25,11 +25,12 @@ export function sampleInvoice(s: Settings): Invoice {
     totalPaise: t.totalPaise,
     paidPaise: paid,
     status: 'partial',
-    seller: { name: s.businessName || 'Your business name', gstin: s.gstin, address: s.addressLine, city: s.city, state: s.state, pincode: s.pincode, phone: s.phone, email: s.email, terms: s.invoiceTerms, bank: s.invoiceBank, footer: s.invoiceFooter },
-    branding: { accent: s.invoiceAccent, logo: s.invoiceLogo, showSignature: s.invoiceShowSignature },
+    seller: { name: s.businessName || 'Your business name', gstin: s.gstin, address: s.addressLine, city: s.city, state: s.state, pincode: s.pincode, phone: s.phone, email: s.email, terms: s.invoiceTerms, bank: s.invoiceBank, footer: s.invoiceFooter, upiId: s.upiId },
+    branding: { accent: s.invoiceAccent, logo: s.invoiceLogo, showSignature: s.invoiceShowSignature, showUpiQr: s.invoiceShowUpiQr },
     buyer: { name: 'Kanchan Sarees & Fabrics', gstin: '09AABCK1234M1ZI', address: 'Chowk Bazaar', city: 'Varanasi', state: 'Uttar Pradesh', pincode: '221001', phone: '9876500022' },
     placeOfSupply: 'Uttar Pradesh',
     gstRatePercent: s.gstRatePercent,
+    pricesIncludeGst: s.pricesIncludeGst,
     intraState: true,
     subtotalPaise: t.subtotalPaise,
     discountPaise: 0,

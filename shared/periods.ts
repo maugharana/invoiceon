@@ -71,6 +71,28 @@ export function resolvePeriod(spec: PeriodSpec, today: string = todayIso()): Dat
 
 export const daysInRange = (r: DateRange): number => Math.round((Date.parse(r.to) - Date.parse(r.from)) / 86_400_000) + 1;
 
+// ── Comparing with an earlier stretch ───────────────────────────────────────
+/** What the dashboard's up/down arrows compare against: the stretch just before, or the same dates a year earlier. */
+export const COMPARE_OPTIONS = ['previous', 'last-year'] as const;
+export type CompareWith = (typeof COMPARE_OPTIONS)[number];
+
+export const COMPARE_LABEL: Record<CompareWith, string> = { previous: 'Previous period', 'last-year': 'Same dates last year' };
+
+/** The same calendar date a year earlier. 29 February lands on 28 February when the earlier year had no leap day. */
+export function sameDayLastYear(isoDate: string): string {
+  const year = Number(isoDate.slice(0, 4)) - 1;
+  const month = Number(isoDate.slice(5, 7));
+  const day = Math.min(Number(isoDate.slice(8, 10)), lastDayOf(year, month));
+  return ymd(year, month, day);
+}
+
+/** The range the dashboard compares with. "Previous" is the same length, ending the day before this one starts. */
+export function comparisonRange(r: DateRange, compare: CompareWith): DateRange {
+  if (compare === 'last-year') return { from: sameDayLastYear(r.from), to: sameDayLastYear(r.to) };
+  const length = daysInRange(r);
+  return { from: addDays(r.from, -length), to: addDays(r.from, -1) };
+}
+
 /** Short ranges read best day by day; long ones month by month. */
 export const granularityFor = (r: DateRange): 'day' | 'month' => (daysInRange(r) <= 62 ? 'day' : 'month');
 

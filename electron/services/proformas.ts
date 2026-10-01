@@ -19,6 +19,7 @@ interface Row {
   issue_date: string;
   valid_until: string;
   gst_rate_percent: number;
+  prices_include_gst: number;
   intra_state: number;
   subtotal_paise: number;
   discount_paise: number;
@@ -77,11 +78,12 @@ function toProforma(db: Db, r: Row): Proforma {
   );
   return {
     ...toSummary(r),
-    seller: { bank: '', footer: '', ...JSON.parse(r.seller_json) },
+    seller: { bank: '', footer: '', upiId: '', ...JSON.parse(r.seller_json) },
     branding: brandingOf(db),
     buyer: JSON.parse(r.buyer_json),
     placeOfSupply: r.place_of_supply,
     gstRatePercent: r.gst_rate_percent,
+    pricesIncludeGst: r.prices_include_gst === 1,
     intraState: r.intra_state === 1,
     subtotalPaise: r.subtotal_paise,
     discountPaise: r.discount_paise,
@@ -137,10 +139,10 @@ export function createProforma(db: Db, input: ProformaInput): Proforma {
     try {
       run(
         db,
-        `INSERT INTO proformas (id, number, fy, seq, type, customer_id, seller_json, buyer_json, place_of_supply, issue_date, valid_until, gst_rate_percent, intra_state,
+        `INSERT INTO proformas (id, number, fy, seq, type, customer_id, seller_json, buyer_json, place_of_supply, issue_date, valid_until, gst_rate_percent, prices_include_gst, intra_state,
            subtotal_paise, discount_paise, taxable_paise, cgst_paise, sgst_paise, igst_paise, round_off_paise, total_paise, notes, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        id, number, fy, seq, type, customer?.id ?? null, JSON.stringify(seller), JSON.stringify(buyer), placeOfSupply, input.issueDate, input.validUntil, settings.gstRatePercent, intraState ? 1 : 0,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        id, number, fy, seq, type, customer?.id ?? null, JSON.stringify(seller), JSON.stringify(buyer), placeOfSupply, input.issueDate, input.validUntil, settings.gstRatePercent, settings.pricesIncludeGst ? 1 : 0, intraState ? 1 : 0,
         totals.subtotalPaise, totals.discountPaise, totals.taxablePaise, totals.cgstPaise, totals.sgstPaise, totals.igstPaise, totals.roundOffPaise, totals.totalPaise, notes, now, now,
       );
     } catch (err) {

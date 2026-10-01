@@ -1,11 +1,14 @@
-import { addDays, isIsoDate, todayIso } from '../../shared/gst';
-import { daysInRange, trendBucketOf, trendGranularityFor, trendKeys } from '../../shared/periods';
-import type { DashboardOverview, TrendPoint } from '../../shared/types';
+import { isIsoDate, todayIso } from '../../shared/gst';
+import { COMPARE_OPTIONS, comparisonRange, resolvePeriod, trendBucketOf, trendGranularityFor, trendKeys, type CompareWith } from '../../shared/periods';
+import type { DashboardMonth, DashboardNow, DashboardOverview, DashboardToday, TrendPoint } from '../../shared/types';
 import { all, get, type Db } from '../db/connection';
+import { attentionItems } from './attention';
 import { UserError } from './common';
+import { deadStock } from './deadstock';
 import { listExpenses, overviewOf } from './expenses';
 import { listInvoices } from './invoices';
-import { salesReport } from './reports';
+import { gstReport, salesReport } from './reports';
+import { getSettings } from './settings';
 
 const DAY = 86_400_000;
 const daysBetween = (fromIso: string, toIso: string): number => Math.round((Date.parse(toIso) - Date.parse(fromIso)) / DAY);
@@ -24,13 +27,53 @@ function allTimeRange(db: Db, today: string): { from: string; to: string } {
   return { from, to: today };
 }
 
+function todayFigures(db: Db, today: string): DashboardToday {
+  const issued = get<{ n: number; s: number }>(db, "SELECT COUNT(*) AS n, COALESCE(SUM(total_paise), 0) AS s FROM invoices WHERE status = 'issued' AND issue_date = ?", today)!;
+  const received = get<{ n: number; s: number }>(db, 'SELECT COUNT(*) AS n, COALESCE(SUM(amount_paise), 0) AS s FROM payments WHERE voided_at IS NULL AND received_on = ?', today)!;
+  const dueToday = listInvoices(db).filter((i) => i.dueDate === today && (i.status === 'unpaid' || i.status === 'partial') && i.totalPaise - i.paidPaise > 0);
+  return {
+    date: today,
+    invoiceCount: issued.n,
+    invoicedPaise: issued.s,
+    collectedPaise: received.s,
+    paymentCount: received.n,
+    expensesPaise: overviewOf(listExpenses(db, { from: today, to: today })).totalPaise,
+    dueCount: dueToday.length,
+    duePaise: dueToday.reduce((s, i) => s + i.totalPaise - i.paidPaise, 0),
+  };
+}
+
+function monthFigures(db: Db, today: string): DashboardMonth {
+  const range = resolvePeriod({ preset: 'this-month' }, today);
+  const gst = gstReport(db, range).totals;
+  return {
+    range,
+    invoiceCount: gst.invoices,
+    invoicedPaise: gst.invoiceValuePaise,
+    gstPaise: gst.taxPaise,
+    cgstPaise: gst.cgstPaise,
+    sgstPaise: gst.sgstPaise,
+    igstPaise: gst.igstPaise,
+    targetPaise: getSettings(db).monthlyTargetPaise,
+    daysElapsed: Number(today.slice(8, 10)),
+    daysInMonth: Number(range.to.slice(8, 10)),
+  };
+}
+
+/** The figures that are about today (or this month) and so ignore the period menu. */
+export function dashboardNow(db: Db): DashboardNow {
+  const today = todayIso();
+  return { today: todayFigures(db, today), month: monthFigures(db, today), attention: attentionItems(db, today), deadStock: deadStock(db, today) };
+}
+
 /**
- * Everything the dashboard shows, worked out in one go. "Invoiced" counts invoices by their date and "received" counts payments
+ * Everything the dashboard shows for a period, worked out in one go. "Invoiced" counts invoices by their date and "received" counts payments
  * by the day the money arrived (the same two measures the Sales report keeps side by side), so the two never quietly disagree.
  */
-export function dashboardOverview(db: Db, requested: { from: string; to: string } | null): DashboardOverview {
+export function dashboardOverview(db: Db, requested: { from: string; to: string } | null, compare: CompareWith = 'previous'): DashboardOverview {
   const today = todayIso();
   if (requested && (!isIsoDate(requested.from) || !isIsoDate(requested.to) || requested.from > requested.to)) throw new UserError('Choose a valid date range.');
+  if (!COMPARE_OPTIONS.includes(compare)) throw new UserError('Choose what to compare with.');
   const range = requested ?? allTimeRange(db, today);
   const inRange = (d: string) => d >= range.from && d <= range.to;
 
@@ -81,16 +124,18 @@ export function dashboardOverview(db: Db, requested: { from: string; to: string 
   });
 
   let previous: DashboardOverview['previous'] = null;
-  if (requested) {
-    const length = daysInRange(range);
-    const before = { from: addDays(range.from, -length), to: addDays(range.from, -1) };
-    const prev = salesReport(db, before);
-    previous = { invoicedPaise: prev.invoicedPaise, receivedPaise: prev.collectedPaise, expensesPaise: overviewOf(listExpenses(db, before)).totalPaise };
+  const compareRange = requested ? comparisonRange(range, compare) : null;
+  if (compareRange) {
+    const prev = salesReport(db, compareRange);
+    const prevExpenses = overviewOf(listExpenses(db, compareRange)).totalPaise;
+    previous = { invoicedPaise: prev.invoicedPaise, receivedPaise: prev.collectedPaise, expensesPaise: prevExpenses, netProfitPaise: prev.grossProfitPaise - prevExpenses };
   }
 
   return {
     range,
     allTime: requested === null,
+    compare,
+    compareRange,
     invoicedPaise: sales.invoicedPaise,
     invoiceCount: sales.invoiceCount,
     receivedPaise: sales.collectedPaise,
@@ -100,6 +145,9 @@ export function dashboardOverview(db: Db, requested: { from: string; to: string 
     overduePaise: overdueInRange.reduce((s, i) => s + owed(i), 0),
     overdueCount: overdueInRange.length,
     expensesPaise: expenseOverview.totalPaise,
+    grossProfitPaise: sales.grossProfitPaise,
+    marginPercent: sales.marginPercent,
+    netProfitPaise: sales.grossProfitPaise - expenseOverview.totalPaise,
     avgPaymentDays,
     paidInvoiceCount: settled.length,
     previous,
@@ -107,6 +155,9 @@ export function dashboardOverview(db: Db, requested: { from: string; to: string 
     trend,
     aging,
     topClients: sales.topCustomers.slice(0, 5).map((c) => ({ customerId: c.customerId, name: c.name, invoicedPaise: c.invoicedPaise })),
+    receivedByMethod: sales.byMethod,
+    // The same ranking as the Sales report's "best-selling designs" (by sales before GST), so the two never disagree.
+    bestSellers: sales.topDesigns.slice(0, 5).map((d) => ({ designId: d.designId, name: d.name, pieces: d.pieces, revenuePaise: d.revenuePaise })),
     expensesByCategory: expenseOverview.byCategory.map((c) => ({ category: c.category, paise: c.paise })),
     recent: invoices.slice(0, 5),
   };

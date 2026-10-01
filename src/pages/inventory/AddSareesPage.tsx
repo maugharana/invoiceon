@@ -12,11 +12,12 @@ import { COMMON_COLORS, COMMON_FABRICS, COMMON_SIZES } from '../../lib/sarees';
 
 // ── The sheet ───────────────────────────────────────────────────────────────
 // One row is one piece: a saree in one colour and size. Everything is held as text while it's being typed.
-type Field = 'name' | 'sku' | 'color' | 'size' | 'fabric' | 'hsn' | 'mrp' | 'sp' | 'cp' | 'stock' | 'reorder';
+type Field = 'name' | 'nickname' | 'sku' | 'color' | 'size' | 'fabric' | 'hsn' | 'mrp' | 'sp' | 'cp' | 'stock' | 'reorder';
 
 interface SheetRow {
   id: number;
   name: string;
+  nickname: string;
   sku: string;
   color: string;
   size: string;
@@ -45,8 +46,9 @@ interface Column {
 
 const COLUMNS: Column[] = [
   { field: 'name', label: 'Saree name', title: 'Rows with the same name become one design with several colours', width: 'min-w-[10rem]', placeholder: 'e.g. Mau Silk Butidar', list: 'saree-names', required: true },
-  { field: 'sku', label: 'Saree ID', title: 'The SKU: your own code for this piece. Leave blank and one is made for you.', width: 'w-[6rem]', placeholder: 'auto' },
-  { field: 'color', label: 'Colour', title: 'Colour', width: 'w-[6.25rem]', placeholder: 'Maroon', list: 'saree-colors', required: true },
+  { field: 'nickname', label: 'Short name', title: 'A special one-word name for the saree, like Kadhua. Taken from the first row that has one in each design.', width: 'w-[6rem]', placeholder: 'Kadhua' },
+  { field: 'sku', label: 'Saree ID', title: 'The SKU: your own code for this piece. Leave blank and one is made for you.', width: 'w-[5.75rem]', placeholder: 'auto' },
+  { field: 'color', label: 'Colour', title: 'Colour', width: 'w-[5.75rem]', placeholder: 'Maroon', list: 'saree-colors', required: true },
   { field: 'size', label: 'Size', title: 'Length', width: 'w-[5rem]', placeholder: '6.3 m', list: 'saree-sizes', required: true },
   { field: 'fabric', label: 'Fabric', title: 'Taken from the first row of each design', width: 'w-[8rem]', placeholder: 'Pure silk', list: 'saree-fabrics', extra: true },
   { field: 'hsn', label: 'HSN', title: 'Taken from the first row of each design', width: 'w-[5.5rem]', placeholder: '5007', inputMode: 'numeric', extra: true },
@@ -58,10 +60,10 @@ const COLUMNS: Column[] = [
 ];
 
 let nextId = 1;
-const blankRow = (size = '6.3 m', reorder = '2'): SheetRow => ({ id: nextId++, name: '', sku: '', color: '', size, fabric: '', hsn: '', mrp: '', sp: '', cp: '', stock: '', reorder });
+const blankRow = (size = '6.3 m', reorder = '2'): SheetRow => ({ id: nextId++, name: '', nickname: '', sku: '', color: '', size, fabric: '', hsn: '', mrp: '', sp: '', cp: '', stock: '', reorder });
 
 /** Size and reorder level are defaults, so a row counts as empty until something else is typed in it. */
-const isBlank = (r: SheetRow) => !(r.name || r.sku || r.color || r.fabric || r.hsn || r.mrp || r.sp || r.cp || r.stock);
+const isBlank = (r: SheetRow) => !(r.name || r.nickname || r.sku || r.color || r.fabric || r.hsn || r.mrp || r.sp || r.cp || r.stock);
 
 const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
 
@@ -79,6 +81,7 @@ function toCount(text: string): number | null {
 /** What is wrong with a row before it is even sent, in words. */
 function problemsOf(r: SheetRow): string | null {
   if (!r.name.trim()) return 'Saree name is required.';
+  if (/\s/.test(r.nickname.trim())) return 'Short name must be one word.';
   if (!r.color.trim()) return 'Colour is required.';
   if (!r.size.trim()) return 'Size is required.';
   if (toPaise(r.mrp) === null) return "MRP isn't a valid amount.";
@@ -226,6 +229,7 @@ export function AddSareesPage() {
 
     const payload: BulkSareeRow[] = filled.map((r) => ({
       name: r.name,
+      nickname: r.nickname.trim(),
       sku: r.sku,
       color: r.color,
       size: r.size,
@@ -286,7 +290,7 @@ export function AddSareesPage() {
       )}
 
       <Card className="overflow-x-auto">
-        <table className="w-full min-w-[55rem] table-fixed border-collapse">
+        <table className="w-full min-w-[58rem] table-fixed border-collapse">
           <thead>
             <tr className="border-b border-line bg-canvas/60">
               <th className="w-9 px-2 py-2.5 text-center text-xs font-normal text-ink-muted">#</th>
@@ -296,7 +300,7 @@ export function AddSareesPage() {
                   {c.required && <span className="text-status-overdue-fg"> *</span>}
                 </th>
               ))}
-              <th className="w-[4.5rem]" />
+              <th className="w-[4.25rem]" />
             </tr>
           </thead>
           <tbody>
@@ -445,6 +449,7 @@ function RowFragment({ children }: { children: React.ReactNode }) {
 
 /** Which cell an error message is about, so that cell can be marked. */
 function problemFieldOf(r: SheetRow, message: string): Field | null {
+  if (/short name/i.test(message)) return 'nickname';
   if (/name/i.test(message) && !r.name.trim()) return 'name';
   if (/colour/i.test(message)) return 'color';
   if (/size/i.test(message)) return 'size';

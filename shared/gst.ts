@@ -16,11 +16,16 @@ export interface Totals {
   totalPaise: Paise;
 }
 
-export function computeTotals(input: { lineAmounts: Paise[]; discountPaise: Paise; ratePercent: number; intraState: boolean }): Totals {
+/**
+ * `inclusive` means the prices already contain GST: the subtotal and discount are tax-inclusive, the tax is carved out of
+ * what's left (₹1,000 at 5% → ₹952.38 + ₹47.62) and the total is that same amount. Otherwise tax is added on top.
+ */
+export function computeTotals(input: { lineAmounts: Paise[]; discountPaise: Paise; ratePercent: number; intraState: boolean; inclusive?: boolean }): Totals {
   const subtotalPaise = input.lineAmounts.reduce((s, a) => s + a, 0);
   const discountPaise = Math.min(Math.max(input.discountPaise, 0), subtotalPaise);
-  const taxablePaise = subtotalPaise - discountPaise;
-  const taxPaise = Math.round((taxablePaise * input.ratePercent) / 100);
+  const payable = subtotalPaise - discountPaise;
+  const taxablePaise = input.inclusive ? Math.round((payable * 100) / (100 + input.ratePercent)) : payable;
+  const taxPaise = input.inclusive ? payable - taxablePaise : Math.round((taxablePaise * input.ratePercent) / 100);
   // Intra-state supplies split the tax evenly between CGST and SGST; any odd paisa goes to SGST.
   const cgstPaise = input.intraState ? Math.floor(taxPaise / 2) : 0;
   const sgstPaise = input.intraState ? taxPaise - cgstPaise : 0;

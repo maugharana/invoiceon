@@ -117,7 +117,7 @@ function ItemPicker({ variants, taken, onPick, allowOutOfStock = false }: { vari
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
 
-  const results = useMemo(() => variants.filter((v) => matchesAll(`${v.designName} ${v.designCode} ${v.color} ${v.size} ${v.sku}`, q)).slice(0, 50), [variants, q]);
+  const results = useMemo(() => variants.filter((v) => matchesAll(`${v.designName} ${v.designNickname} ${v.designCode} ${v.color} ${v.size} ${v.sku}`, q)).slice(0, 50), [variants, q]);
 
   const pick = (v: SaleVariant) => {
     if (v.stock <= 0 && !allowOutOfStock) return;
@@ -176,7 +176,7 @@ function ItemPicker({ variants, taken, onPick, allowOutOfStock = false }: { vari
                     <span className="block truncate">
                       {v.designName} <span className="text-ink-muted">· {v.color} · {v.size}</span>
                     </span>
-                    <span className="block text-xs text-ink-muted">{v.sku}</span>
+                    <span className="block text-xs text-ink-muted">{[v.designNickname, v.sku].filter(Boolean).join(' · ')}</span>
                   </span>
                   <span className="shrink-0 text-right">
                     <Money paise={v.sellPricePaise} fractionDigits={0} className="block" />
@@ -194,7 +194,7 @@ function ItemPicker({ variants, taken, onPick, allowOutOfStock = false }: { vari
 
 // ── Page ────────────────────────────────────────────────────────────────────
 /** One editor for both documents: an invoice takes stock and money; a proforma is a quote that does neither until it becomes an invoice. */
-export function NewInvoicePage({ presetCustomerId, advance, mode = 'invoice' }: { presetCustomerId: string | null; advance?: AdvancePreset | null; mode?: 'invoice' | 'proforma' }) {
+export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, mode = 'invoice' }: { presetCustomerId: string | null; advance?: AdvancePreset | null; copyFrom?: string | null; mode?: 'invoice' | 'proforma' }) {
   const quote = mode === 'proforma';
   const toast = useToast();
   const refresh = useRefresh();
@@ -219,6 +219,25 @@ export function NewInvoicePage({ presetCustomerId, advance, mode = 'invoice' }: 
   const [creating, setCreating] = useState<string | null>(null); // name typed into "New customer", or null when closed
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // "Duplicate": start from an earlier invoice's customer, items, prices, discount and notes (today's date, nothing paid).
+  const source = useQuery(() => (copyFrom && !quote ? api.invoiceGet(copyFrom) : Promise.resolve(null)), [copyFrom]);
+  const copied = useRef(false);
+  useEffect(() => {
+    const inv = source.data;
+    if (copied.current || !inv || !variants.data) return;
+    copied.current = true;
+    const available = new Map(variants.data.map((v) => [v.variantId, v]));
+    const kept = inv.lines.filter((l) => available.has(l.variantId));
+    setType(inv.type);
+    setCustomerId(inv.customerId);
+    if (!inv.customerId && inv.buyer.name && inv.buyer.name !== 'Walk-in customer') setBuyerName(inv.buyer.name);
+    setDiscount(inv.discountPaise);
+    setNotes(inv.notes);
+    setLines(kept.map((l) => ({ variantId: l.variantId, qty: String(l.qty), price: l.unitPricePaise })));
+    const dropped = inv.lines.length - kept.length;
+    toast.info(dropped > 0 ? `Copied from ${inv.number}. ${dropped} item${dropped === 1 ? ' is' : 's are'} no longer for sale and left out.` : `Copied from ${inv.number}. Check the quantities and prices, then issue.`);
+  }, [source.data, variants.data, toast]);
 
   const nextNumber = useQuery(() => (quote ? api.proformaNextNumber(issueDate) : api.invoiceNextNumber(issueDate)), [issueDate, quote]);
 
@@ -254,7 +273,8 @@ export function NewInvoicePage({ presetCustomerId, advance, mode = 'invoice' }: 
   const rate = settings.data?.gstRatePercent ?? 0;
   const placeOfSupply = customer?.state || settings.data?.state || '';
   const intraState = !settings.data?.state || sameState(placeOfSupply, settings.data.state);
-  const totals = computeTotals({ lineAmounts: rows.map((r) => r.amount), discountPaise: discount, ratePercent: rate, intraState });
+  const inclusive = settings.data?.pricesIncludeGst ?? false;
+  const totals = computeTotals({ lineAmounts: rows.map((r) => r.amount), discountPaise: discount, ratePercent: rate, intraState, inclusive });
 
   // Advance the customer already holds goes onto this invoice first, then whatever is handed over now.
   const advanceHeld = quote ? 0 : (customer?.advancePaise ?? 0);
@@ -485,12 +505,12 @@ export function NewInvoicePage({ presetCustomerId, advance, mode = 'invoice' }: 
           <Card className="p-6">
             <h2 className="mb-4 text-base">Summary</h2>
             <dl className="space-y-2">
-              <div className="flex justify-between"><dt className="text-ink-muted">Subtotal</dt><dd><Money paise={totals.subtotalPaise} /></dd></div>
+              <div className="flex justify-between"><dt className="text-ink-muted">{inclusive ? 'Subtotal (incl. GST)' : 'Subtotal'}</dt><dd><Money paise={totals.subtotalPaise} /></dd></div>
               <div className="flex items-center justify-between gap-4">
                 <dt className="text-ink-muted">Discount</dt>
                 <dd className="w-32"><MoneyInput value={discount} onChange={setDiscount} aria-label="Discount" className="h-8" /></dd>
               </div>
-              {totals.discountPaise > 0 && <div className="flex justify-between"><dt className="text-ink-muted">Taxable value</dt><dd><Money paise={totals.taxablePaise} /></dd></div>}
+              {(totals.discountPaise > 0 || inclusive) && <div className="flex justify-between"><dt className="text-ink-muted">Taxable value</dt><dd><Money paise={totals.taxablePaise} /></dd></div>}
               {intraState ? (
                 <>
                   <div className="flex justify-between"><dt className="text-ink-muted">CGST {rate / 2}%</dt><dd><Money paise={totals.cgstPaise} /></dd></div>

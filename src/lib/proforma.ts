@@ -21,6 +21,7 @@ export function proformaAsInvoice(p: Proforma): Invoice {
     buyer: p.buyer,
     placeOfSupply: p.placeOfSupply,
     gstRatePercent: p.gstRatePercent,
+    pricesIncludeGst: p.pricesIncludeGst,
     intraState: p.intraState,
     subtotalPaise: p.subtotalPaise,
     discountPaise: p.discountPaise,
