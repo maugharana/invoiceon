@@ -7,6 +7,7 @@ import { useToast } from '../../components/Toast';
 import { Button, Card, EmptyState, ErrorNote, Figure, InvoicePill, Money, PageHeader, Spinner, TypePill } from '../../components/ui';
 import { api } from '../../lib/api';
 import { useQuery, useRefresh } from '../../lib/data';
+import { useRecent } from '../../lib/recent';
 import { plural } from '../../lib/format';
 import { navigate, paths } from '../../lib/router';
 import { RecordPaymentModal } from '../payments/RecordPaymentModal';
@@ -21,6 +22,7 @@ export function CustomerPage({ id }: { id: string }) {
   const purchases = useQuery(() => api.customerPurchases(id), [id]);
   const [dialog, setDialog] = useState<'edit' | 'archive' | 'pay' | null>(null);
   const c = customer.data;
+  useRecent(c ? { kind: 'customer', id: c.id, title: c.name, hint: [c.phone, c.city].filter(Boolean).join(' · ') } : null);
 
   const back = (
     <a href={`#${paths.customers}`} className="inline-flex items-center gap-1.5 rounded-lg text-ink-muted transition-colors hover:text-ink">

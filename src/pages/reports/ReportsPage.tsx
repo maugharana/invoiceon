@@ -1,4 +1,4 @@
-import { ChevronRight, Download, Table2 } from 'lucide-react';
+import { ChevronRight, Table2 } from 'lucide-react';
 import { Fragment, useState, type ReactNode } from 'react';
 import { gstB2bCsv, gstB2cCsv, gstCsv, gstHsnCsv, salesCsv, stockCsv } from '../../../shared/csv';
 import { formatDate, todayIso } from '../../../shared/gst';
@@ -6,37 +6,35 @@ import { formatMoney } from '../../../shared/money';
 import { PERIOD_LABEL, PERIOD_PRESETS, resolvePeriod, type PeriodPreset, type PeriodSpec } from '../../../shared/periods';
 import { PAYMENT_METHOD_LABEL } from '../../../shared/types';
 import { SalesChart, bucketLabel } from '../../components/SalesChart';
-import { useCsvExport } from '../../lib/exportCsv';
+import { DayBookTab, MarginTab, MoversTab, MovementTab, ProfitTab, ReceivablesTab } from './MoreReports';
+import { ExportButton, PrintButton, Section, useReportExport } from './parts';
 import { Button, Card, EmptyState, ErrorNote, Field, Figure, Input, Money, PageHeader, Segmented, Spinner, TypePill } from '../../components/ui';
 import { api } from '../../lib/api';
 import { useQuery } from '../../lib/data';
 import { plural } from '../../lib/format';
 import { navigate, paths, type ReportTab } from '../../lib/router';
 
-// ── Saving a report as CSV ──────────────────────────────────────────────────
-function useReportExport() {
-  const save = useCsvExport();
-  return (fileName: string, content: string) => save(fileName, content, 'Report saved');
-}
-
-const ExportButton = ({ label = 'Export CSV', onClick }: { label?: string; onClick: () => void }) => (
-  <Button icon={<Download className="h-4 w-4" />} onClick={onClick}>
-    {label}
-  </Button>
-);
-
 // ── Shell: title, tabs, period ──────────────────────────────────────────────
 const TABS: { id: ReportTab; label: string }[] = [
   { id: 'sales', label: 'Sales' },
+  { id: 'profit', label: 'Profit & loss' },
+  { id: 'margin', label: 'Margins' },
   { id: 'gst', label: 'GST' },
+  { id: 'daybook', label: 'Day & cash book' },
   { id: 'stock', label: 'Stock valuation' },
+  { id: 'movement', label: 'Stock movement' },
+  { id: 'movers', label: 'Fast & slow' },
+  { id: 'receivables', label: 'Receivables' },
 ];
+
+/** These reports aren't about a stretch of dates: stock is as of a day, the rest look back a fixed way or at today. */
+const NO_PERIOD: ReportTab[] = ['stock', 'movers', 'receivables'];
 
 function PeriodPicker({ tab, period }: { tab: ReportTab; period: PeriodSpec }) {
   const range = resolvePeriod(period);
   const go = (spec: PeriodSpec) => navigate(paths.reports(tab, spec));
   return (
-    <div className="mb-6 flex flex-wrap items-end gap-x-6 gap-y-3">
+    <div className="mb-6 flex flex-wrap items-end gap-x-6 gap-y-3 print:hidden">
       <Segmented
         label="Period"
         value={period.preset}
@@ -63,15 +61,15 @@ function PeriodPicker({ tab, period }: { tab: ReportTab; period: PeriodSpec }) {
 function ReportsShell({ tab, period, asOf, children }: { tab: ReportTab; period: PeriodSpec; asOf: string | null; children: ReactNode }) {
   return (
     <>
-      <PageHeader title="Reports" subtitle="How the business is doing — sales, GST, and what's on the shelf." />
-      <div className="mb-6 flex gap-6 border-b border-line" role="tablist">
+      <PageHeader title="Reports" subtitle="How the business is doing — sales, profit, GST, cash and what's on the shelf." actions={<PrintButton />} />
+      <div className="mb-6 flex gap-5 overflow-x-auto border-b border-line print:hidden" role="tablist">
         {TABS.map((t) => (
           <a
             key={t.id}
-            href={`#${paths.reports(t.id, t.id === 'stock' ? undefined : period, t.id === 'stock' ? asOf : undefined)}`}
+            href={`#${paths.reports(t.id, NO_PERIOD.includes(t.id) ? undefined : period, t.id === 'stock' ? asOf : undefined)}`}
             role="tab"
             aria-selected={tab === t.id}
-            className={`-mb-px border-b-2 pb-2.5 transition-colors duration-150 ${tab === t.id ? 'border-brand font-medium text-brand' : 'border-transparent text-ink-muted hover:text-ink'}`}
+            className={`-mb-px whitespace-nowrap border-b-2 pb-2.5 transition-colors duration-150 ${tab === t.id ? 'border-brand font-medium text-brand' : 'border-transparent text-ink-muted hover:text-ink'}`}
           >
             {t.label}
           </a>
@@ -81,19 +79,6 @@ function ReportsShell({ tab, period, asOf, children }: { tab: ReportTab; period:
     </>
   );
 }
-
-const Section = ({ title, note, actions, children }: { title: string; note?: ReactNode; actions?: ReactNode; children: ReactNode }) => (
-  <section className="mb-8">
-    <div className="mb-3 flex items-end justify-between gap-4">
-      <div>
-        <h2 className="text-base">{title}</h2>
-        {note && <p className="mt-0.5 text-xs text-ink-muted">{note}</p>}
-      </div>
-      {actions}
-    </div>
-    {children}
-  </section>
-);
 
 // ── Sales ───────────────────────────────────────────────────────────────────
 function SalesTab({ period }: { period: PeriodSpec }) {
@@ -591,10 +576,21 @@ function StockTab({ asOf }: { asOf: string | null }) {
 export function ReportsPage({ tab, period, asOf }: { tab: ReportTab; period: PeriodSpec; asOf: string | null }) {
   return (
     <ReportsShell tab={tab} period={period} asOf={asOf}>
-      {tab !== 'stock' && <PeriodPicker tab={tab} period={period} />}
+      {!NO_PERIOD.includes(tab) && <PeriodPicker tab={tab} period={period} />}
+      {!NO_PERIOD.includes(tab) && (
+        <p className="num mb-4 hidden text-xs text-ink-muted print:block">
+          {formatDate(resolvePeriod(period).from)} – {formatDate(resolvePeriod(period).to)}
+        </p>
+      )}
       {tab === 'sales' && <SalesTab period={period} />}
+      {tab === 'profit' && <ProfitTab period={period} />}
+      {tab === 'margin' && <MarginTab period={period} />}
       {tab === 'gst' && <GstTab period={period} />}
+      {tab === 'daybook' && <DayBookTab period={period} />}
       {tab === 'stock' && <StockTab asOf={asOf} />}
+      {tab === 'movement' && <MovementTab period={period} />}
+      {tab === 'movers' && <MoversTab />}
+      {tab === 'receivables' && <ReceivablesTab />}
     </ReportsShell>
   );
 }

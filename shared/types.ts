@@ -931,3 +931,131 @@ export interface DashboardOverview {
   expensesByCategory: { category: string; paise: Paise }[];
   recent: InvoiceSummary[];
 }
+
+// ── More reports ────────────────────────────────────────────────────────────
+/** Profit for a stretch of dates: what was sold (before GST), what it cost, and what was spent. */
+export interface ProfitLossFigures {
+  invoiceCount: number;
+  /** Sales before GST, from issued invoices dated in the stretch. */
+  salesPaise: Paise;
+  /** What the pieces sold had cost, as recorded when they were sold. */
+  costOfGoodsPaise: Paise;
+  grossProfitPaise: Paise;
+  expensesByCategory: { category: string; paise: Paise }[];
+  expensesPaise: Paise;
+  /** Gross profit less expenses. Can be negative. */
+  netProfitPaise: Paise;
+}
+
+export interface ProfitAndLoss extends ProfitLossFigures {
+  range: { from: string; to: string };
+  /** The same dates a year earlier, for year-on-year. Null when nothing was recorded then. */
+  lastYear: (ProfitLossFigures & { range: { from: string; to: string } }) | null;
+}
+
+export type MarginBy = 'design' | 'colour' | 'customer';
+
+export interface MarginRow {
+  /** Stable key, used to ask for the invoice lines behind the row. */
+  key: string;
+  name: string;
+  pieces: number;
+  invoiceCount: number;
+  /** Sales before GST, after the invoice's discount. */
+  revenuePaise: Paise;
+  costPaise: Paise;
+  profitPaise: Paise;
+  /** Profit as a share of sales. Null when there were no sales. */
+  marginPercent: number | null;
+}
+
+/** One line of an invoice behind a row of the margin report. */
+export interface MarginLine {
+  invoiceId: string;
+  number: string;
+  date: string;
+  customer: string;
+  design: string;
+  color: string;
+  size: string;
+  qty: number;
+  revenuePaise: Paise;
+  costPaise: Paise;
+}
+
+export interface MarginReport {
+  range: { from: string; to: string };
+  by: MarginBy;
+  rows: MarginRow[];
+  totals: { pieces: number; revenuePaise: Paise; costPaise: Paise; profitPaise: Paise; marginPercent: number | null };
+}
+
+/** Stock in and out by design over a stretch. Opening + added + returned − sold − damaged + adjusted = closing. */
+export interface StockMovementRow {
+  designId: string;
+  name: string;
+  opening: number;
+  /** Bought, made, or entered as opening stock. */
+  added: number;
+  returned: number;
+  sold: number;
+  damaged: number;
+  /** Net of corrections in either direction. */
+  adjusted: number;
+  closing: number;
+}
+
+export interface StockMovementReport {
+  range: { from: string; to: string };
+  rows: StockMovementRow[];
+  totals: Omit<StockMovementRow, 'designId' | 'name'>;
+}
+
+export type MoverClass = 'fast' | 'steady' | 'dead' | 'none';
+
+export interface MoverRow {
+  designId: string;
+  name: string;
+  stock: number;
+  /** Pieces sold in the window. */
+  sold: number;
+  lastSoldOn: string | null;
+  /** At this pace, days the stock will last. Null if nothing sold. */
+  daysOfStock: number | null;
+  stockValuePaise: Paise;
+  /** fast = among the best sellers; steady = selling; dead = stock on hand but nothing sold in the window; none = no stock and no sales. */
+  class: MoverClass;
+}
+
+export interface MoversReport {
+  days: number;
+  rows: MoverRow[];
+}
+
+export type DayBookMode = 'all' | 'cash' | 'bank';
+
+export interface DayBookEntry {
+  date: string;
+  kind: 'sale' | 'receipt' | 'expense';
+  party: string;
+  detail: string;
+  method: PaymentMethod | null;
+  /** Money in (receipts) and out (expenses). A sale is recorded in `invoicedPaise` and moves no money by itself. */
+  inPaise: Paise;
+  outPaise: Paise;
+  invoicedPaise: Paise;
+  /** Running balance after this entry; only for the cash and bank books. */
+  balancePaise: Paise | null;
+}
+
+export interface DayBook {
+  range: { from: string; to: string };
+  mode: DayBookMode;
+  /** What the book held on the day before the range starts (cash and bank books only). */
+  openingPaise: Paise | null;
+  closingPaise: Paise | null;
+  inPaise: Paise;
+  outPaise: Paise;
+  invoicedPaise: Paise;
+  entries: DayBookEntry[];
+}

@@ -7,6 +7,7 @@ import { useToast } from '../../components/Toast';
 import { Button, Card, EmptyState, ErrorNote, Figure, IconButton, Money, PageHeader, Spinner, StockPill } from '../../components/ui';
 import { api, errorMessage } from '../../lib/api';
 import { useQuery, useRefresh } from '../../lib/data';
+import { useRecent } from '../../lib/recent';
 import { plural } from '../../lib/format';
 import { navigate, paths } from '../../lib/router';
 import { DesignFormModal } from './DesignFormModal';
@@ -33,6 +34,7 @@ export function DesignPage({ id }: { id: string }) {
   const design = useQuery(() => api.designGet(id), [id]);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const d = design.data;
+  useRecent(d ? { kind: 'design', id: d.id, title: d.name, hint: [d.nickname, d.code].filter(Boolean).join(' · ') } : null);
   const close = () => setDialog(null);
   const [copying, setCopying] = useState(false);
 

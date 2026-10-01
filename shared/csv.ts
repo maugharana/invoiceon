@@ -1,6 +1,6 @@
 import { INVOICE_STATUS_LABEL } from './gst';
 import { STOCK_STATUS_LABEL } from './stock';
-import type { Customer, DesignSummary, Expense, ExpensesBreakdown, GstReport, InvoiceSummary, Payment, ProformaSummary, SalesReport, StockReport } from './types';
+import type { Customer, DayBook, DesignSummary, DuesReport, Expense, ExpensesBreakdown, MarginReport, MoversReport, ProfitAndLoss, StockMovementReport, StockMovementRow, GstReport, InvoiceSummary, Payment, ProformaSummary, SalesReport, StockReport } from './types';
 import { PAYMENT_METHOD_LABEL, PROFORMA_STATUS_LABEL } from './types';
 
 type Row = (string | number)[];
@@ -153,5 +153,82 @@ export function expensesBreakdownCsv(b: ExpensesBreakdown): string {
     ['Category', ...b.months, 'Total', ...(b.previous ? ['Previous period'] : [])],
     ...b.rows.map((r) => [r.category, ...r.byMonth.map(rs), rs(r.totalPaise), ...(b.previous ? [rs(r.previousPaise ?? 0)] : [])]),
     ['Total', ...b.monthTotals.map(rs), rs(b.totalPaise), ...(b.previous ? [rs(b.previous.totalPaise)] : [])],
+  ]);
+}
+
+// ── More reports ────────────────────────────────────────────────────────────
+export function profitLossCsv(r: ProfitAndLoss): string {
+  const last = r.lastYear;
+  const line = (label: string, now: number, before?: number): Row => [label, rs(now), ...(last ? [before === undefined ? '' : rs(before)] : [])];
+  return toCsv([
+    ['Profit and loss', `${r.range.from} to ${r.range.to}`],
+    [],
+    ['', 'This period', ...(last ? [`Same dates last year (${last.range.from} to ${last.range.to})`] : [])],
+    line('Sales (before GST)', r.salesPaise, last?.salesPaise),
+    line('Cost of goods sold', r.costOfGoodsPaise, last?.costOfGoodsPaise),
+    line('Gross profit', r.grossProfitPaise, last?.grossProfitPaise),
+    [],
+    ...r.expensesByCategory.map((c) => line(`Expense: ${c.category}`, c.paise, last?.expensesByCategory.find((x) => x.category.toLowerCase() === c.category.toLowerCase())?.paise ?? 0)),
+    line('Total expenses', r.expensesPaise, last?.expensesPaise),
+    [],
+    line('Net profit', r.netProfitPaise, last?.netProfitPaise),
+  ]);
+}
+
+export function marginCsv(r: MarginReport): string {
+  const by = { design: 'Design', colour: 'Colour', customer: 'Customer' }[r.by];
+  return toCsv([
+    [`Margin by ${by.toLowerCase()}`, `${r.range.from} to ${r.range.to}`],
+    [],
+    [by, 'Pieces', 'Invoices', 'Sales (excl. GST)', 'Cost', 'Profit', 'Margin %'],
+    ...r.rows.map((m) => [m.name, m.pieces, m.invoiceCount, rs(m.revenuePaise), rs(m.costPaise), rs(m.profitPaise), m.marginPercent === null ? '' : m.marginPercent.toFixed(1)]),
+    ['Total', r.totals.pieces, '', rs(r.totals.revenuePaise), rs(r.totals.costPaise), rs(r.totals.profitPaise), r.totals.marginPercent === null ? '' : r.totals.marginPercent.toFixed(1)],
+  ]);
+}
+
+export function movementCsv(r: StockMovementReport): string {
+  const cols = (m: Omit<StockMovementRow, 'designId' | 'name'>): Row => [m.opening, m.added, m.returned, m.sold, m.damaged, m.adjusted, m.closing];
+  return toCsv([
+    ['Stock movement', `${r.range.from} to ${r.range.to}`],
+    [],
+    ['Design', 'Opening', 'Added', 'Returned', 'Sold', 'Damaged', 'Adjusted', 'Closing'],
+    ...r.rows.map((m) => [m.name, ...cols(m)]),
+    ['Total', ...cols(r.totals)],
+  ]);
+}
+
+export function moversCsv(r: MoversReport): string {
+  const label: Record<string, string> = { fast: 'Fast mover', steady: 'Steady', dead: 'Not moving', none: 'No stock' };
+  return toCsv([
+    [`Fast movers and dead stock`, `last ${r.days} days`],
+    [],
+    ['Design', 'Group', 'Sold', 'In stock', 'Stock lasts (days)', 'Last sold', 'Stock value (cost)'],
+    ...r.rows.map((m) => [m.name, label[m.class] ?? m.class, m.sold, m.stock, m.daysOfStock ?? '', m.lastSoldOn ?? '', rs(m.stockValuePaise)]),
+  ]);
+}
+
+export function dayBookCsv(b: DayBook): string {
+  const title = { all: 'Day book', cash: 'Cash book', bank: 'Bank book' }[b.mode];
+  const kind = { sale: 'Sale', receipt: 'Received', expense: 'Paid' } as const;
+  const book = b.mode !== 'all';
+  return toCsv([
+    [title, `${b.range.from} to ${b.range.to}`],
+    ...(book ? [['Opening balance', rs(b.openingPaise ?? 0)]] : []),
+    [],
+    ['Date', 'Type', 'Party', 'Details', 'Method', 'Invoiced', 'Money in', 'Money out', ...(book ? ['Balance'] : [])],
+    ...b.entries.map((e) => [e.date, kind[e.kind], e.party, e.detail, e.method ? PAYMENT_METHOD_LABEL[e.method] : '', e.invoicedPaise ? rs(e.invoicedPaise) : '', e.inPaise ? rs(e.inPaise) : '', e.outPaise ? rs(e.outPaise) : '', ...(book ? [rs(e.balancePaise ?? 0)] : [])]),
+    [],
+    ['Totals', '', '', '', '', rs(b.invoicedPaise), rs(b.inPaise), rs(b.outPaise), ...(book ? [rs(b.closingPaise ?? 0)] : [])],
+  ]);
+}
+
+/** Who owes what, by how late it is (the aged receivables report). */
+export function receivablesCsv(d: DuesReport): string {
+  return toCsv([
+    ['Aged receivables', 'as of today'],
+    [],
+    ['Customer', 'Open invoices', 'Oldest due', 'Not yet due', '1–30 days late', '31–60 days late', '61+ days late', 'Owes', 'Advance held'],
+    ...d.rows.map((r) => [r.customerName, r.openInvoices, r.oldestDueDate ?? '', rs(r.currentPaise), rs(r.days1to30Paise), rs(r.days31to60Paise), rs(r.days61plusPaise), rs(r.outstandingPaise), rs(r.advancePaise)]),
+    ['Total', '', '', rs(d.currentPaise), rs(d.days1to30Paise), rs(d.days31to60Paise), rs(d.days61plusPaise), rs(d.outstandingPaise), rs(d.advanceHeldPaise)],
   ]);
 }

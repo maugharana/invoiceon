@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { addDays, computeTotals, todayIso } from '../../../shared/gst';
 import { formatMoney, mulPaise } from '../../../shared/money';
 import { matchesAll } from '../../../shared/search';
+import { parseInvoiceDraft, type InvoiceDraft } from '../../../shared/invoiceDraft';
 import { sameState } from '../../../shared/states';
 import { PAYMENT_METHODS, PAYMENT_METHOD_LABEL, type Customer, type Invoice, type InvoiceType, type PaymentMethod, type Proforma, type SaleVariant } from '../../../shared/types';
 import { useToast } from '../../components/Toast';
@@ -17,6 +18,23 @@ interface Line {
   variantId: string;
   qty: string;
   price: number;
+}
+
+// An invoice that was being built is kept as you go, so a crash or a closed window doesn't lose it.
+const DRAFT_KEY = 'invoiceon.draft.invoice';
+function loadDraft(): InvoiceDraft | null {
+  try {
+    return parseInvoiceDraft(JSON.parse(localStorage.getItem(DRAFT_KEY) ?? 'null'));
+  } catch {
+    return null;
+  }
+}
+function clearDraft() {
+  try {
+    localStorage.removeItem(DRAFT_KEY);
+  } catch {
+    /* nothing to clear */
+  }
 }
 
 // ── Customer picker ─────────────────────────────────────────────────────────
@@ -220,6 +238,44 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // Unfinished-invoice recovery: offered once on arrival (only for a fresh invoice), and saved a moment after each change.
+  const draftable = !quote && !editId && !copyFrom && !advance;
+  const [draft, setDraft] = useState<InvoiceDraft | null>(() => (draftable ? loadDraft() : null));
+  useEffect(() => {
+    if (!draftable || draft) return; // while a saved draft is waiting for a decision, don't overwrite it with an empty page
+    const t = setTimeout(() => {
+      try {
+        if (lines.length === 0 && !customerId) localStorage.removeItem(DRAFT_KEY);
+        else localStorage.setItem(DRAFT_KEY, JSON.stringify({ savedAt: new Date().toISOString(), type, customerId, buyerName, issueDate, dueDate, discountPaise: discount, notes, lines, receivedPaise: received, payMethod }));
+      } catch {
+        /* a convenience, not a record */
+      }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [draftable, draft, type, customerId, buyerName, issueDate, dueDate, discount, notes, lines, received, payMethod]);
+  function restoreDraft() {
+    if (!draft || !variants.data) return;
+    const known = new Set(variants.data.map((v) => v.variantId));
+    setType(draft.type);
+    setCustomerId(draft.customerId);
+    setBuyerName(draft.buyerName);
+    if (draft.issueDate) setIssueDate(draft.issueDate);
+    if (draft.dueDate) {
+      setDueDate(draft.dueDate);
+      dueTouched.current = true;
+    }
+    setDiscount(draft.discountPaise);
+    setNotes(draft.notes);
+    setLines(draft.lines.filter((l) => known.has(l.variantId)));
+    setReceived(draft.receivedPaise);
+    setPayMethod(draft.payMethod);
+    setDraft(null);
+  }
+  function discardDraft() {
+    clearDraft();
+    setDraft(null);
+  }
+
   // "Duplicate": start from an earlier invoice's (or quote's) customer, items, prices, discount and notes (today's date, nothing paid).
   // "Edit" starts from the quote itself, with its own dates.
   const sourceId = editId ?? copyFrom;
@@ -335,6 +391,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
         payment: received > 0 ? { amountPaise: received, method: payMethod, reference: payRef } : undefined,
         applyAdvancePaise: advanceApplied > 0 ? advanceApplied : undefined,
       });
+      clearDraft();
       refresh();
       toast.success(inv.paidPaise > 0 ? `Invoice ${inv.number} issued — ${formatMoney(inv.paidPaise)} received` : `Invoice ${inv.number} issued`);
       navigate(paths.invoice(inv.id));
@@ -353,6 +410,23 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
   return (
     <>
       <PageHeader back={back} title={editing ? `Edit ${editing.number}` : quote ? 'New proforma' : 'New invoice'} subtitle={editing ? 'Changes the quote itself; it keeps its number.' : nextNumber.data ? <>Will be numbered <span className="num text-ink">{nextNumber.data}</span></> : undefined} />
+
+      {draft && (
+        <div className="animate-fade-in mb-6 flex items-center justify-between gap-4 rounded-lg bg-status-partial-bg px-4 py-3 text-status-partial-fg">
+          <span>
+            You have an unfinished invoice
+            {draft.savedAt && <> from {new Date(draft.savedAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</>} — {draft.lines.length} {draft.lines.length === 1 ? 'item' : 'items'}.
+          </span>
+          <span className="flex shrink-0 gap-2">
+            <Button className="h-8 text-xs" onClick={discardDraft}>
+              Discard
+            </Button>
+            <Button variant="primary" className="h-8 text-xs" disabled={!variants.data} onClick={restoreDraft}>
+              Restore it
+            </Button>
+          </span>
+        </div>
+      )}
 
       <div className="grid grid-cols-[1fr_18rem] items-start gap-6">
         <div className="space-y-6">

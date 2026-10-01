@@ -11,6 +11,7 @@ import { useToast } from '../../components/Toast';
 import { Button, Card, ErrorNote, Field, Figure, Input, InvoicePill, Money, PageHeader, Spinner, TypePill } from '../../components/ui';
 import { api, errorMessage } from '../../lib/api';
 import { copyText } from '../../lib/clipboard';
+import { useRecent } from '../../lib/recent';
 import { useQuery, useRefresh } from '../../lib/data';
 import { navigate, paths } from '../../lib/router';
 import { RecordPaymentModal } from '../payments/RecordPaymentModal';
@@ -20,6 +21,7 @@ export function InvoicePage({ id }: { id: string }) {
   const refresh = useRefresh();
   const query = useQuery(() => api.invoiceGet(id), [id]);
   const inv = query.data;
+  useRecent(inv ? { kind: 'invoice', id: inv.id, title: inv.number, hint: inv.buyerName } : null);
   const customer = useQuery(() => (inv?.customerId ? api.customerGet(inv.customerId) : Promise.resolve(null)), [inv?.customerId]);
   const [busy, setBusy] = useState<'pdf' | 'print' | 'advance' | null>(null);
   const [cancelling, setCancelling] = useState(false);

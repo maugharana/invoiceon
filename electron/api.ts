@@ -7,6 +7,7 @@ import { UserError } from './services/common';
 import * as customers from './services/customers';
 import { dashboardNow, dashboardOverview } from './services/dashboard';
 import { festivalComparison } from './services/festival';
+import * as moreReports from './services/moreReports';
 import { reorderList } from './services/deadstock';
 import * as expenses from './services/expenses';
 import * as inventory from './services/inventory';
@@ -95,6 +96,12 @@ export function createApi(db: Db, host?: Host, dataDir?: string): Api {
 
     reportSales: async (range) => reports.salesReport(db, range),
     reportGst: async (range) => reports.gstReport(db, range),
+    reportProfitLoss: async (range) => moreReports.profitAndLoss(db, range),
+    reportMargin: async (range, by) => moreReports.marginReport(db, range, by),
+    reportMarginDrill: async (range, by, key) => moreReports.marginDrill(db, range, by, String(key)),
+    reportMovement: async (range) => moreReports.stockMovementReport(db, range),
+    reportMovers: async (days) => moreReports.moversReport(db, days ?? 90),
+    reportDayBook: async (range, mode) => moreReports.dayBook(db, range, mode),
     reportStock: async (asOf) => reports.stockReport(db, asOf ?? undefined), // ?? because JSON turns undefined into null
     exportSave: async (fileName, content) => {
       if (!host) throw new UserError(DESKTOP_ONLY);

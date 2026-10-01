@@ -33,7 +33,8 @@ export type Route =
   | { name: 'print-proforma'; id: string }
   | { name: 'reports'; tab: ReportTab; period: PeriodSpec; /** Stock valuation date; null means today. */ asOf: string | null };
 
-export type ReportTab = 'sales' | 'gst' | 'stock';
+export const REPORT_TABS = ['sales', 'profit', 'margin', 'gst', 'daybook', 'stock', 'movement', 'movers', 'receivables'] as const;
+export type ReportTab = (typeof REPORT_TABS)[number];
 
 /** Money a customer has just paid, carried into the New invoice screen so it's recorded in the same step as the invoice. */
 export interface AdvancePreset {
@@ -87,7 +88,7 @@ export function parseHash(hash: string): Route {
     case 'payments':
       return parts[1] === 'dues' ? { name: 'dues' } : { name: 'payments' };
     case 'reports': {
-      const tab: ReportTab = parts[1] === 'gst' || parts[1] === 'stock' ? parts[1] : 'sales';
+      const tab: ReportTab = (REPORT_TABS as readonly string[]).includes(parts[1] ?? '') ? (parts[1] as ReportTab) : 'sales';
       const preset = params.get('period');
       const period: PeriodSpec = {
         preset: (PERIOD_PRESETS as readonly string[]).includes(preset ?? '') ? (preset as PeriodPreset) : 'this-month',

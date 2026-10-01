@@ -5,6 +5,14 @@ import type {
   CustomerInput,
   CustomerPurchase,
   DashboardNow,
+  DayBook,
+  DayBookMode,
+  MarginBy,
+  MarginLine,
+  MarginReport,
+  MoversReport,
+  ProfitAndLoss,
+  StockMovementReport,
   DashboardOverview,
   DashboardSummary,
   FestivalComparison,
@@ -127,6 +135,18 @@ export interface Api {
   reportGst(range: { from: string; to: string }): Promise<GstReport>;
   /** Stock on hand, valued at cost and at selling price, as of a date (default today). */
   reportStock(asOf?: string): Promise<StockReport>;
+  /** Sales less cost of goods less expenses for a date range, with the same dates last year beside it. */
+  reportProfitLoss(range: { from: string; to: string }): Promise<ProfitAndLoss>;
+  /** Sales, cost and profit grouped by design, colour or customer. */
+  reportMargin(range: { from: string; to: string }, by: MarginBy): Promise<MarginReport>;
+  /** The invoice lines behind one row of the margin report. */
+  reportMarginDrill(range: { from: string; to: string }, by: MarginBy, key: string): Promise<MarginLine[]>;
+  /** Stock in and out by design between two dates. */
+  reportMovement(range: { from: string; to: string }): Promise<StockMovementReport>;
+  /** Fast sellers and stock that isn't moving, over the last `days` days (default 90). */
+  reportMovers(days?: number): Promise<MoversReport>;
+  /** The day book, cash book or bank book for a date range. */
+  reportDayBook(range: { from: string; to: string }, mode: DayBookMode): Promise<DayBook>;
   /** Saves text (a CSV) to a file the user chooses. Desktop app only. */
   exportSave(fileName: string, content: string): Promise<{ saved: boolean; path?: string }>;
 

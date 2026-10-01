@@ -7,6 +7,7 @@ import { useToast } from '../../components/Toast';
 import { Button, Card, ErrorNote, Field, Figure, Input, Money, PageHeader, ProformaPill, Spinner, TypePill } from '../../components/ui';
 import { api, errorMessage } from '../../lib/api';
 import { useQuery, useRefresh } from '../../lib/data';
+import { useRecent } from '../../lib/recent';
 import { navigate, paths } from '../../lib/router';
 import { proformaAsInvoice } from '../../lib/proforma';
 
@@ -15,6 +16,7 @@ export function ProformaPage({ id }: { id: string }) {
   const refresh = useRefresh();
   const query = useQuery(() => api.proformaGet(id), [id]);
   const p = query.data;
+  useRecent(p ? { kind: 'proforma', id: p.id, title: p.number, hint: p.buyerName } : null);
   const [busy, setBusy] = useState<'pdf' | 'print' | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [converting, setConverting] = useState(false);
