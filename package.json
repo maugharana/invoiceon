@@ -42,25 +42,10 @@
   "build": {
     "appId": "com.maugharana.invoiceon",
     "productName": "InvoiceOn",
-    "directories": {
-      "output": "release"
-    },
+    "directories": { "output": "release" },
     "electronDist": "node_modules/electron/dist",
-    "files": [
-      "dist/**/*",
-      "dist-electron/**/*",
-      "package.json"
-    ],
-    "win": {
-      "target": [
-        "nsis"
-      ],
-      "icon": "build/icon.ico"
-    },
-    "nsis": {
-      "oneClick": false,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": true
-    }
+    "files": ["dist/**/*", "dist-electron/**/*", "package.json"],
+    "win": { "target": ["nsis"], "icon": "build/icon.ico" },
+    "nsis": { "oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true }
   }
 }
