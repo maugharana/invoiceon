@@ -5,13 +5,15 @@
       "name": "invoiceon-web",
       "runtimeExecutable": "node",
       "runtimeArgs": ["scripts/dev-web.mjs"],
-      "port": 5173
+      "port": 5173,
+      "autoPort": true
     },
     {
       "name": "invoiceon-demo",
       "runtimeExecutable": "node",
       "runtimeArgs": ["scripts/dev-web.mjs", "--demo", "--no-open"],
-      "port": 5173
+      "port": 5173,
+      "autoPort": true
     }
   ]
 }

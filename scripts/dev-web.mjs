@@ -3,10 +3,26 @@
 // Handy for UI work and for looking around; the desktop app itself uses IPC instead.
 import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
+import { createServer as createNetServer } from 'node:net';
 import { build } from 'esbuild';
 import { createServer } from 'vite';
 
 const demo = process.argv.includes('--demo');
+
+// Normally the page is on 5173 and the data layer on 5199. When a tool hands us a port (PORT), several previews can be running
+// at once, so the data layer takes any free port too. vite.config.ts and the bridge both read INVOICEON_BRIDGE_PORT.
+async function freePort() {
+  return new Promise((resolve, reject) => {
+    const probe = createNetServer();
+    probe.once('error', reject);
+    probe.listen(0, '127.0.0.1', () => {
+      const { port } = probe.address();
+      probe.close(() => resolve(port));
+    });
+  });
+}
+if (process.env.PORT && !process.env.INVOICEON_BRIDGE_PORT) process.env.INVOICEON_BRIDGE_PORT = String(await freePort());
+const bridgePort = Number(process.env.INVOICEON_BRIDGE_PORT) || 5199;
 
 mkdirSync('.dev-data', { recursive: true });
 await build({
@@ -20,7 +36,9 @@ await build({
 });
 
 // The demo database is its own file, rebuilt every run, so it can never touch anything you've entered in dev:web.
-const env = demo ? { ...process.env, INVOICEON_DEMO: '1', INVOICEON_FRESH: '1', INVOICEON_DB_DIR: '.dev-data/demo' } : process.env;
+// A preview started with an assigned port may be running beside another demo, which has its database open, so it gets its own folder.
+const demoDir = process.env.PORT ? `.dev-data/demo-${process.env.PORT}` : '.dev-data/demo';
+const env = demo ? { ...process.env, INVOICEON_DEMO: '1', INVOICEON_FRESH: '1', INVOICEON_DB_DIR: demoDir } : process.env;
 const bridge = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '.dev-data/bridge.cjs'], { stdio: 'inherit', env });
 
 const vite = await createServer({ configFile: 'vite.config.ts' });
@@ -31,7 +49,7 @@ const url = vite.resolvedUrls?.local[0] ?? 'http://localhost:5173/';
 async function waitForBridge() {
   for (let i = 0; i < 80; i++) {
     try {
-      const res = await fetch('http://127.0.0.1:5199/rpc/getSettings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"args":[]}' });
+      const res = await fetch(`http://127.0.0.1:${bridgePort}/rpc/getSettings`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"args":[]}' });
       if (res.ok) return true;
     } catch {
       /* not up yet */

@@ -4,6 +4,7 @@
 //   INVOICEON_DB_DIR   where the database lives (default .dev-data)
 //   INVOICEON_FRESH=1  start from an empty database, discarding what was there
 //   INVOICEON_DEMO=1   if the database is empty, fill it with sample data
+//   INVOICEON_BRIDGE_PORT  the port to listen on (default 5199)
 import { mkdirSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join, resolve } from 'node:path';
@@ -12,7 +13,7 @@ import { openDb } from './db/connection';
 import { listDesigns } from './services/inventory';
 import { loadSampleData } from './services/seed';
 
-const PORT = 5199;
+const PORT = Number(process.env.INVOICEON_BRIDGE_PORT) || 5199;
 const dir = resolve(process.env.INVOICEON_DB_DIR ?? join(process.cwd(), '.dev-data'));
 mkdirSync(dir, { recursive: true });
 
