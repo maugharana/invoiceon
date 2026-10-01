@@ -178,8 +178,12 @@ export function listPayments(db: Db, query: PaymentQuery = {}): Payment[] {
     params.push(query.customerId);
   }
   const rows = all<PaymentRow>(db, `${SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY p.received_on DESC, p.created_at DESC, p.rowid DESC`, ...params);
+  if (query.from && !isIsoDate(query.from)) throw new UserError('Enter a valid "from" date.');
+  if (query.to && !isIsoDate(query.to)) throw new UserError('Enter a valid "to" date.');
+  if (query.method && !(PAYMENT_METHODS as readonly string[]).includes(query.method)) throw new UserError('Choose a payment method from the list.');
   return rows
     .map((r) => toPayment(db, r))
+    .filter((p) => (!query.method || p.method === query.method) && (!query.from || p.receivedOn >= query.from) && (!query.to || p.receivedOn <= query.to))
     .filter((p) => matchesAll(`${p.customerName} ${p.reference} ${p.method} ${p.allocations.map((a) => a.invoiceNumber).join(' ')}`, query.search))
     .filter((p) => (query.status === 'advance' ? !p.voided && p.advancePaise > 0 : query.status === 'voided' ? p.voided : true));
 }

@@ -1,15 +1,19 @@
-import { Ban, HandCoins, Plus, SearchX, Undo2 } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
-import { formatDate } from '../../../shared/gst';
-import { PAYMENT_METHOD_LABEL, type DuesRow, type Payment } from '../../../shared/types';
+import { Ban, BellRing, Download, HandCoins, Plus, SearchX, Undo2 } from 'lucide-react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { paymentsCsv } from '../../../shared/csv';
+import { formatDate, todayIso } from '../../../shared/gst';
+import { PAYMENT_METHODS, PAYMENT_METHOD_LABEL, type DuesRow, type Payment, type PaymentMethod } from '../../../shared/types';
 import { ConfirmDialog } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
-import { Button, Card, EmptyState, ErrorNote, Field, Figure, IconButton, Input, Money, PageHeader, Pill, SearchInput, Segmented, TableSkeleton } from '../../components/ui';
+import { DateRangeFilter, Pager, SortableTh, sortBy, usePager, useSort, type DateRangeValue } from '../../components/listTools';
+import { Button, Card, EmptyState, ErrorNote, Field, Figure, IconButton, Input, Money, PageHeader, Pill, SearchInput, Segmented, Select, TableSkeleton } from '../../components/ui';
 import { api } from '../../lib/api';
 import { useQuery, useRefresh } from '../../lib/data';
+import { useCsvExport } from '../../lib/exportCsv';
 import { plural } from '../../lib/format';
 import { navigate, paths } from '../../lib/router';
 import { RecordPaymentModal } from './RecordPaymentModal';
+import { RemindersModal } from './RemindersModal';
 
 function Tabs({ tab }: { tab: 'payments' | 'dues' }) {
   const tabs = [
@@ -102,16 +106,29 @@ export function PaymentsPage() {
   const [debounced, setDebounced] = useState('');
   const [status, setStatus] = useState<'all' | 'advance' | 'voided'>('all');
   const [voiding, setVoiding] = useState<Payment | null>(null);
+  const [dates, setDates] = useState<DateRangeValue>({});
+  const [method, setMethod] = useState<'' | PaymentMethod>('');
+  const sort = useSort<'date' | 'customer' | 'method' | 'amount'>('date', 'desc');
+  const saveCsv = useCsvExport();
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search), 150);
     return () => clearTimeout(t);
   }, [search]);
 
-  const payments = useQuery(() => api.paymentsList({ search: debounced, status }), [debounced, status]);
+  const payments = useQuery(() => api.paymentsList({ search: debounced, status, method: method || undefined, from: dates.from, to: dates.to }), [debounced, status, method, dates.from, dates.to]);
   const any = useQuery(() => api.paymentsList());
   const list = payments.data;
   const none = any.data?.length === 0;
+  const sorted = useMemo(() => {
+    const rows = list ?? [];
+    if (sort.key === 'customer') return sortBy(rows, (p) => p.customerName, sort.dir);
+    if (sort.key === 'method') return sortBy(rows, (p) => PAYMENT_METHOD_LABEL[p.method], sort.dir);
+    if (sort.key === 'amount') return sortBy(rows, (p) => p.amountPaise, sort.dir);
+    return sortBy(rows, (p) => p.receivedOn, sort.dir);
+  }, [list, sort.key, sort.dir]);
+  const pager = usePager(sorted);
+  useEffect(() => pager.setPage(0), [debounced, status, method, dates.from, dates.to, sort.key, sort.dir]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <PaymentsShell tab="payments">
@@ -124,36 +141,52 @@ export function PaymentsPage() {
         <>
           <div className="mb-4 flex items-center justify-between gap-4">
             <SearchInput value={search} onChange={setSearch} placeholder="Search customer, reference or invoice" />
-            <Segmented
-              label="Payment filter"
-              value={status}
-              onChange={setStatus}
-              options={[
-                { value: 'all', label: 'All' },
-                { value: 'advance', label: 'Advance held' },
-                { value: 'voided', label: 'Reversed' },
-              ]}
-            />
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              <DateRangeFilter onChange={setDates} />
+              <div className="w-40">
+                <Select value={method} onChange={(e) => setMethod(e.target.value as '' | PaymentMethod)} aria-label="Method">
+                  <option value="">Any method</option>
+                  {PAYMENT_METHODS.map((m) => (
+                    <option key={m} value={m}>
+                      {PAYMENT_METHOD_LABEL[m]}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <Segmented
+                label="Payment filter"
+                value={status}
+                onChange={setStatus}
+                options={[
+                  { value: 'all', label: 'All' },
+                  { value: 'advance', label: 'Advance held' },
+                  { value: 'voided', label: 'Reversed' },
+                ]}
+              />
+              <Button icon={<Download className="h-4 w-4" />} disabled={sorted.length === 0} onClick={() => void saveCsv(`payments-${todayIso()}.csv`, paymentsCsv(sorted), 'Payments saved')}>
+                Export CSV
+              </Button>
+            </div>
           </div>
           <Card className="overflow-x-auto">
             {payments.loading ? (
               <TableSkeleton />
             ) : list?.length === 0 ? (
-              <EmptyState icon={<SearchX className="h-6 w-6" />} title="No payments match" body="Try a different search or filter." actions={<Button onClick={() => { setSearch(''); setStatus('all'); }}>Clear filters</Button>} />
+              <EmptyState icon={<SearchX className="h-6 w-6" />} title="No payments match" body="Try a different search or filter." actions={<Button onClick={() => { setSearch(''); setStatus('all'); setMethod(''); }}>Clear filters</Button>} />
             ) : (
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-line">
-                    <th className="th">Date</th>
-                    <th className="th">Customer</th>
-                    <th className="th">Method</th>
+                    <SortableTh label="Date" active={sort.key === 'date'} dir={sort.dir} onSort={() => sort.toggle('date', 'desc')} />
+                    <SortableTh label="Customer" active={sort.key === 'customer'} dir={sort.dir} onSort={() => sort.toggle('customer')} />
+                    <SortableTh label="Method" active={sort.key === 'method'} dir={sort.dir} onSort={() => sort.toggle('method')} />
                     <th className="th">Applied to</th>
-                    <th className="th text-right">Amount</th>
+                    <SortableTh label="Amount" right active={sort.key === 'amount'} dir={sort.dir} onSort={() => sort.toggle('amount', 'desc')} />
                     <th className="w-12" />
                   </tr>
                 </thead>
                 <tbody>
-                  {list?.map((p) => (
+                  {pager.pageItems.map((p) => (
                     <tr key={p.id} className={`animate-fade-in border-b border-line/70 transition-colors duration-150 last:border-0 hover:bg-canvas ${p.voided ? 'text-ink-muted' : ''}`}>
                       <td className="td num whitespace-nowrap text-ink-muted">{formatDate(p.receivedOn)}</td>
                       <td className="td">
@@ -199,7 +232,7 @@ export function PaymentsPage() {
               </table>
             )}
           </Card>
-          {list && list.length > 0 && <p className="mt-3 text-xs text-ink-muted">Showing {plural(list.length, 'payment')}</p>}
+          {list && list.length > 0 && <Pager pager={pager} noun="payment" />}
         </>
       )}
       {voiding && <VoidPaymentDialog payment={voiding} onClose={() => setVoiding(null)} />}
@@ -219,6 +252,8 @@ const BUCKETS = [
 export function DuesPage() {
   const dues = useQuery(() => api.duesReport());
   const [paying, setPaying] = useState<DuesRow | null>(null);
+  const [reminding, setReminding] = useState(false);
+  const settings = useQuery(() => api.getSettings());
   const d = dues.data;
   const total = d?.outstandingPaise ?? 0;
 
@@ -234,6 +269,11 @@ export function DuesPage() {
       ) : (
         d && (
           <>
+            <div className="mb-4 flex justify-end">
+              <Button icon={<BellRing className="h-4 w-4" />} onClick={() => setReminding(true)} title="Ready-written reminders for everyone who is overdue">
+                Send reminders
+              </Button>
+            </div>
             {/* How old is what you're owed? */}
             <Card className="mb-6 p-6">
               <h2 className="mb-4 text-base">How late is it?</h2>
@@ -305,6 +345,7 @@ export function DuesPage() {
           </>
         )
       )}
+      {reminding && d && <RemindersModal rows={d.rows} businessName={settings.data?.businessName ?? ''} upiId={settings.data?.upiId ?? ''} onClose={() => setReminding(false)} />}
       {paying?.customerId && <CustomerPaymentModal customerId={paying.customerId} onClose={() => setPaying(null)} />}
     </PaymentsShell>
   );

@@ -4,7 +4,7 @@ import { addDays, computeTotals, todayIso } from '../../../shared/gst';
 import { formatMoney, mulPaise } from '../../../shared/money';
 import { matchesAll } from '../../../shared/search';
 import { sameState } from '../../../shared/states';
-import { PAYMENT_METHODS, PAYMENT_METHOD_LABEL, type Customer, type InvoiceType, type PaymentMethod, type SaleVariant } from '../../../shared/types';
+import { PAYMENT_METHODS, PAYMENT_METHOD_LABEL, type Customer, type Invoice, type InvoiceType, type PaymentMethod, type Proforma, type SaleVariant } from '../../../shared/types';
 import { useToast } from '../../components/Toast';
 import { Button, Card, ErrorNote, Field, Input, Money, MoneyInput, PageHeader, Segmented, Select, Textarea } from '../../components/ui';
 import { api, errorMessage } from '../../lib/api';
@@ -194,7 +194,7 @@ function ItemPicker({ variants, taken, onPick, allowOutOfStock = false }: { vari
 
 // ── Page ────────────────────────────────────────────────────────────────────
 /** One editor for both documents: an invoice takes stock and money; a proforma is a quote that does neither until it becomes an invoice. */
-export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, mode = 'invoice' }: { presetCustomerId: string | null; advance?: AdvancePreset | null; copyFrom?: string | null; mode?: 'invoice' | 'proforma' }) {
+export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, editId = null, mode = 'invoice' }: { presetCustomerId: string | null; advance?: AdvancePreset | null; copyFrom?: string | null; /** Change this existing proforma instead of making a new one. */ editId?: string | null; mode?: 'invoice' | 'proforma' }) {
   const quote = mode === 'proforma';
   const toast = useToast();
   const refresh = useRefresh();
@@ -220,8 +220,10 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, mod
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // "Duplicate": start from an earlier invoice's customer, items, prices, discount and notes (today's date, nothing paid).
-  const source = useQuery(() => (copyFrom && !quote ? api.invoiceGet(copyFrom) : Promise.resolve(null)), [copyFrom]);
+  // "Duplicate": start from an earlier invoice's (or quote's) customer, items, prices, discount and notes (today's date, nothing paid).
+  // "Edit" starts from the quote itself, with its own dates.
+  const sourceId = editId ?? copyFrom;
+  const source = useQuery(() => (sourceId ? ((quote ? api.proformaGet(sourceId) : api.invoiceGet(sourceId)) as Promise<Invoice | Proforma>) : Promise.resolve(null)), [sourceId, quote]);
   const copied = useRef(false);
   useEffect(() => {
     const inv = source.data;
@@ -229,6 +231,11 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, mod
     copied.current = true;
     const available = new Map(variants.data.map((v) => [v.variantId, v]));
     const kept = inv.lines.filter((l) => available.has(l.variantId));
+    if (editId) {
+      setIssueDate(inv.issueDate);
+      setDueDate('validUntil' in inv ? inv.validUntil : (inv.dueDate ?? inv.issueDate));
+      dueTouched.current = true;
+    }
     setType(inv.type);
     setCustomerId(inv.customerId);
     if (!inv.customerId && inv.buyer.name && inv.buyer.name !== 'Walk-in customer') setBuyerName(inv.buyer.name);
@@ -236,10 +243,12 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, mod
     setNotes(inv.notes);
     setLines(kept.map((l) => ({ variantId: l.variantId, qty: String(l.qty), price: l.unitPricePaise })));
     const dropped = inv.lines.length - kept.length;
-    toast.info(dropped > 0 ? `Copied from ${inv.number}. ${dropped} item${dropped === 1 ? ' is' : 's are'} no longer for sale and left out.` : `Copied from ${inv.number}. Check the quantities and prices, then issue.`);
+    if (editId) return;
+    toast.info(dropped > 0 ? `Copied from ${inv.number}. ${dropped} item${dropped === 1 ? ' is' : 's are'} no longer available and left out.` : `Copied from ${inv.number}. Check the quantities and prices, then ${quote ? 'create the proforma' : 'issue'}.`);
   }, [source.data, variants.data, toast]);
 
   const nextNumber = useQuery(() => (quote ? api.proformaNextNumber(issueDate) : api.invoiceNextNumber(issueDate)), [issueDate, quote]);
+  const editing = source.data && editId ? source.data : null;
 
   const customer = customers.data?.find((c) => c.id === customerId) ?? null;
   const variantById = useMemo(() => new Map((variants.data ?? []).map((v) => [v.variantId, v])), [variants.data]);
@@ -307,9 +316,10 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, mod
     setError(null);
     try {
       if (quote) {
-        const p = await api.proformaCreate({ type, customerId, buyerName: customerId ? undefined : buyerName, issueDate, validUntil: dueDate, discountPaise: discount, notes, lines: rows.map((r) => ({ variantId: r.line.variantId, qty: r.qty, unitPricePaise: r.line.price })) });
+        const input = { type, customerId, buyerName: customerId ? undefined : buyerName, issueDate, validUntil: dueDate, discountPaise: discount, notes, lines: rows.map((r) => ({ variantId: r.line.variantId, qty: r.qty, unitPricePaise: r.line.price })) };
+        const p = editId ? await api.proformaUpdate(editId, input) : await api.proformaCreate(input);
         refresh();
-        toast.success(`Proforma ${p.number} created`);
+        toast.success(editId ? `Proforma ${p.number} updated` : `Proforma ${p.number} created`);
         navigate(paths.proforma(p.id));
         return;
       }
@@ -342,7 +352,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, mod
 
   return (
     <>
-      <PageHeader back={back} title={quote ? 'New proforma' : 'New invoice'} subtitle={nextNumber.data ? <>Will be numbered <span className="num text-ink">{nextNumber.data}</span></> : undefined} />
+      <PageHeader back={back} title={editing ? `Edit ${editing.number}` : quote ? 'New proforma' : 'New invoice'} subtitle={editing ? 'Changes the quote itself; it keeps its number.' : nextNumber.data ? <>Will be numbered <span className="num text-ink">{nextNumber.data}</span></> : undefined} />
 
       <div className="grid grid-cols-[1fr_18rem] items-start gap-6">
         <div className="space-y-6">
@@ -555,7 +565,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, mod
             {error && <div className="mt-4"><ErrorNote>{error}</ErrorNote></div>}
 
             <Button variant="primary" className="mt-5 w-full" loading={saving} disabled={!canSubmit} onClick={() => void submit()}>
-              {quote ? 'Create proforma' : 'Issue invoice'}
+              {editing ? 'Save changes' : quote ? 'Create proforma' : 'Issue invoice'}
             </Button>
             {!canSubmit && !saving && problems.length > 0 && lines.length > 0 && <p className="mt-2 text-xs text-ink-muted">{problems[0]}</p>}
             <p className="mt-3 text-xs text-ink-muted">

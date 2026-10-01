@@ -1,6 +1,7 @@
 import { isIsoDate } from '../../shared/gst';
+import { bucketKeys, comparisonRange } from '../../shared/periods';
 import { matchesAll } from '../../shared/search';
-import { PAYMENT_METHODS, type Expense, type ExpenseInput, type ExpenseQuery, type ExpensesOverview, type PaymentMethod } from '../../shared/types';
+import { PAYMENT_METHODS, type Expense, type ExpenseInput, type ExpenseQuery, type ExpensesBreakdown, type ExpensesOverview, type PaymentMethod } from '../../shared/types';
 import { all, get, run, type Db } from '../db/connection';
 import { UserError, newId, nowIso, optionalText, requireInt, requireText } from './common';
 
@@ -99,3 +100,37 @@ export function overviewOf(expenses: Expense[]): ExpensesOverview {
 }
 
 export const expensesOverview = (db: Db, query: ExpenseQuery = {}): ExpensesOverview => overviewOf(listExpenses(db, query));
+
+/**
+ * Spending by category and month. With a start and end date, every month in between is a column (quiet ones too); without, the
+ * columns run from the first month with spending to the last. When there is a start and end, the stretch of the same length just
+ * before is added up too, so each category can be set against what it cost then.
+ */
+export function expensesBreakdown(db: Db, query: ExpenseQuery = {}): ExpensesBreakdown {
+  const rows = listExpenses(db, query);
+  const bounded = !!query.from && !!query.to && isIsoDate(query.from) && isIsoDate(query.to) && query.from <= query.to;
+  const keys = [...new Set(rows.map((e) => e.date.slice(0, 7)))].sort();
+  const months = bounded ? bucketKeys({ from: query.from!, to: query.to! }, 'month') : keys.length ? bucketKeys({ from: `${keys[0]}-01`, to: `${keys[keys.length - 1]}-28` }, 'month') : [];
+
+  let previous: ExpensesBreakdown['previous'] = null;
+  let previousByCategory = new Map<string, number>();
+  if (bounded) {
+    const range = comparisonRange({ from: query.from!, to: query.to! }, 'previous');
+    const before = listExpenses(db, { ...query, from: range.from, to: range.to });
+    previousByCategory = new Map(overviewOf(before).byCategory.map((c) => [c.category.toLowerCase(), c.paise]));
+    previous = { ...range, totalPaise: before.reduce((s, e) => s + e.amountPaise, 0) };
+  }
+
+  const byCategory = new Map<string, { category: string; byMonth: number[]; totalPaise: number }>();
+  for (const e of rows) {
+    const key = e.category.toLowerCase();
+    const row = byCategory.get(key) ?? { category: e.category, byMonth: months.map(() => 0), totalPaise: 0 };
+    row.byMonth[months.indexOf(e.date.slice(0, 7))] += e.amountPaise;
+    row.totalPaise += e.amountPaise;
+    byCategory.set(key, row);
+  }
+  const out = [...byCategory.entries()]
+    .map(([key, r]) => ({ ...r, previousPaise: previous ? (previousByCategory.get(key) ?? 0) : null }))
+    .sort((a, b) => b.totalPaise - a.totalPaise || a.category.localeCompare(b.category));
+  return { months, rows: out, monthTotals: months.map((_, i) => out.reduce((s, r) => s + r.byMonth[i]!, 0)), totalPaise: rows.reduce((s, e) => s + e.amountPaise, 0), previous };
+}

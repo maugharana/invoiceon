@@ -43,7 +43,9 @@ function renderRoute(route: Route) {
     case 'proformas':
       return <ProformasPage initialStatus={route.status} />;
     case 'proforma-new':
-      return <NewInvoicePage mode="proforma" presetCustomerId={route.customerId} />;
+      return <NewInvoicePage mode="proforma" presetCustomerId={route.customerId} copyFrom={route.copyFrom} />;
+    case 'proforma-edit':
+      return <NewInvoicePage mode="proforma" presetCustomerId={null} editId={route.id} />;
     case 'proforma':
       return <ProformaPage id={route.id} />;
     case 'expenses':
@@ -77,7 +79,9 @@ const pageKey = (r: Route): string => {
     case 'proformas':
       return `${r.name}:${r.status}`;
     case 'proforma-new':
-      return `proforma-new:${r.customerId ?? ''}`;
+      return `proforma-new:${r.customerId ?? ''}:${r.copyFrom ?? ''}`;
+    case 'proforma-edit':
+      return `proforma-edit:${r.id}`;
     case 'invoice-new':
       return `new:${r.customerId ?? ''}:${r.advance?.amountPaise ?? 0}:${r.copyFrom ?? ''}`;
     case 'settings':
@@ -95,7 +99,7 @@ export default function App() {
   if (route.name === 'print-invoice') return <PrintInvoicePage id={route.id} />;
   if (route.name === 'print-proforma') return <PrintInvoicePage id={route.id} kind="proforma" />;
   return (
-    <AppShell active={sectionOf(route)} pageKey={pageKey(route)} hideFab={route.name === 'invoice-new' || route.name === 'proforma-new' || route.name === 'inventory-add'}>
+    <AppShell active={sectionOf(route)} pageKey={pageKey(route)} hideFab={route.name === 'invoice-new' || route.name === 'proforma-new' || route.name === 'proforma-edit' || route.name === 'inventory-add'}>
       {renderRoute(route)}
     </AppShell>
   );

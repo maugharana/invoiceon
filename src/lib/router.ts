@@ -21,7 +21,8 @@ export type Route =
   | { name: 'dues' }
   | { name: 'invoice'; id: string }
   | { name: 'proformas'; status: 'all' | ProformaStatus }
-  | { name: 'proforma-new'; customerId: string | null }
+  | { name: 'proforma-new'; customerId: string | null; /** An earlier quote to start from (Duplicate). */ copyFrom: string | null }
+  | { name: 'proforma-edit'; id: string }
   | { name: 'proforma'; id: string }
   | { name: 'expenses'; category: string | null }
   | { name: 'customers' }
@@ -67,7 +68,8 @@ export function parseHash(hash: string): Route {
       return { name: 'invoices', status: status === 'open' || status === 'overdue' || status === 'cancelled' ? status : 'all' };
     }
     case 'proformas': {
-      if (parts[1] === 'new') return { name: 'proforma-new', customerId: params.get('customer') };
+      if (parts[1] === 'new') return { name: 'proforma-new', customerId: params.get('customer'), copyFrom: params.get('copy') };
+      if (parts[1] && parts[2] === 'edit') return { name: 'proforma-edit', id: decodeURIComponent(parts[1]) };
       if (parts[1]) return { name: 'proforma', id: decodeURIComponent(parts[1]) };
       const status = params.get('status');
       return { name: 'proformas', status: status === 'open' || status === 'expired' || status === 'converted' || status === 'cancelled' ? status : 'all' };
@@ -118,6 +120,7 @@ export const sectionOf = (route: Route): Section => {
       return 'invoices';
     case 'proformas':
     case 'proforma-new':
+    case 'proforma-edit':
     case 'proforma':
     case 'print-proforma':
       return 'proformas';
@@ -154,6 +157,9 @@ export const paths = {
   proformas: (status?: ProformaStatus) => (status ? `/proformas?status=${status}` : '/proformas'),
   newProforma: (customerId?: string) => (customerId ? `/proformas/new?customer=${encodeURIComponent(customerId)}` : '/proformas/new'),
   proforma: (id: string) => `/proformas/${encodeURIComponent(id)}`,
+  editProforma: (id: string) => `/proformas/${encodeURIComponent(id)}/edit`,
+  /** A new proforma that starts as a copy of an earlier one: same customer, items, prices, discount and notes; today's date. */
+  duplicateProforma: (id: string) => `/proformas/new?copy=${encodeURIComponent(id)}`,
   expenses: (category?: string) => (category ? `/expenses?category=${encodeURIComponent(category)}` : '/expenses'),
   payments: '/payments',
   dues: '/payments/dues',

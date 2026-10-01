@@ -1,13 +1,16 @@
-import { Pencil, Plus, Receipt, SearchX, Trash2 } from 'lucide-react';
+import { Download, Pencil, Plus, Receipt, SearchX, Table2, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { expensesBreakdownCsv, expensesCsv } from '../../../shared/csv';
 import { formatDate, todayIso } from '../../../shared/gst';
 import { PERIOD_LABEL, resolvePeriod, type PeriodPreset } from '../../../shared/periods';
 import { PAYMENT_METHOD_LABEL, type Expense } from '../../../shared/types';
 import { ConfirmDialog } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
+import { Pager, SortableTh, sortBy, usePager, useSort } from '../../components/listTools';
 import { Button, Card, EmptyState, ErrorNote, Figure, IconButton, Money, PageHeader, SearchInput, Select, TableSkeleton } from '../../components/ui';
 import { api } from '../../lib/api';
 import { useQuery, useRefresh } from '../../lib/data';
+import { useCsvExport } from '../../lib/exportCsv';
 import { plural } from '../../lib/format';
 import { ExpenseFormModal } from './ExpenseFormModal';
 
@@ -24,6 +27,9 @@ export function ExpensesPage({ category: initialCategory }: { category: string |
   const [period, setPeriod] = useState<Period>('all');
   const [editing, setEditing] = useState<Expense | 'new' | null>(null);
   const [deleting, setDeleting] = useState<Expense | null>(null);
+  const [breakdownOpen, setBreakdownOpen] = useState(false);
+  const sort = useSort<'date' | 'category' | 'vendor' | 'method' | 'amount'>('date', 'desc');
+  const saveCsv = useCsvExport();
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search), 150);
@@ -40,6 +46,7 @@ export function ExpensesPage({ category: initialCategory }: { category: string |
 
   const list = useQuery(() => api.expensesList(query), [debounced, category, period]);
   const overview = useQuery(() => api.expensesOverview(query), [debounced, category, period]);
+  const breakdown = useQuery(() => api.expensesBreakdown(query), [debounced, category, period]);
   const everything = useQuery(() => api.expensesOverview());
   const settings = useQuery(() => api.getSettings());
   const none = everything.data?.count === 0;
@@ -53,6 +60,20 @@ export function ExpensesPage({ category: initialCategory }: { category: string |
 
   const o = overview.data;
   const top = o?.byCategory[0];
+  const b = breakdown.data;
+  // How this stretch compares with the one just before, when the view has fixed dates.
+  const change = b?.previous && b.previous.totalPaise > 0 ? Math.round(((b.totalPaise - b.previous.totalPaise) / b.previous.totalPaise) * 100) : null;
+
+  const sorted = useMemo(() => {
+    const rows = list.data ?? [];
+    if (sort.key === 'category') return sortBy(rows, (e) => e.category, sort.dir);
+    if (sort.key === 'vendor') return sortBy(rows, (e) => e.vendor, sort.dir);
+    if (sort.key === 'method') return sortBy(rows, (e) => PAYMENT_METHOD_LABEL[e.method], sort.dir);
+    if (sort.key === 'amount') return sortBy(rows, (e) => e.amountPaise, sort.dir);
+    return sortBy(rows, (e) => e.date, sort.dir);
+  }, [list.data, sort.key, sort.dir]);
+  const pager = usePager(sorted);
+  useEffect(() => pager.setPage(0), [debounced, category, period, sort.key, sort.dir]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <>
@@ -74,7 +95,22 @@ export function ExpensesPage({ category: initialCategory }: { category: string |
       ) : (
         <>
           <div className="mb-8 grid grid-cols-3 gap-6">
-            <Figure label="Spent" sub={o ? plural(o.count, 'expense') : ' '} highlight>
+            <Figure
+              label="Spent"
+              sub={
+                o ? (
+                  <>
+                    {plural(o.count, 'expense')}
+                    {change !== null && change !== 0 && (
+                      <span className={change > 0 ? 'text-status-overdue-fg' : 'text-status-paid-fg'}> · {change > 0 ? '↑' : '↓'} {Math.abs(change)}% on the period before</span>
+                    )}
+                  </>
+                ) : (
+                  ' '
+                )
+              }
+              highlight
+            >
               <Money paise={o?.totalPaise ?? 0} fractionDigits={0} />
             </Figure>
             <Figure label="Biggest category" sub={top ? <Money paise={top.paise} fractionDigits={0} /> : ' '}>
@@ -104,7 +140,83 @@ export function ExpensesPage({ category: initialCategory }: { category: string |
                 ))}
               </Select>
             </div>
+            <div className="ml-auto flex items-center gap-2">
+              <Button icon={<Table2 className="h-4 w-4" />} onClick={() => setBreakdownOpen((v) => !v)} aria-expanded={breakdownOpen}>
+                Month by category
+              </Button>
+              <Button icon={<Download className="h-4 w-4" />} disabled={sorted.length === 0} onClick={() => void saveCsv(`expenses-${todayIso()}.csv`, expensesCsv(sorted), 'Expenses saved')}>
+                Export CSV
+              </Button>
+            </div>
           </div>
+
+          {breakdownOpen && b && (
+            <Card className="animate-fade-in mb-4 overflow-x-auto">
+              <div className="flex items-center justify-between border-b border-line px-6 py-3">
+                <div>
+                  <h2 className="text-base">Month by category</h2>
+                  <p className="text-xs text-ink-muted">{b.previous ? `Compared with ${formatDate(b.previous.from)} – ${formatDate(b.previous.to)}` : 'Pick a period above to compare with the one before it.'}</p>
+                </div>
+                <Button className="h-8 text-xs" icon={<Download className="h-3.5 w-3.5" />} disabled={b.rows.length === 0} onClick={() => void saveCsv(`expenses-by-month-${todayIso()}.csv`, expensesBreakdownCsv(b), 'Table saved')}>
+                  Export table
+                </Button>
+              </div>
+              {b.rows.length === 0 ? (
+                <p className="px-6 py-6 text-ink-muted">No expenses to lay out.</p>
+              ) : (
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-line">
+                      <th className="th">Category</th>
+                      {b.months.map((m) => (
+                        <th key={m} className="th num text-right">
+                          {new Date(`${m}-01T00:00:00`).toLocaleDateString('en-IN', { month: 'short', year: '2-digit' })}
+                        </th>
+                      ))}
+                      <th className="th text-right">Total</th>
+                      {b.previous && <th className="th text-right">Before</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {b.rows.map((r) => (
+                      <tr key={r.category} className="border-b border-line/70">
+                        <td className="td">{r.category}</td>
+                        {r.byMonth.map((paise, i) => (
+                          <td key={b.months[i]} className={`td text-right ${paise === 0 ? 'text-ink-muted/50' : ''}`}>
+                            {paise === 0 ? '—' : <Money paise={paise} fractionDigits={0} />}
+                          </td>
+                        ))}
+                        <td className="td text-right">
+                          <Money paise={r.totalPaise} fractionDigits={0} />
+                        </td>
+                        {b.previous && (
+                          <td className="td text-right text-ink-muted">
+                            <Money paise={r.previousPaise ?? 0} fractionDigits={0} />
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                    <tr className="bg-canvas">
+                      <td className="td">All categories</td>
+                      {b.monthTotals.map((paise, i) => (
+                        <td key={b.months[i]} className="td text-right">
+                          <Money paise={paise} fractionDigits={0} />
+                        </td>
+                      ))}
+                      <td className="td text-right">
+                        <Money paise={b.totalPaise} fractionDigits={0} />
+                      </td>
+                      {b.previous && (
+                        <td className="td text-right text-ink-muted">
+                          <Money paise={b.previous.totalPaise} fractionDigits={0} />
+                        </td>
+                      )}
+                    </tr>
+                  </tbody>
+                </table>
+              )}
+            </Card>
+          )}
 
           <Card className="overflow-x-auto">
             {list.loading ? (
@@ -115,16 +227,16 @@ export function ExpensesPage({ category: initialCategory }: { category: string |
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-line">
-                    <th className="th">Date</th>
-                    <th className="th">Category</th>
-                    <th className="th">Paid to</th>
-                    <th className="th">Paid by</th>
-                    <th className="th text-right">Amount</th>
+                    <SortableTh label="Date" active={sort.key === 'date'} dir={sort.dir} onSort={() => sort.toggle('date', 'desc')} />
+                    <SortableTh label="Category" active={sort.key === 'category'} dir={sort.dir} onSort={() => sort.toggle('category')} />
+                    <SortableTh label="Paid to" active={sort.key === 'vendor'} dir={sort.dir} onSort={() => sort.toggle('vendor')} />
+                    <SortableTh label="Paid by" active={sort.key === 'method'} dir={sort.dir} onSort={() => sort.toggle('method')} />
+                    <SortableTh label="Amount" right active={sort.key === 'amount'} dir={sort.dir} onSort={() => sort.toggle('amount', 'desc')} />
                     <th className="w-24" />
                   </tr>
                 </thead>
                 <tbody>
-                  {list.data?.map((e) => (
+                  {pager.pageItems.map((e) => (
                     <tr key={e.id} className="animate-fade-in border-b border-line/70 transition-colors duration-150 last:border-0 hover:bg-canvas">
                       <td className="td num whitespace-nowrap text-ink-muted">{formatDate(e.date)}</td>
                       <td className="td">{e.category}</td>
@@ -155,7 +267,7 @@ export function ExpensesPage({ category: initialCategory }: { category: string |
               </table>
             )}
           </Card>
-          {list.data && list.data.length > 0 && <p className="mt-3 text-xs text-ink-muted">Showing {plural(list.data.length, 'expense')}</p>}
+          {list.data && list.data.length > 0 && <Pager pager={pager} noun="expense" />}
         </>
       )}
 

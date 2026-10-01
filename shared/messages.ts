@@ -59,3 +59,18 @@ export function invoiceMessage(inv: { number: string; buyerName: string; totalPa
 
 /** A link that opens the person's mail program with the message ready to send. */
 export const mailtoLink = (to: string, subject: string, body: string): string => `mailto:${encodeURIComponent(to.trim())}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+
+/** A polite reminder to a customer with money overdue. */
+export function dueReminder(d: { customerName: string; owedPaise: number; overduePaise: number; openInvoices: number; oldestDueDate: string | null }, seller: { name: string; upiId: string }): string {
+  const money = (p: number) => formatMoney(p, { fractionDigits: p % 100 === 0 ? 0 : 2 });
+  const lines = [`Hello ${d.customerName},`];
+  lines.push(
+    d.overduePaise > 0 && d.overduePaise < d.owedPaise
+      ? `A gentle reminder: ${money(d.overduePaise)} of the ${money(d.owedPaise)} you owe us is now overdue${d.oldestDueDate ? `, the oldest since ${formatDate(d.oldestDueDate)}` : ''}.`
+      : `A gentle reminder that ${money(d.owedPaise)} is pending${d.openInvoices > 1 ? ` across ${d.openInvoices} invoices` : ''}${d.oldestDueDate ? `, the oldest due on ${formatDate(d.oldestDueDate)}` : ''}.`,
+  );
+  if (seller.upiId) lines.push(`You can pay by UPI to ${seller.upiId}.`);
+  lines.push('If you have already paid, please ignore this message and accept our thanks.');
+  lines.push(seller.name ? `Warm regards, ${seller.name}` : 'Thank you');
+  return lines.join('\n\n');
+}

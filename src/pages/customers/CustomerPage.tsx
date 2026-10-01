@@ -7,6 +7,7 @@ import { useToast } from '../../components/Toast';
 import { Button, Card, EmptyState, ErrorNote, Figure, InvoicePill, Money, PageHeader, Spinner, TypePill } from '../../components/ui';
 import { api } from '../../lib/api';
 import { useQuery, useRefresh } from '../../lib/data';
+import { plural } from '../../lib/format';
 import { navigate, paths } from '../../lib/router';
 import { RecordPaymentModal } from '../payments/RecordPaymentModal';
 import { CustomerFormModal } from './CustomerFormModal';
@@ -17,6 +18,7 @@ export function CustomerPage({ id }: { id: string }) {
   const customer = useQuery(() => api.customerGet(id), [id]);
   const ledger = useQuery(() => api.customerLedger(id), [id]);
   const invoices = useQuery(() => api.invoicesList({ customerId: id }), [id]);
+  const purchases = useQuery(() => api.customerPurchases(id), [id]);
   const [dialog, setDialog] = useState<'edit' | 'archive' | 'pay' | null>(null);
   const c = customer.data;
 
@@ -133,6 +135,45 @@ export function CustomerPage({ id }: { id: string }) {
           </table>
         )}
       </Card>
+
+      {/* What she has bought — so "what did she take last time?" has an answer. */}
+      {purchases.data && purchases.data.length > 0 && (
+        <>
+          <div className="mb-3 flex items-end justify-between">
+            <h2 className="text-base">What they've bought</h2>
+            <span className="text-xs text-ink-muted">By design, from issued invoices · amounts before GST</span>
+          </div>
+          <Card className="mb-8 overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-line">
+                  <th className="th">Design</th>
+                  <th className="th">Colours and sizes</th>
+                  <th className="th text-right">Pieces</th>
+                  <th className="th text-right">Spent</th>
+                  <th className="th">Last bought</th>
+                </tr>
+              </thead>
+              <tbody>
+                {purchases.data.map((p) => (
+                  <tr key={p.designName} className="animate-fade-in border-b border-line/70 last:border-0">
+                    <td className="td">
+                      {p.designName}
+                      <div className="text-xs text-ink-muted">{plural(p.invoiceCount, 'invoice')}</div>
+                    </td>
+                    <td className="td text-ink-muted">{p.variants.join(' · ')}</td>
+                    <td className="td num text-right">{p.pieces}</td>
+                    <td className="td text-right">
+                      <Money paise={p.amountPaise} />
+                    </td>
+                    <td className="td num whitespace-nowrap text-ink-muted">{formatDate(p.lastBoughtOn)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+        </>
+      )}
 
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-base">Invoices</h2>

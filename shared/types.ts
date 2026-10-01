@@ -270,6 +270,18 @@ export interface Customer extends CustomerInput {
   advancePaise: Paise;
 }
 
+/** What one customer has bought of one design, from their issued invoices. */
+export interface CustomerPurchase {
+  designName: string;
+  /** Pieces bought, and what they came to before GST. */
+  pieces: number;
+  amountPaise: Paise;
+  invoiceCount: number;
+  lastBoughtOn: string;
+  /** The colours and sizes they have had, most recent first. */
+  variants: string[];
+}
+
 // ── Payments ────────────────────────────────────────────────────────────────
 export const PAYMENT_METHODS = ['cash', 'upi', 'bank', 'cheque', 'card', 'other'] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
@@ -324,6 +336,11 @@ export interface PaymentQuery {
   search?: string;
   status?: 'all' | 'advance' | 'voided';
   customerId?: string;
+  /** Only payments received with this method. */
+  method?: PaymentMethod;
+  /** Only payments received on or after / on or before these days ("YYYY-MM-DD"). */
+  from?: string;
+  to?: string;
 }
 
 /** A payment as it appears on one invoice. */
@@ -679,6 +696,18 @@ export interface ExpensesOverview {
   byCategory: { category: string; paise: Paise; count: number }[];
 }
 
+/** Spending laid out month by month for each category, with the same thing for the stretch just before, to compare. */
+export interface ExpensesBreakdown {
+  /** "YYYY-MM", oldest first. */
+  months: string[];
+  /** One per category, biggest first. `byMonth` lines up with `months`. `previousPaise` is null when there is no earlier stretch to compare with. */
+  rows: { category: string; byMonth: Paise[]; totalPaise: Paise; previousPaise: Paise | null }[];
+  monthTotals: Paise[];
+  totalPaise: Paise;
+  /** The stretch of the same length just before the one shown. Null when the view has no fixed start and end (All time). */
+  previous: { from: string; to: string; totalPaise: Paise } | null;
+}
+
 // ── Proforma invoices ───────────────────────────────────────────────────────
 /** 'expired' is worked out from the valid-until date; it is never stored. */
 export type ProformaStatus = 'open' | 'expired' | 'converted' | 'cancelled';
@@ -737,6 +766,9 @@ export interface ProformaInput {
 export interface ProformaQuery {
   search?: string;
   status?: 'all' | ProformaStatus;
+  /** Only quotes dated on or after / on or before these days ("YYYY-MM-DD"). */
+  from?: string;
+  to?: string;
 }
 
 // ── Dashboard ───────────────────────────────────────────────────────────────

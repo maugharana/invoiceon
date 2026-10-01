@@ -3,6 +3,7 @@ import type {
   BulkSareeRow,
   Customer,
   CustomerInput,
+  CustomerPurchase,
   DashboardNow,
   DashboardOverview,
   DashboardSummary,
@@ -12,6 +13,7 @@ import type {
   Expense,
   ExpenseInput,
   ExpenseQuery,
+  ExpensesBreakdown,
   ExpensesOverview,
   Proforma,
   ProformaInput,
@@ -86,6 +88,10 @@ export interface Api {
   customerUpdate(id: string, input: CustomerInput): Promise<Customer>;
   /** Archives; invoices already issued keep their own copy of the customer's details. */
   customerArchive(id: string): Promise<void>;
+  /** What this customer has bought, by design, most recent first. */
+  customerPurchases(id: string): Promise<CustomerPurchase[]>;
+  /** Folds a duplicate into the customer you keep: their invoices, payments and quotes move across, blank details are filled in, and the duplicate is archived. */
+  customerMerge(keepId: string, duplicateId: string): Promise<Customer>;
 
   variantsForSale(): Promise<SaleVariant[]>;
 
@@ -136,6 +142,8 @@ export interface Api {
 
   expensesList(query?: ExpenseQuery): Promise<Expense[]>;
   expensesOverview(query?: ExpenseQuery): Promise<ExpensesOverview>;
+  /** Spending by category and month, and against the stretch just before. */
+  expensesBreakdown(query?: ExpenseQuery): Promise<ExpensesBreakdown>;
   expenseCreate(input: ExpenseInput): Promise<Expense>;
   expenseUpdate(id: string, input: ExpenseInput): Promise<Expense>;
   expenseDelete(id: string): Promise<void>;
@@ -144,6 +152,8 @@ export interface Api {
   proformaGet(id: string): Promise<Proforma>;
   proformaNextNumber(issueDate: string): Promise<string>;
   proformaCreate(input: ProformaInput): Promise<Proforma>;
+  /** Changes a quote that hasn't been invoiced or cancelled. It keeps its number. */
+  proformaUpdate(id: string, input: ProformaInput): Promise<Proforma>;
   proformaCancel(id: string, reason: string): Promise<Proforma>;
   /** Turns the quote into an invoice dated today, taking the stock off the shelves. */
   proformaConvert(id: string): Promise<Invoice>;

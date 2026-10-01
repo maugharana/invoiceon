@@ -107,8 +107,11 @@ export function getProforma(db: Db, id: string): Proforma {
 }
 
 export function listProformas(db: Db, query: ProformaQuery = {}): ProformaSummary[] {
+  if (query.from && !isIsoDate(query.from)) throw new UserError('Enter a valid "from" date.');
+  if (query.to && !isIsoDate(query.to)) throw new UserError('Enter a valid "to" date.');
   return all<Row>(db, `${SELECT} ORDER BY p.issue_date DESC, p.seq DESC, p.created_at DESC`)
     .map(toSummary)
+    .filter((s) => (!query.from || s.issueDate >= query.from) && (!query.to || s.issueDate <= query.to))
     .filter((s) => matchesAll(`${s.number} ${s.buyerName}`, query.search))
     .filter((s) => !query.status || query.status === 'all' || s.status === query.status);
 }
@@ -149,13 +152,52 @@ export function createProforma(db: Db, input: ProformaInput): Proforma {
       if (isUniqueViolation(err)) throw new UserError('Another proforma took that number a moment ago. Please try again.');
       throw err;
     }
-    for (const i of items) {
-      run(
-        db,
-        'INSERT INTO proforma_lines (id, proforma_id, variant_id, position, design_name, color, size, sku, hsn, qty, unit_price_paise, amount_paise) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        newId(), id, i.variant.id, i.index, i.design.name, i.variant.color, i.variant.size, i.variant.sku, i.design.hsn_code, i.l.qty, i.l.unitPricePaise, i.amount,
-      );
-    }
+    insertLines(db, id, items);
+  });
+  return getProforma(db, id);
+}
+
+type PricedItems = ReturnType<typeof priceLines>['items'];
+
+function insertLines(db: Db, proformaId: string, items: PricedItems): void {
+  for (const i of items) {
+    run(
+      db,
+      'INSERT INTO proforma_lines (id, proforma_id, variant_id, position, design_name, color, size, sku, hsn, qty, unit_price_paise, amount_paise) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      newId(), proformaId, i.variant.id, i.index, i.design.name, i.variant.color, i.variant.size, i.variant.sku, i.design.hsn_code, i.l.qty, i.l.unitPricePaise, i.amount,
+    );
+  }
+}
+
+/**
+ * Changes a quote that hasn't been invoiced or cancelled: its customer, items, prices, discount, dates and notes. It keeps its
+ * number. It is worked out afresh, as if made today: the current tax settings and your current details apply. A new date has
+ * to stay in the same financial year, because the number carries the year.
+ */
+export function updateProforma(db: Db, id: string, input: ProformaInput): Proforma {
+  const existing = get<Row>(db, 'SELECT * FROM proformas WHERE id = ?', id);
+  if (!existing) throw new UserError('That proforma no longer exists.');
+  if (existing.status === 'converted') throw new UserError('This proforma became an invoice, so it can no longer be changed.');
+  if (existing.status === 'cancelled') throw new UserError('This proforma was cancelled, so it can no longer be changed.');
+  const settings = getSettings(db);
+  if (!isIsoDate(input.validUntil)) throw new UserError('Enter a valid "valid until" date.');
+  if (isIsoDate(input.issueDate) && input.validUntil < input.issueDate) throw new UserError("A proforma can't expire before its date.");
+  const { type, customer, buyer, placeOfSupply, intraState, discount, notes } = checkDocument(db, settings, input);
+  if (financialYear(input.issueDate) !== existing.fy) throw new UserError(`The number ${existing.number} belongs to the financial year ${existing.fy}. Keep the date inside that year, or make a new proforma.`);
+  const seller = sellerSnapshot(settings, settings.proformaTerms || settings.invoiceTerms);
+
+  tx(db, () => {
+    const { items, totals } = priceLines(db, settings, input.lines, discount, intraState);
+    run(
+      db,
+      `UPDATE proformas SET type = ?, customer_id = ?, seller_json = ?, buyer_json = ?, place_of_supply = ?, issue_date = ?, valid_until = ?, gst_rate_percent = ?, prices_include_gst = ?, intra_state = ?,
+         subtotal_paise = ?, discount_paise = ?, taxable_paise = ?, cgst_paise = ?, sgst_paise = ?, igst_paise = ?, round_off_paise = ?, total_paise = ?, notes = ?, updated_at = ? WHERE id = ?`,
+      type, customer?.id ?? null, JSON.stringify(seller), JSON.stringify(buyer), placeOfSupply, input.issueDate, input.validUntil, settings.gstRatePercent, settings.pricesIncludeGst ? 1 : 0, intraState ? 1 : 0,
+      totals.subtotalPaise, totals.discountPaise, totals.taxablePaise, totals.cgstPaise, totals.sgstPaise, totals.igstPaise, totals.roundOffPaise, totals.totalPaise, notes, nowIso(), id,
+    );
+    // The lines belong to this quote alone, so they are replaced as a set.
+    run(db, 'DELETE FROM proforma_lines WHERE proforma_id = ?', id);
+    insertLines(db, id, items);
   });
   return getProforma(db, id);
 }

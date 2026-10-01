@@ -62,6 +62,8 @@ export function createApi(db: Db, host?: Host, dataDir?: string): Api {
     customerGet: async (id) => customers.getCustomer(db, id),
     customerCreate: async (input) => customers.createCustomer(db, input),
     customerUpdate: async (id, input) => customers.updateCustomer(db, id, input),
+    customerPurchases: async (id) => customers.customerPurchases(db, id),
+    customerMerge: async (keepId, duplicateId) => customers.mergeCustomers(db, keepId, duplicateId),
     customerArchive: async (id) => customers.archiveCustomer(db, id),
 
     variantsForSale: async () => invoices.variantsForSale(db),
@@ -107,6 +109,7 @@ export function createApi(db: Db, host?: Host, dataDir?: string): Api {
     dashboardReorderList: async () => reorderList(db),
 
     expensesList: async (query) => expenses.listExpenses(db, query ?? {}),
+    expensesBreakdown: async (query) => expenses.expensesBreakdown(db, query ?? {}),
     expensesOverview: async (query) => expenses.expensesOverview(db, query ?? {}),
     expenseCreate: async (input) => expenses.createExpense(db, input),
     expenseUpdate: async (id, input) => expenses.updateExpense(db, id, input),
@@ -116,6 +119,7 @@ export function createApi(db: Db, host?: Host, dataDir?: string): Api {
     proformaGet: async (id) => proformas.getProforma(db, id),
     proformaNextNumber: async (date) => proformas.nextProformaNumber(db, date),
     proformaCreate: async (input) => proformas.createProforma(db, input),
+    proformaUpdate: async (id, input) => proformas.updateProforma(db, id, input),
     proformaCancel: async (id, reason) => proformas.cancelProforma(db, id, reason),
     proformaConvert: async (id) => proformas.convertProforma(db, id),
     proformaExportPdf: async (id) => {

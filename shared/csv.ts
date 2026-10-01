@@ -1,7 +1,7 @@
 import { INVOICE_STATUS_LABEL } from './gst';
 import { STOCK_STATUS_LABEL } from './stock';
-import type { DesignSummary, GstReport, InvoiceSummary, SalesReport, StockReport } from './types';
-import { PAYMENT_METHOD_LABEL } from './types';
+import type { Customer, DesignSummary, Expense, ExpensesBreakdown, GstReport, InvoiceSummary, Payment, ProformaSummary, SalesReport, StockReport } from './types';
+import { PAYMENT_METHOD_LABEL, PROFORMA_STATUS_LABEL } from './types';
 
 type Row = (string | number)[];
 
@@ -111,5 +111,47 @@ export function designsCsv(rows: DesignSummary[]): string {
   return toCsv([
     ['Code', 'Design', 'Short name', 'Fabric', 'HSN', 'Variants', 'In stock', 'Stock value (cost)', 'Default price (excl. GST)', 'Status'],
     ...rows.map((d) => [d.code, d.name, d.nickname, d.fabric, d.hsnCode, d.variantCount, d.totalStock, rs(d.stockValuePaise), rs(d.defaultPricePaise), STOCK_STATUS_LABEL[d.status]]),
+  ]);
+}
+
+/** The customers as listed: contact details and what they owe or hold. */
+export function customersCsv(rows: Customer[]): string {
+  return toCsv([
+    ['Customer', 'Type', 'Phone', 'Email', 'GSTIN', 'City', 'State', 'Invoices', 'Billed', 'Owes', 'Advance held'],
+    ...rows.map((c) => [c.name, c.type, c.phone, c.email, c.gstin, c.city, c.state, c.invoiceCount, rs(c.billedPaise), rs(c.outstandingPaise), rs(c.advancePaise)]),
+  ]);
+}
+
+/** The proformas as listed. */
+export function proformasCsv(rows: ProformaSummary[]): string {
+  return toCsv([
+    ['Proforma', 'Date', 'Valid until', 'Customer', 'Type', 'Total', 'Status', 'Invoice'],
+    ...rows.map((p) => [p.number, p.issueDate, p.validUntil, p.buyerName, p.type, rs(p.totalPaise), PROFORMA_STATUS_LABEL[p.status], p.invoiceNumber ?? '']),
+  ]);
+}
+
+
+/** The payments as listed: what came in, how, and where it went. */
+export function paymentsCsv(rows: Payment[]): string {
+  return toCsv([
+    ['Date', 'Customer', 'Method', 'Reference', 'Amount', 'Applied to invoices', 'Held as advance', 'Status', 'Note'],
+    ...rows.map((p) => [p.receivedOn, p.customerName, PAYMENT_METHOD_LABEL[p.method], p.reference, rs(p.amountPaise), p.allocations.map((a) => a.invoiceNumber).join(' '), rs(p.advancePaise), p.voided ? `Reversed${p.voidReason ? `: ${p.voidReason}` : ''}` : 'Received', p.note]),
+  ]);
+}
+
+/** The expenses as listed. */
+export function expensesCsv(rows: Expense[]): string {
+  return toCsv([
+    ['Date', 'Category', 'Paid to', 'Paid by', 'Reference', 'Amount', 'Note'],
+    ...rows.map((e) => [e.date, e.category, e.vendor, PAYMENT_METHOD_LABEL[e.method], e.reference, rs(e.amountPaise), e.note]),
+  ]);
+}
+
+/** Spending by category and month, with the total for the stretch before when there is one. */
+export function expensesBreakdownCsv(b: ExpensesBreakdown): string {
+  return toCsv([
+    ['Category', ...b.months, 'Total', ...(b.previous ? ['Previous period'] : [])],
+    ...b.rows.map((r) => [r.category, ...r.byMonth.map(rs), rs(r.totalPaise), ...(b.previous ? [rs(r.previousPaise ?? 0)] : [])]),
+    ['Total', ...b.monthTotals.map(rs), rs(b.totalPaise), ...(b.previous ? [rs(b.previous.totalPaise)] : [])],
   ]);
 }

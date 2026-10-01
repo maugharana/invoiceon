@@ -2,8 +2,8 @@ import { isValidGstin } from '../../shared/gst';
 import { formatMoney } from '../../shared/money';
 import { matchesAll } from '../../shared/search';
 import { STATE_NAMES, stateFromGstin } from '../../shared/states';
-import type { Customer, CustomerInput } from '../../shared/types';
-import { all, get, run, type Db } from '../db/connection';
+import type { Customer, CustomerInput, CustomerPurchase } from '../../shared/types';
+import { all, get, run, tx, type Db } from '../db/connection';
 import { UserError, newId, nowIso, optionalText, requireText } from './common';
 
 interface CustomerRow {
@@ -118,4 +118,51 @@ export function archiveCustomer(db: Db, id: string): void {
   if (c.outstandingPaise > 0) throw new UserError(`${c.name} still owes ${formatMoney(c.outstandingPaise)}. Settle their invoices before archiving.`);
   if (c.advancePaise > 0) throw new UserError(`You're holding ${formatMoney(c.advancePaise)} in advance for ${c.name}. Apply it to an invoice, or reverse the payment if you've refunded it, before archiving.`);
   run(db, 'UPDATE customers SET deleted_at = ?, updated_at = ? WHERE id = ?', nowIso(), nowIso(), id);
+}
+
+/** What a customer has bought, by design, from their issued invoices (cancelled ones don't count). Amounts are before GST. */
+export function customerPurchases(db: Db, customerId: string): CustomerPurchase[] {
+  getCustomer(db, customerId);
+  const lines = all<{ design_name: string; color: string; size: string; qty: number; amount_paise: number; invoice_id: string; issue_date: string }>(
+    db,
+    `SELECT l.design_name, l.color, l.size, l.qty, l.amount_paise, i.id AS invoice_id, i.issue_date
+     FROM invoice_lines l JOIN invoices i ON i.id = l.invoice_id
+     WHERE i.customer_id = ? AND i.status = 'issued' ORDER BY i.issue_date DESC, i.seq DESC, l.position`,
+    customerId,
+  );
+  const byDesign = new Map<string, { row: CustomerPurchase; invoices: Set<string> }>();
+  for (const l of lines) {
+    const key = l.design_name.trim().toLowerCase();
+    const entry = byDesign.get(key) ?? { row: { designName: l.design_name, pieces: 0, amountPaise: 0, invoiceCount: 0, lastBoughtOn: l.issue_date, variants: [] }, invoices: new Set<string>() };
+    entry.row.pieces += l.qty;
+    entry.row.amountPaise += l.amount_paise;
+    entry.invoices.add(l.invoice_id);
+    const variant = `${l.color} ${l.size}`.trim();
+    if (variant && !entry.row.variants.includes(variant)) entry.row.variants.push(variant);
+    byDesign.set(key, entry);
+  }
+  return [...byDesign.values()]
+    .map(({ row, invoices }) => ({ ...row, invoiceCount: invoices.size }))
+    .sort((a, b) => b.lastBoughtOn.localeCompare(a.lastBoughtOn) || a.designName.localeCompare(b.designName));
+}
+
+/**
+ * Folds a duplicate customer into the one you keep. Their invoices, payments and quotes now belong to the kept customer, so
+ * balances, ledger and history add up in one place; the duplicate's name stays printed on the invoices already issued to them,
+ * because an issued invoice is never rewritten. Details the kept customer is missing (phone, email, address, GSTIN) are filled
+ * in from the duplicate, and the duplicate is archived. All or nothing.
+ */
+export function mergeCustomers(db: Db, keepId: string, duplicateId: string): Customer {
+  if (keepId === duplicateId) throw new UserError("Choose two different customers to merge.");
+  const keep = getCustomer(db, keepId);
+  const dupe = getCustomer(db, duplicateId);
+  tx(db, () => {
+    const now = nowIso();
+    for (const table of ['invoices', 'payments', 'proformas']) run(db, `UPDATE ${table} SET customer_id = ? WHERE customer_id = ?`, keepId, duplicateId);
+    const fill = <K extends 'phone' | 'email' | 'gstin' | 'address' | 'city' | 'state' | 'pincode'>(k: K) => (keep[k] ? keep[k] : dupe[k]);
+    const notes = [keep.notes, dupe.notes && dupe.notes !== keep.notes ? `From ${dupe.name}: ${dupe.notes}` : ''].filter(Boolean).join(' · ').slice(0, 500);
+    run(db, 'UPDATE customers SET phone = ?, email = ?, gstin = ?, address = ?, city = ?, state = ?, pincode = ?, notes = ?, updated_at = ? WHERE id = ?', fill('phone'), fill('email'), fill('gstin'), fill('address'), fill('city'), fill('state'), fill('pincode'), notes, now, keepId);
+    run(db, 'UPDATE customers SET deleted_at = ?, updated_at = ? WHERE id = ?', now, now, duplicateId);
+  });
+  return getCustomer(db, keepId);
 }

@@ -1,4 +1,4 @@
-import { ArrowLeft, Ban, Download, FileCheck2, Printer } from 'lucide-react';
+import { ArrowLeft, Ban, Copy, Download, FileCheck2, Pencil, Printer } from 'lucide-react';
 import { useState } from 'react';
 import { formatDate } from '../../../shared/gst';
 import { InvoiceDocument } from '../../components/InvoiceDocument';
@@ -92,6 +92,14 @@ export function ProformaPage({ id }: { id: string }) {
             <Button icon={<Printer className="h-4 w-4" />} loading={busy === 'print'} disabled={busy !== null} onClick={() => void print()}>
               Print
             </Button>
+            <Button icon={<Copy className="h-4 w-4" />} onClick={() => navigate(paths.duplicateProforma(id))} title="Start a new quote with the same customer, items and prices">
+              Duplicate
+            </Button>
+            {live && (
+              <Button icon={<Pencil className="h-4 w-4" />} onClick={() => navigate(paths.editProforma(id))} title="Change this quote's items, prices or dates">
+                Edit
+              </Button>
+            )}
             {live && (
               <Button variant="danger" icon={<Ban className="h-4 w-4" />} onClick={() => setCancelling(true)}>
                 Cancel

@@ -4,7 +4,7 @@ import { formatMoney } from '../../../shared/money';
 import { PAYMENT_METHODS, PAYMENT_METHOD_LABEL, type Customer, type InvoiceSummary, type PaymentMethod } from '../../../shared/types';
 import { Modal } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
-import { Button, ErrorNote, Field, Input, InvoicePill, Money, MoneyInput, Select } from '../../components/ui';
+import { Button, ErrorNote, Field, Input, InvoicePill, Money, MoneyInput, Segmented, Select } from '../../components/ui';
 import { api, errorMessage } from '../../lib/api';
 import { useQuery, useRefresh } from '../../lib/data';
 import { navigate, paths } from '../../lib/router';
@@ -19,6 +19,17 @@ interface Props {
 }
 
 const owed = (i: InvoiceSummary) => i.totalPaise - i.paidPaise;
+
+// How the money is shared out is a habit: some people always want oldest-first, others always pick. The choice is remembered.
+type Share = 'oldest' | 'pick';
+const SHARE_KEY = 'invoiceon.payment.share';
+function loadShare(): Share {
+  try {
+    return localStorage.getItem(SHARE_KEY) === 'pick' ? 'pick' : 'oldest';
+  } catch {
+    return 'oldest';
+  }
+}
 
 export function RecordPaymentModal({ customer: presetCustomer = null, invoice: presetInvoice = null, onClose, onDone }: Props) {
   const toast = useToast();
@@ -48,7 +59,8 @@ export function RecordPaymentModal({ customer: presetCustomer = null, invoice: p
   const [method, setMethod] = useState<PaymentMethod>('cash');
   const [reference, setReference] = useState('');
   const [note, setNote] = useState('');
-  const [manual, setManual] = useState<Record<string, number> | null>(null); // null = automatic, oldest first
+  const [share, setShareState] = useState<Share>(loadShare);
+  const [manual, setManual] = useState<Record<string, number> | null>(null); // null = automatic (oldest first), or empty when picking
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -62,7 +74,16 @@ export function RecordPaymentModal({ customer: presetCustomer = null, invoice: p
     }
     return out;
   }, [amount, invoices]);
-  const alloc = manual ?? auto;
+  const alloc = manual ?? (share === 'pick' ? {} : auto);
+  const setShare = (next: Share) => {
+    setShareState(next);
+    setManual(null);
+    try {
+      localStorage.setItem(SHARE_KEY, next);
+    } catch {
+      /* remembering the choice is a nicety */
+    }
+  };
   const applied = invoices.reduce((s, i) => s + (alloc[i.id] ?? 0), 0);
   const advance = amount - applied;
   const over = invoices.find((i) => (alloc[i.id] ?? 0) > owed(i));
@@ -84,7 +105,7 @@ export function RecordPaymentModal({ customer: presetCustomer = null, invoice: p
                 : null;
 
   function setAllocation(invoiceId: string, value: number) {
-    setManual({ ...(manual ?? auto), [invoiceId]: value });
+    setManual({ ...alloc, [invoiceId]: value });
   }
 
   async function save() {
@@ -197,11 +218,22 @@ export function RecordPaymentModal({ customer: presetCustomer = null, invoice: p
         <div className="rounded-lg border border-line">
           <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
             <span className="text-xs font-medium text-ink-muted">Apply to</span>
-            {manual && (
-              <button type="button" onClick={() => setManual(null)} className="text-xs text-brand transition-colors hover:text-brand-hover">
-                Reset to oldest first
-              </button>
-            )}
+            <span className="flex items-center gap-3">
+              {manual && share === 'oldest' && (
+                <button type="button" onClick={() => setManual(null)} className="text-xs text-brand transition-colors hover:text-brand-hover">
+                  Reset to oldest first
+                </button>
+              )}
+              <Segmented
+                label="How to share the payment"
+                value={share}
+                onChange={setShare}
+                options={[
+                  { value: 'oldest', label: 'Oldest first' },
+                  { value: 'pick', label: "I'll choose" },
+                ]}
+              />
+            </span>
           </div>
           {!customerId && !walkIn ? (
             <p className="px-4 py-4 text-ink-muted">Choose a customer to see what they owe.</p>
@@ -212,7 +244,7 @@ export function RecordPaymentModal({ customer: presetCustomer = null, invoice: p
           ) : (
             <ul>
               {invoices.map((i) => (
-                <li key={i.id} className="grid grid-cols-[1fr_auto_9rem] items-center gap-4 border-b border-line/70 px-4 py-2.5 last:border-0">
+                <li key={i.id} className="grid grid-cols-[1fr_auto_14rem] items-center gap-4 border-b border-line/70 px-4 py-2.5 last:border-0">
                   <div className="min-w-0">
                     <div className="num">{i.number}</div>
                     <div className="text-xs text-ink-muted">Due {i.dueDate ? formatDate(i.dueDate) : '—'}</div>
@@ -223,7 +255,14 @@ export function RecordPaymentModal({ customer: presetCustomer = null, invoice: p
                       owes <Money paise={owed(i)} />
                     </span>
                   </div>
-                  <MoneyInput value={alloc[i.id] ?? 0} onChange={(p) => setAllocation(i.id, p)} aria-label={`Apply to ${i.number}`} className="h-8" />
+                  <div className="flex items-center gap-2">
+                    {share === 'pick' && (
+                      <button type="button" onClick={() => setAllocation(i.id, Math.min(owed(i), Math.max(0, amount - applied + (alloc[i.id] ?? 0))))} disabled={amount - applied + (alloc[i.id] ?? 0) <= 0} className="whitespace-nowrap text-xs text-brand transition-colors hover:text-brand-hover disabled:text-ink-muted/50">
+                        Pay in full
+                      </button>
+                    )}
+                    <MoneyInput value={alloc[i.id] ?? 0} onChange={(p) => setAllocation(i.id, p)} aria-label={`Apply to ${i.number}`} className="h-8" />
+                  </div>
                 </li>
               ))}
             </ul>

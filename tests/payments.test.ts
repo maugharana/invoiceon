@@ -14,7 +14,9 @@ import * as receivables from '../electron/services/receivables';
 import * as reports from '../electron/services/reports';
 import { loadSampleData } from '../electron/services/seed';
 import { getSettings, saveSettings } from '../electron/services/settings';
+import { paymentsCsv } from '../shared/csv';
 import { addDays, todayIso } from '../shared/gst';
+import { dueReminder } from '../shared/messages';
 import type { InvoiceInput, PaymentInput } from '../shared/types';
 
 let db: Db;
@@ -507,5 +509,54 @@ describe('summaries and API', () => {
     expect((await api.duesReport()).outstandingPaise).toBe(rupees(950));
     expect((await api.customerLedger(c.id)).entries).toHaveLength(2);
     await expect(api.paymentVoid('nope', '')).rejects.toThrow(/no longer exists/);
+  });
+});
+
+describe('filtering and exporting the payments list', () => {
+  it('filters by date range and method, inclusive, and refuses bad input', () => {
+    const c = customer();
+    const cash = pay(c.id, 100, [], { method: 'cash', receivedOn: addDays(today, -30) });
+    const upi = pay(c.id, 200, [], { method: 'upi', receivedOn: addDays(today, -10) });
+    const bank = pay(c.id, 300, [], { method: 'bank', receivedOn: today });
+    const ids = (q: Parameters<typeof payments.listPayments>[1]) => payments.listPayments(db, q).map((p) => p.id).sort();
+    expect(ids({ method: 'upi' })).toEqual([upi.id]);
+    expect(ids({ from: addDays(today, -10) })).toEqual([upi.id, bank.id].sort());
+    expect(ids({ to: addDays(today, -10) })).toEqual([cash.id, upi.id].sort());
+    expect(ids({ from: addDays(today, -10), to: addDays(today, -10), method: 'upi' })).toEqual([upi.id]);
+    expect(ids({ from: addDays(today, -10), method: 'cash' })).toEqual([]);
+    expect(ids({ from: '', to: '' })).toHaveLength(3);
+    expect(() => payments.listPayments(db, { from: 'soon' })).toThrow(/valid "from" date/);
+    expect(() => payments.listPayments(db, { to: '2026/01/01' })).toThrow(/valid "to" date/);
+    expect(() => payments.listPayments(db, { method: 'barter' as never })).toThrow(/payment method/);
+  });
+
+  it('exports one row per payment with where it went and whether it was reversed', () => {
+    const c = customer('Sunita, Devi');
+    const inv = invoice(c.id);
+    pay(c.id, 1050, [{ invoiceId: inv.id, amountPaise: rupees(1050) }], { reference: 'UTR 42' });
+    const bad = pay(c.id, 500, [], { method: 'cheque' });
+    payments.voidPayment(db, bad.id, 'Bounced');
+    const lines = paymentsCsv(payments.listPayments(db)).replace('﻿', '').trim().split('\r\n');
+    expect(lines[0]).toBe('Date,Customer,Method,Reference,Amount,Applied to invoices,Held as advance,Status,Note');
+    const row = (needle: string) => lines.find((l) => l.includes(needle))!;
+    expect(row('UTR 42')).toBe(`${today},"Sunita, Devi",UPI,UTR 42,1050.00,${inv.number},0.00,Received,`);
+    expect(row('Cheque')).toContain('Reversed: Bounced');
+  });
+});
+
+describe('overdue reminder message', () => {
+  const seller = { name: 'Mau Gharana', upiId: 'maugharana@sbi' };
+  it('says how much is overdue out of what is owed, since when, and how to pay', () => {
+    const m = dueReminder({ customerName: 'Sunita Devi', owedPaise: rupees(10500), overduePaise: rupees(4000), openInvoices: 3, oldestDueDate: '2026-09-01' }, seller);
+    expect(m).toContain('Hello Sunita Devi,');
+    expect(m).toContain('₹4,000 of the ₹10,500 you owe us is now overdue, the oldest since');
+    expect(m).toContain('maugharana@sbi');
+    expect(m).toContain('Warm regards, Mau Gharana');
+  });
+  it('talks about the whole balance when all of it is overdue, and mentions several invoices', () => {
+    const m = dueReminder({ customerName: 'Meena', owedPaise: rupees(3150), overduePaise: rupees(3150), openInvoices: 3, oldestDueDate: null }, { name: '', upiId: '' });
+    expect(m).toContain('₹3,150 is pending across 3 invoices');
+    expect(m).not.toContain('UPI');
+    expect(m).toContain('Thank you');
   });
 });
