@@ -54,6 +54,15 @@ describe('GST maths', () => {
     expect(t.totalPaise - t.roundOffPaise).toBe(t.taxablePaise + t.taxPaise);
   });
 
+  it('carves GST out of a GST-inclusive price instead of adding it on top', () => {
+    const t = computeTotals({ lineAmounts: [rupees(1000)], discountPaise: 0, ratePercent: 5, intraState: true, inclusive: true });
+    // 1000 / 1.05 = 952.38 taxable + 47.62 GST = 1000 — the customer pays exactly the price.
+    expect(t).toMatchObject({ taxablePaise: 95238, taxPaise: 4762, cgstPaise: 2381, sgstPaise: 2381, totalPaise: rupees(1000), roundOffPaise: 0 });
+    expect(computeTotals({ lineAmounts: [rupees(1000)], discountPaise: 0, ratePercent: 5, intraState: false, inclusive: true })).toMatchObject({ igstPaise: 4762, totalPaise: rupees(1000) });
+    // a discount comes off the inclusive price before the tax is worked out
+    expect(computeTotals({ lineAmounts: [rupees(1000)], discountPaise: rupees(100), ratePercent: 5, intraState: true, inclusive: true })).toMatchObject({ taxablePaise: 85714, taxPaise: 4286, totalPaise: rupees(900) });
+  });
+
   it('caps a discount at the subtotal', () => {
     expect(computeTotals({ lineAmounts: [5000], discountPaise: 99999, ratePercent: 5, intraState: true }).totalPaise).toBe(0);
   });
@@ -167,6 +176,19 @@ describe('issuing invoices', () => {
     const inv = invoices.createInvoice(db, invoiceFor(v.id, { discountPaise: rupees(100) }, 2));
     expect(inv).toMatchObject({ subtotalPaise: rupees(2000), discountPaise: rupees(100), taxablePaise: rupees(1900), totalPaise: rupees(1995) });
     expect(() => invoices.createInvoice(db, invoiceFor(v.id, { discountPaise: rupees(5000) }, 2))).toThrow(/discount can't be more/);
+  });
+
+  it('bills a GST-inclusive price at that price, and keeps the choice frozen on the invoice', () => {
+    const { v } = stocked();
+    const before = invoices.createInvoice(db, invoiceFor(v.id, {}, 1)); // exclusive: 1,000 + 50
+    saveSettings(db, { pricesIncludeGst: true });
+    const inv = invoices.createInvoice(db, invoiceFor(v.id, {}, 1));
+    expect(inv).toMatchObject({ pricesIncludeGst: true, subtotalPaise: rupees(1000), taxablePaise: 95238, cgstPaise: 2381, sgstPaise: 2381, totalPaise: rupees(1000) });
+    expect(inv.lines[0]).toMatchObject({ unitPricePaise: rupees(1000), amountPaise: rupees(1000) });
+    // switching the setting later never rewrites an invoice already issued
+    saveSettings(db, { pricesIncludeGst: false });
+    expect(invoices.getInvoice(db, inv.id)).toMatchObject({ pricesIncludeGst: true, totalPaise: rupees(1000) });
+    expect(invoices.getInvoice(db, before.id)).toMatchObject({ pricesIncludeGst: false, totalPaise: rupees(1050) });
   });
 
   it('rolls the whole invoice back when any line is short of stock', () => {

@@ -98,7 +98,7 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
             <th className="py-2 pr-2">Description</th>
             {tax && <th className="w-16 py-2 pr-2">HSN</th>}
             <th className="w-12 py-2 pr-2 text-right">Qty</th>
-            <th className="w-24 py-2 pr-2 text-right">Rate (₹)</th>
+            <th className="w-24 py-2 pr-2 text-right">{inv.pricesIncludeGst ? 'Rate incl. GST (₹)' : 'Rate (₹)'}</th>
             <th className="w-28 py-2 text-right">Amount (₹)</th>
           </tr>
         </thead>
@@ -132,9 +132,9 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
           )}
         </div>
         <div>
-          <Row label="Subtotal" value={formatMoney(inv.subtotalPaise)} />
+          <Row label={inv.pricesIncludeGst ? 'Subtotal (incl. GST)' : 'Subtotal'} value={formatMoney(inv.subtotalPaise)} />
           {inv.discountPaise > 0 && <Row label="Discount" value={`− ${formatMoney(inv.discountPaise)}`} />}
-          {inv.discountPaise > 0 && <Row label="Taxable value" value={formatMoney(inv.taxablePaise)} />}
+          {(inv.discountPaise > 0 || inv.pricesIncludeGst) && <Row label="Taxable value" value={formatMoney(inv.taxablePaise)} />}
           {tax && inv.intraState ? (
             <>
               <Row label={`CGST @ ${rateLabel(half)}`} value={formatMoney(inv.cgstPaise)} />

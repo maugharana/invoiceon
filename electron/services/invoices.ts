@@ -25,6 +25,7 @@ interface InvoiceRow {
   issue_date: string;
   due_date: string | null;
   gst_rate_percent: number;
+  prices_include_gst: number;
   intra_state: number;
   subtotal_paise: number;
   discount_paise: number;
@@ -101,6 +102,7 @@ function toInvoice(db: Db, r: InvoiceRow): Invoice {
     buyer: JSON.parse(r.buyer_json),
     placeOfSupply: r.place_of_supply,
     gstRatePercent: r.gst_rate_percent,
+    pricesIncludeGst: r.prices_include_gst === 1,
     intraState: r.intra_state === 1,
     subtotalPaise: r.subtotal_paise,
     discountPaise: r.discount_paise,
@@ -247,7 +249,7 @@ export function priceLines(db: Db, settings: Settings, lines: DocumentInput['lin
   });
   const subtotal = items.reduce((s, i) => s + i.amount, 0);
   if (discount > subtotal) throw new UserError("The discount can't be more than the invoice subtotal.");
-  const totals = computeTotals({ lineAmounts: items.map((i) => i.amount), discountPaise: discount, ratePercent: settings.gstRatePercent, intraState });
+  const totals = computeTotals({ lineAmounts: items.map((i) => i.amount), discountPaise: discount, ratePercent: settings.gstRatePercent, intraState, inclusive: settings.pricesIncludeGst });
   return { items, totals };
 }
 
@@ -276,10 +278,10 @@ export function createInvoice(db: Db, input: InvoiceInput): Invoice {
     try {
       run(
         db,
-        `INSERT INTO invoices (id, number, fy, seq, type, customer_id, seller_json, buyer_json, place_of_supply, issue_date, due_date, gst_rate_percent, intra_state,
+        `INSERT INTO invoices (id, number, fy, seq, type, customer_id, seller_json, buyer_json, place_of_supply, issue_date, due_date, gst_rate_percent, prices_include_gst, intra_state,
            subtotal_paise, discount_paise, taxable_paise, cgst_paise, sgst_paise, igst_paise, round_off_paise, total_paise, notes, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        id, number, fy, seq, type, customer?.id ?? null, JSON.stringify(seller), JSON.stringify(buyer), placeOfSupply, input.issueDate, input.dueDate, settings.gstRatePercent, intraState ? 1 : 0,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        id, number, fy, seq, type, customer?.id ?? null, JSON.stringify(seller), JSON.stringify(buyer), placeOfSupply, input.issueDate, input.dueDate, settings.gstRatePercent, settings.pricesIncludeGst ? 1 : 0, intraState ? 1 : 0,
         totals.subtotalPaise, totals.discountPaise, totals.taxablePaise, totals.cgstPaise, totals.sgstPaise, totals.igstPaise, totals.roundOffPaise, totals.totalPaise, notes, now, now,
       );
     } catch (err) {

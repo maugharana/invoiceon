@@ -44,9 +44,11 @@ const FIELDS: { [K in keyof Settings]: Field<K> } = {
   phone: text('phone'),
   email: text('email'),
   gstRatePercent: num('gst_rate_percent', 5),
+  pricesIncludeGst: bool('prices_include_gst', false),
   invoicePrefix: text('invoice_prefix', 'INV'),
   defaultDueDays: num('default_due_days', 15),
   defaultReorderLevel: num('default_reorder_level', 2),
+  monthlyTargetPaise: num('monthly_target_paise', 0),
   invoiceTerms: text('invoice_terms'),
   invoiceAccent: text('invoice_accent', DEFAULT_ACCENT),
   invoiceLogo: text('invoice_logo'),
@@ -96,6 +98,7 @@ function validate(patch: Partial<Settings>): Partial<Settings> {
     if (typeof rate !== 'number' || !Number.isFinite(rate) || rate < 0 || rate > 100) throw new UserError('GST rate must be between 0 and 100.');
     v.gstRatePercent = rate;
   }
+  if (patch.pricesIncludeGst !== undefined) v.pricesIncludeGst = !!patch.pricesIncludeGst;
   if (patch.invoicePrefix !== undefined) {
     const p = requireText(patch.invoicePrefix, 'Invoice prefix', 10).toUpperCase();
     if (!/^[A-Z0-9-]+$/.test(p)) throw new UserError('Invoice prefix can only use letters, numbers and dashes.');
@@ -103,6 +106,7 @@ function validate(patch: Partial<Settings>): Partial<Settings> {
   }
   if (patch.defaultDueDays !== undefined) v.defaultDueDays = requireInt(patch.defaultDueDays, 'Due days', { max: 365 });
   if (patch.defaultReorderLevel !== undefined) v.defaultReorderLevel = requireInt(patch.defaultReorderLevel, 'Reorder level', { max: 100000 });
+  if (patch.monthlyTargetPaise !== undefined) v.monthlyTargetPaise = requireInt(patch.monthlyTargetPaise, 'Monthly target', { max: 100_000_000_000 });
   if (patch.invoiceTerms !== undefined) v.invoiceTerms = optionalText(patch.invoiceTerms, 'Terms', 400);
   if (patch.invoiceAccent !== undefined) {
     const a = String(patch.invoiceAccent).trim();

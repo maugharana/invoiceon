@@ -254,7 +254,8 @@ export function NewInvoicePage({ presetCustomerId, advance, mode = 'invoice' }: 
   const rate = settings.data?.gstRatePercent ?? 0;
   const placeOfSupply = customer?.state || settings.data?.state || '';
   const intraState = !settings.data?.state || sameState(placeOfSupply, settings.data.state);
-  const totals = computeTotals({ lineAmounts: rows.map((r) => r.amount), discountPaise: discount, ratePercent: rate, intraState });
+  const inclusive = settings.data?.pricesIncludeGst ?? false;
+  const totals = computeTotals({ lineAmounts: rows.map((r) => r.amount), discountPaise: discount, ratePercent: rate, intraState, inclusive });
 
   // Advance the customer already holds goes onto this invoice first, then whatever is handed over now.
   const advanceHeld = quote ? 0 : (customer?.advancePaise ?? 0);
@@ -485,12 +486,12 @@ export function NewInvoicePage({ presetCustomerId, advance, mode = 'invoice' }: 
           <Card className="p-6">
             <h2 className="mb-4 text-base">Summary</h2>
             <dl className="space-y-2">
-              <div className="flex justify-between"><dt className="text-ink-muted">Subtotal</dt><dd><Money paise={totals.subtotalPaise} /></dd></div>
+              <div className="flex justify-between"><dt className="text-ink-muted">{inclusive ? 'Subtotal (incl. GST)' : 'Subtotal'}</dt><dd><Money paise={totals.subtotalPaise} /></dd></div>
               <div className="flex items-center justify-between gap-4">
                 <dt className="text-ink-muted">Discount</dt>
                 <dd className="w-32"><MoneyInput value={discount} onChange={setDiscount} aria-label="Discount" className="h-8" /></dd>
               </div>
-              {totals.discountPaise > 0 && <div className="flex justify-between"><dt className="text-ink-muted">Taxable value</dt><dd><Money paise={totals.taxablePaise} /></dd></div>}
+              {(totals.discountPaise > 0 || inclusive) && <div className="flex justify-between"><dt className="text-ink-muted">Taxable value</dt><dd><Money paise={totals.taxablePaise} /></dd></div>}
               {intraState ? (
                 <>
                   <div className="flex justify-between"><dt className="text-ink-muted">CGST {rate / 2}%</dt><dd><Money paise={totals.cgstPaise} /></dd></div>
