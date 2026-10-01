@@ -5,7 +5,9 @@ import { backupNow, listBackups } from './backup';
 import type { Db } from './db/connection';
 import { UserError } from './services/common';
 import * as customers from './services/customers';
-import { dashboardOverview } from './services/dashboard';
+import { dashboardNow, dashboardOverview } from './services/dashboard';
+import { festivalComparison } from './services/festival';
+import { reorderList } from './services/deadstock';
 import * as expenses from './services/expenses';
 import * as inventory from './services/inventory';
 import * as invoices from './services/invoices';
@@ -98,7 +100,10 @@ export function createApi(db: Db, host?: Host, dataDir?: string): Api {
     },
 
     dashboardSummary: async () => invoices.dashboardSummary(db),
-    dashboardOverview: async (range) => dashboardOverview(db, range ?? null),
+    dashboardOverview: async (range, compare) => dashboardOverview(db, range ?? null, compare ?? 'previous'),
+    dashboardNow: async () => dashboardNow(db),
+    dashboardFestival: async (festivalId) => festivalComparison(db, festivalId),
+    dashboardReorderList: async () => reorderList(db),
 
     expensesList: async (query) => expenses.listExpenses(db, query ?? {}),
     expensesOverview: async (query) => expenses.expensesOverview(db, query ?? {}),

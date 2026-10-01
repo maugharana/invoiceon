@@ -3,8 +3,11 @@ import type {
   BulkSareeRow,
   Customer,
   CustomerInput,
+  DashboardNow,
   DashboardOverview,
   DashboardSummary,
+  FestivalComparison,
+  ReorderRow,
   DataInfo,
   Expense,
   ExpenseInput,
@@ -41,6 +44,7 @@ import type {
   Variant,
   VariantInput,
 } from './types';
+import type { CompareWith } from './periods';
 
 /**
  * The contract between the UI and the data layer. Implemented in electron/api.ts, exposed to the
@@ -120,7 +124,13 @@ export interface Api {
 
   dashboardSummary(): Promise<DashboardSummary>;
   /** Everything the dashboard shows for a period. Null means all time. */
-  dashboardOverview(range: { from: string; to: string } | null): Promise<DashboardOverview>;
+  dashboardOverview(range: { from: string; to: string } | null, compare?: CompareWith): Promise<DashboardOverview>;
+  /** Today's figures and other "right now" items, which don't depend on the dashboard's period. */
+  dashboardNow(): Promise<DashboardNow>;
+  /** Every variant that is low on stock or out of it, by saree: what to reorder. */
+  dashboardReorderList(): Promise<ReorderRow[]>;
+  /** This year's festival shopping season against last year's ('diwali', 'navratri' or 'rakhi'). */
+  dashboardFestival(festivalId: string): Promise<FestivalComparison>;
 
   expensesList(query?: ExpenseQuery): Promise<Expense[]>;
   expensesOverview(query?: ExpenseQuery): Promise<ExpensesOverview>;
