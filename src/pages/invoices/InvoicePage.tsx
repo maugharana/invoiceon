@@ -23,6 +23,7 @@ export function InvoicePage({ id }: { id: string }) {
   const inv = query.data;
   useRecent(inv ? { kind: 'invoice', id: inv.id, title: inv.number, hint: inv.buyerName } : null);
   const customer = useQuery(() => (inv?.customerId ? api.customerGet(inv.customerId) : Promise.resolve(null)), [inv?.customerId]);
+  const settings = useQuery(() => api.getSettings());
   const [busy, setBusy] = useState<'pdf' | 'print' | 'advance' | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [paying, setPaying] = useState(false);
@@ -75,7 +76,7 @@ export function InvoicePage({ id }: { id: string }) {
   const exportPdf = () => (window.invoiceon ? run('pdf', async () => ((await api.invoiceExportPdf(id)).saved ? toast.success('PDF saved') : undefined)) : openPrintView());
   const print = () => (window.invoiceon ? run('print', () => api.invoicePrint(id)) : openPrintView());
   // Sharing: a ready-written message. WhatsApp and email can't take the PDF from us, so the person attaches the one they save.
-  const message = invoiceMessage(inv, { name: inv.seller.name, upiId: inv.seller.upiId });
+  const message = invoiceMessage(inv, { name: inv.seller.name, upiId: inv.seller.upiId }, settings.data?.msgInvoice ?? '');
   const phone = whatsappPhone(inv.buyer.phone ?? '');
   const email = customer.data?.email ?? '';
   const remindToAttach = 'Save the PDF (Save PDF) and attach it before you send.';

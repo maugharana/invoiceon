@@ -1,4 +1,4 @@
-import { DatabaseBackup, FlaskConical } from 'lucide-react';
+import { DatabaseBackup, FileArchive, FlaskConical } from 'lucide-react';
 import { useState } from 'react';
 import { useToast } from '../../components/Toast';
 import { Button, ErrorNote, Spinner } from '../../components/ui';
@@ -12,7 +12,26 @@ export function DataManagementSection() {
   const toast = useToast();
   const refresh = useRefresh();
   const info = useQuery(() => api.dataInfo());
-  const [busy, setBusy] = useState<'backup' | 'sample' | null>(null);
+  const [busy, setBusy] = useState<'backup' | 'sample' | 'export' | null>(null);
+
+  async function exportAll() {
+    setBusy('export');
+    try {
+      const out = await api.dataExportAll();
+      if (window.invoiceon) {
+        if ((await api.exportSaveZip(out.fileName, out.base64)).saved) toast.success('Export saved');
+      } else {
+        const bytes = Uint8Array.from(atob(out.base64), (ch) => ch.charCodeAt(0));
+        const url = URL.createObjectURL(new Blob([bytes], { type: 'application/zip' }));
+        Object.assign(document.createElement('a'), { href: url, download: out.fileName }).click();
+        URL.revokeObjectURL(url);
+      }
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function backup() {
     setBusy('backup');
@@ -50,6 +69,16 @@ export function DataManagementSection() {
         <div className="mb-1.5 text-xs font-medium text-ink-muted">Where your data lives</div>
         <p className="num break-all rounded-lg bg-canvas px-3 py-2">{folder}</p>
         <p className="mt-1.5 text-xs text-ink-muted">Everything is stored on this computer in one file ({formatBytes(databaseBytes)}). No internet is needed to use it.</p>
+      </div>
+
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h3 className="text-base">Export everything</h3>
+          <p className="text-ink-muted">One ZIP with a spreadsheet for each part of your book: customers, designs, invoices, payments, expenses and more. For your records or to open in Excel. It is not a backup.</p>
+        </div>
+        <Button icon={<FileArchive className="h-4 w-4" />} loading={busy === 'export'} onClick={() => void exportAll()}>
+          Export all data
+        </Button>
       </div>
 
       <div>

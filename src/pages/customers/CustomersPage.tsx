@@ -1,4 +1,4 @@
-import { ChevronRight, Copy, Download, Plus, SearchX, Users } from 'lucide-react';
+import { ChevronRight, Copy, Download, Plus, SearchX, Upload, Users } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { customersCsv } from '../../../shared/csv';
 import { CUSTOMER_FILTER_LABEL, filterCustomers, findDuplicateGroups, type CustomerFilter } from '../../../shared/customerList';
@@ -11,6 +11,7 @@ import { useCsvExport } from '../../lib/exportCsv';
 import { plural } from '../../lib/format';
 import { navigate, paths } from '../../lib/router';
 import { CustomerFormModal } from './CustomerFormModal';
+import { ImportCustomersModal } from './ImportCustomersModal';
 import { DuplicatesModal } from './DuplicatesModal';
 
 type SortKey = 'name' | 'invoices' | 'billed' | 'balance';
@@ -20,6 +21,7 @@ export function CustomersPage() {
   const [debounced, setDebounced] = useState('');
   const [adding, setAdding] = useState(false);
   const [reviewing, setReviewing] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [filter, setFilter] = useState<CustomerFilter>('all');
   const sort = useSort<SortKey>('name', 'asc');
   const saveCsv = useCsvExport();
@@ -57,6 +59,9 @@ export function CustomersPage() {
                 Export CSV
               </Button>
             )}
+            <Button icon={<Upload className="h-4 w-4" />} onClick={() => setImporting(true)} title="Add many customers from an Excel or CSV sheet">
+              Import
+            </Button>
             <Button icon={<Plus className="h-4 w-4" />} onClick={() => setAdding(true)}>
               Add customer
             </Button>
@@ -181,6 +186,7 @@ export function CustomersPage() {
       )}
 
       {adding && <CustomerFormModal onClose={() => setAdding(false)} onSaved={(c) => navigate(paths.customer(c.id))} />}
+      {importing && <ImportCustomersModal onClose={() => setImporting(false)} />}
       {reviewing && <DuplicatesModal customers={everyone.data ?? []} onClose={() => setReviewing(false)} />}
     </>
   );

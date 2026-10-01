@@ -34,6 +34,7 @@ interface DesignRow {
   hsn_code: string;
   description: string;
   default_price_paise: number;
+  deleted_at: string | null;
 }
 interface VariantRow {
   id: string;
@@ -586,4 +587,38 @@ export function inventorySummary(db: Db): InventorySummary {
     outOfStockDesigns: designs.filter((d) => d.status === 'out').length,
     materialCount: get<{ n: number }>(db, 'SELECT COUNT(*) AS n FROM raw_materials WHERE deleted_at IS NULL')?.n ?? 0,
   };
+}
+
+/**
+ * Brings back an archived design with the variants that were archived along with it (not ones archived earlier on their own).
+ * Fails, changing nothing, if its code or a SKU has since been taken by something else.
+ */
+export function restoreDesign(db: Db, id: string): DesignDetail {
+  const row = get<DesignRow>(db, 'SELECT * FROM designs WHERE id = ? AND deleted_at IS NOT NULL', id);
+  if (!row) throw new UserError("That design can't be brought back.");
+  try {
+    tx(db, () => {
+      const now = nowIso();
+      run(db, 'UPDATE designs SET deleted_at = NULL, updated_at = ? WHERE id = ?', now, id);
+      run(db, 'UPDATE variants SET deleted_at = NULL, updated_at = ? WHERE design_id = ? AND deleted_at = ?', now, id, row.deleted_at);
+    });
+  } catch (err) {
+    if (isUniqueViolation(err)) throw new UserError(`${row.name} can't be brought back: its code or one of its SKUs is now used by something else.`);
+    throw err;
+  }
+  return getDesign(db, id);
+}
+
+/** Brings back an archived variant (the "Undo" after archiving one). */
+export function restoreVariant(db: Db, id: string): Variant {
+  const row = get<{ id: string; design_id: string }>(db, 'SELECT id, design_id FROM variants WHERE id = ? AND deleted_at IS NOT NULL', id);
+  if (!row) throw new UserError("That variant can't be brought back.");
+  getDesign(db, row.design_id);
+  try {
+    run(db, 'UPDATE variants SET deleted_at = NULL, updated_at = ? WHERE id = ?', nowIso(), id);
+  } catch (err) {
+    if (isUniqueViolation(err)) throw new UserError("That colour and size (or its SKU) is now used by another variant.");
+    throw err;
+  }
+  return getVariant(db, id);
 }

@@ -1,5 +1,10 @@
 import type {
   BulkAddResult,
+  BulkDesignAction,
+  BulkDesignResult,
+  CustomerImportResult,
+  StockTakeLine,
+  StockTakeResult,
   BulkSareeRow,
   Customer,
   CustomerInput,
@@ -73,6 +78,18 @@ export interface Api {
   designCreate(input: DesignInput): Promise<DesignDetail>;
   designUpdate(id: string, input: DesignInput): Promise<DesignDetail>;
   designArchive(id: string): Promise<void>;
+  /** Brings back an archived design and the variants archived with it. */
+  designRestore(id: string): Promise<DesignDetail>;
+  /** Archives, re-prices or sets the reorder level of many designs at once. */
+  designsBulk(action: BulkDesignAction): Promise<BulkDesignResult>;
+  /** Applies a physical stock count as adjustments. */
+  stockTakeApply(counts: StockTakeLine[], note?: string): Promise<StockTakeResult>;
+  /** Adds many expenses from a sheet. All or nothing. */
+  expensesBulkAdd(rows: { row: number; value: ExpenseInput }[]): Promise<number>;
+  /** Everything in the book as a ZIP of spreadsheets (base64). */
+  dataExportAll(): Promise<{ fileName: string; base64: string; files: string[] }>;
+  /** Saves a ZIP the data layer just made. Desktop app only. */
+  exportSaveZip(fileName: string, base64: string): Promise<{ saved: boolean; path?: string }>;
   /** A new design copied from this one: same details, and a copy of each variant with its price and raw-material costing, but no stock. */
   designDuplicate(id: string): Promise<DesignDetail>;
 
@@ -81,6 +98,7 @@ export interface Api {
   variantCreate(designId: string, input: VariantInput): Promise<Variant>;
   variantUpdate(id: string, input: VariantInput): Promise<Variant>;
   variantArchive(id: string): Promise<void>;
+  variantRestore(id: string): Promise<Variant>;
 
   stockAdjust(input: StockAdjustInput): Promise<Variant>;
   stockMovements(variantId: string): Promise<StockMovement[]>;
@@ -96,6 +114,10 @@ export interface Api {
   customerUpdate(id: string, input: CustomerInput): Promise<Customer>;
   /** Archives; invoices already issued keep their own copy of the customer's details. */
   customerArchive(id: string): Promise<void>;
+  /** Brings back an archived customer. */
+  customerRestore(id: string): Promise<Customer>;
+  /** Adds many customers from a sheet; ones already on file are skipped. All or nothing on bad rows. */
+  customersImport(rows: { row: number; value: CustomerInput }[]): Promise<CustomerImportResult>;
   /** What this customer has bought, by design, most recent first. */
   customerPurchases(id: string): Promise<CustomerPurchase[]>;
   /** Folds a duplicate into the customer you keep: their invoices, payments and quotes move across, blank details are filled in, and the duplicate is archived. */
@@ -112,6 +134,17 @@ export interface Api {
   /** Cancels an issued invoice and puts its stock back. The number is never reused. */
   invoiceCancel(id: string, reason: string): Promise<Invoice>;
   /** Desktop app only: asks where to save, then writes the invoice as a PDF. */
+  /** One payment, for its receipt. */
+  paymentGet(id: string): Promise<Payment>;
+  /** Desktop app only: asks where to save, then writes the customer's statement of account as a PDF. */
+  customerStatementExportPdf(customerId: string): Promise<{ saved: boolean; path?: string }>;
+  customerStatementPrint(customerId: string): Promise<void>;
+  /** Desktop app only: the receipt for a payment, as a PDF. */
+  paymentReceiptExportPdf(paymentId: string): Promise<{ saved: boolean; path?: string }>;
+  paymentReceiptPrint(paymentId: string): Promise<void>;
+  /** Desktop app only: several invoices in one PDF, each on its own page. */
+  invoicesExportPdf(ids: string[]): Promise<{ saved: boolean; path?: string }>;
+  invoicesPrint(ids: string[]): Promise<void>;
   invoiceExportPdf(id: string): Promise<{ saved: boolean; path?: string }>;
   /** Desktop app only: opens the system print dialog for the invoice. */
   invoicePrint(id: string): Promise<void>;
@@ -163,6 +196,8 @@ export interface Api {
   expensesList(query?: ExpenseQuery): Promise<Expense[]>;
   expensesOverview(query?: ExpenseQuery): Promise<ExpensesOverview>;
   /** Spending by category and month, and against the stretch just before. */
+  /** Brings back an expense that was just deleted. */
+  expenseRestore(id: string): Promise<Expense>;
   expensesBreakdown(query?: ExpenseQuery): Promise<ExpensesBreakdown>;
   expenseCreate(input: ExpenseInput): Promise<Expense>;
   expenseUpdate(id: string, input: ExpenseInput): Promise<Expense>;

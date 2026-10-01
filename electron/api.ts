@@ -7,6 +7,8 @@ import { UserError } from './services/common';
 import * as customers from './services/customers';
 import { dashboardNow, dashboardOverview } from './services/dashboard';
 import { festivalComparison } from './services/festival';
+import * as bulk from './services/bulk';
+import { exportEverything } from './services/exportAll';
 import * as moreReports from './services/moreReports';
 import { reorderList } from './services/deadstock';
 import * as expenses from './services/expenses';
@@ -26,9 +28,20 @@ export interface Host {
   exportDocumentPdf(route: string, fileName: string): Promise<{ saved: boolean; path?: string }>;
   printDocument(route: string): Promise<void>;
   saveTextFile(fileName: string, content: string): Promise<{ saved: boolean; path?: string }>;
+  /** Saves a ZIP (given as base64) to a place the person chooses. */
+  saveZipFile(fileName: string, base64: string): Promise<{ saved: boolean; path?: string }>;
 }
 
 const DESKTOP_ONLY = 'This works in the InvoiceOn desktop app only.';
+
+/** The invoices to print together: they must all exist, and there is a sensible limit so a window isn't asked for a thousand pages. */
+function checkInvoiceIds(db: Db, ids: string[]): string[] {
+  const list = [...new Set(Array.isArray(ids) ? ids.map(String) : [])];
+  if (list.length === 0) throw new UserError('Choose at least one invoice.');
+  if (list.length > 200) throw new UserError('Print up to 200 invoices at a time.');
+  for (const id of list) invoices.getInvoice(db, id);
+  return list;
+}
 
 /** Binds the data layer to one open database. This is the only place that knows which service backs which call. */
 export function createApi(db: Db, host?: Host, dataDir?: string): Api {
@@ -44,11 +57,21 @@ export function createApi(db: Db, host?: Host, dataDir?: string): Api {
     designCreate: async (input) => inventory.createDesign(db, input),
     designUpdate: async (id, input) => inventory.updateDesign(db, id, input),
     designDuplicate: async (id) => inventory.duplicateDesign(db, id),
+    designRestore: async (id) => inventory.restoreDesign(db, id),
+    designsBulk: async (action) => bulk.bulkChangeDesigns(db, action),
+    stockTakeApply: async (counts, note) => bulk.applyStockTake(db, counts, note ?? ''),
+    dataExportAll: async () => exportEverything(db),
+    exportSaveZip: async (fileName, base64) => {
+      if (!host) throw new UserError(DESKTOP_ONLY);
+      const safe = String(fileName).replace(/[\\/:*?"<>|]/g, '-').slice(0, 120) || 'export.zip';
+      return host.saveZipFile(safe, String(base64));
+    },
     designArchive: async (id) => inventory.archiveDesign(db, id),
 
     inventoryBulkAdd: async (rows) => inventory.bulkAddSarees(db, rows),
     variantCreate: async (designId, input) => inventory.createVariant(db, designId, input),
     variantUpdate: async (id, input) => inventory.updateVariant(db, id, input),
+    variantRestore: async (id) => inventory.restoreVariant(db, id),
     variantArchive: async (id) => inventory.archiveVariant(db, id),
 
     stockAdjust: async (input) => inventory.adjustStock(db, input),
@@ -65,6 +88,8 @@ export function createApi(db: Db, host?: Host, dataDir?: string): Api {
     customerUpdate: async (id, input) => customers.updateCustomer(db, id, input),
     customerPurchases: async (id) => customers.customerPurchases(db, id),
     customerMerge: async (keepId, duplicateId) => customers.mergeCustomers(db, keepId, duplicateId),
+    customerRestore: async (id) => customers.restoreCustomer(db, id),
+    customersImport: async (rows) => bulk.importCustomers(db, rows),
     customerArchive: async (id) => customers.archiveCustomer(db, id),
 
     variantsForSale: async () => invoices.variantsForSale(db),
@@ -74,6 +99,37 @@ export function createApi(db: Db, host?: Host, dataDir?: string): Api {
     invoiceNextNumber: async (date) => invoices.nextInvoiceNumber(db, date),
     invoiceCreate: async (input) => invoices.createInvoice(db, input),
     invoiceCancel: async (id, reason) => invoices.cancelInvoice(db, id, reason),
+    paymentGet: async (id) => payments.getPayment(db, id),
+    customerStatementExportPdf: async (customerId) => {
+      if (!host) throw new UserError(DESKTOP_ONLY);
+      const c = customers.getCustomer(db, customerId);
+      return host.exportDocumentPdf(`/print/statement/${encodeURIComponent(customerId)}`, `Statement - ${c.name.replace(/[\\/:*?"<>|]/g, '-')}.pdf`);
+    },
+    customerStatementPrint: async (customerId) => {
+      if (!host) throw new UserError(DESKTOP_ONLY);
+      customers.getCustomer(db, customerId);
+      return host.printDocument(`/print/statement/${encodeURIComponent(customerId)}`);
+    },
+    paymentReceiptExportPdf: async (paymentId) => {
+      if (!host) throw new UserError(DESKTOP_ONLY);
+      const p = payments.getPayment(db, paymentId);
+      return host.exportDocumentPdf(`/print/receipt/${encodeURIComponent(paymentId)}`, `Receipt - ${p.customerName.replace(/[\\/:*?"<>|]/g, '-')} ${p.receivedOn}.pdf`);
+    },
+    paymentReceiptPrint: async (paymentId) => {
+      if (!host) throw new UserError(DESKTOP_ONLY);
+      payments.getPayment(db, paymentId);
+      return host.printDocument(`/print/receipt/${encodeURIComponent(paymentId)}`);
+    },
+    invoicesExportPdf: async (ids) => {
+      if (!host) throw new UserError(DESKTOP_ONLY);
+      const list = checkInvoiceIds(db, ids);
+      return host.exportDocumentPdf(`/print/invoices?ids=${list.map(encodeURIComponent).join(',')}`, `${list.length} invoices.pdf`);
+    },
+    invoicesPrint: async (ids) => {
+      if (!host) throw new UserError(DESKTOP_ONLY);
+      const list = checkInvoiceIds(db, ids);
+      return host.printDocument(`/print/invoices?ids=${list.map(encodeURIComponent).join(',')}`);
+    },
     invoiceExportPdf: async (id) => {
       if (!host) throw new UserError(DESKTOP_ONLY);
       const inv = invoices.getInvoice(db, id);
@@ -116,6 +172,8 @@ export function createApi(db: Db, host?: Host, dataDir?: string): Api {
     dashboardReorderList: async () => reorderList(db),
 
     expensesList: async (query) => expenses.listExpenses(db, query ?? {}),
+    expenseRestore: async (id) => expenses.restoreExpense(db, id),
+    expensesBulkAdd: async (rows) => bulk.bulkAddExpenses(db, rows),
     expensesBreakdown: async (query) => expenses.expensesBreakdown(db, query ?? {}),
     expensesOverview: async (query) => expenses.expensesOverview(db, query ?? {}),
     expenseCreate: async (input) => expenses.createExpense(db, input),

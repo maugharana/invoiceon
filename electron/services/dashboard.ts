@@ -93,8 +93,8 @@ export function dashboardOverview(db: Db, requested: { from: string; to: string 
   const invoices = listInvoices(db);
   const owed = (i: { totalPaise: number; paidPaise: number }) => i.totalPaise - i.paidPaise;
   const open = invoices.filter((i) => (i.status === 'unpaid' || i.status === 'partial' || i.status === 'overdue') && owed(i) > 0);
-  const openInRange = open.filter((i) => inRange(i.issueDate));
-  const overdueInRange = openInRange.filter((i) => i.status === 'overdue');
+  // What is owed is a fact about today, whatever period is being looked at: an invoice from last month that is still unpaid is still owed.
+  const overdueOpen = open.filter((i) => i.status === 'overdue');
 
   // How long customers really take: from the invoice date to the day the last rupee arrived, for invoices paid in full.
   const lastPaid = new Map(
@@ -140,10 +140,10 @@ export function dashboardOverview(db: Db, requested: { from: string; to: string 
     invoiceCount: sales.invoiceCount,
     receivedPaise: sales.collectedPaise,
     paymentCount: sales.paymentCount,
-    outstandingPaise: openInRange.reduce((s, i) => s + owed(i), 0),
-    openInvoices: openInRange.length,
-    overduePaise: overdueInRange.reduce((s, i) => s + owed(i), 0),
-    overdueCount: overdueInRange.length,
+    outstandingPaise: open.reduce((s, i) => s + owed(i), 0),
+    openInvoices: open.length,
+    overduePaise: overdueOpen.reduce((s, i) => s + owed(i), 0),
+    overdueCount: overdueOpen.length,
     expensesPaise: expenseOverview.totalPaise,
     grossProfitPaise: sales.grossProfitPaise,
     marginPercent: sales.marginPercent,

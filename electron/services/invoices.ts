@@ -57,7 +57,7 @@ interface LineRow {
 
 export function brandingOf(db: Db): InvoiceBranding {
   const s = getSettings(db);
-  return { accent: s.invoiceAccent, logo: s.invoiceLogo, showSignature: s.invoiceShowSignature, showUpiQr: s.invoiceShowUpiQr };
+  return { accent: s.invoiceAccent, logo: s.invoiceLogo, showSignature: s.invoiceShowSignature, showUpiQr: s.invoiceShowUpiQr, language: s.invoiceLanguage };
 }
 
 // ── Mapping ─────────────────────────────────────────────────────────────────

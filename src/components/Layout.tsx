@@ -3,6 +3,7 @@ import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode 
 import { financialYear, todayIso } from '../../shared/gst';
 import { CHORD_MS, goTarget, isTypingContext } from '../../shared/shortcuts';
 import { api } from '../lib/api';
+import { useApplyPreferences } from '../lib/prefs';
 import { useQuery } from '../lib/data';
 import { navigate, paths, type Section } from '../lib/router';
 import { CommandPaletteProvider, useCommandPalette } from './CommandPalette';
@@ -195,6 +196,7 @@ export function Sidebar({ active }: { active: Section }) {
 
 export function AppShell({ active, children, pageKey, hideFab }: { active: Section; children: ReactNode; pageKey: string; hideFab?: boolean }) {
   const main = useRef<HTMLElement>(null);
+  const prefs = useApplyPreferences();
 
   // A new page starts at the top, and keyboard focus starts in it (not wherever the last click left it).
   useEffect(() => {
@@ -241,7 +243,7 @@ export function AppShell({ active, children, pageKey, hideFab }: { active: Secti
           <div className="flex min-h-0 flex-1 print:block">
             <Sidebar active={active} />
             <main ref={main} tabIndex={-1} className="min-w-0 flex-1 overflow-y-auto outline-none print:overflow-visible">
-              <div key={pageKey} className="animate-fade-up mx-auto max-w-6xl px-8 pb-28 pt-9">
+              <div key={`${pageKey}:${prefs?.dateFormat ?? ''}`} className="animate-fade-up mx-auto max-w-6xl px-8 pb-28 pt-9">
                 {children}
               </div>
             </main>

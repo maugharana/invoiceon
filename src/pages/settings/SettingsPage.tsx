@@ -1,4 +1,4 @@
-import { Bell, Building2, ClipboardList, CreditCard, Database, FileText, Percent, Settings2, Sparkles, Tag, Wallet, type LucideIcon } from 'lucide-react';
+import { Bell, Building2, MessageSquare, ClipboardList, CreditCard, Database, FileText, Percent, Settings2, Sparkles, Tag, Wallet, type LucideIcon } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useToast } from '../../components/Toast';
 import { Button, Card, ErrorNote, PageHeader, Spinner } from '../../components/ui';
@@ -11,6 +11,7 @@ import { DataManagementSection } from './DataManagementSection';
 import { fromDraft, toDraft, type Draft, type SetDraft } from './draft';
 import { ExpenseCategoriesSection } from './ExpenseCategoriesSection';
 import { InvoiceSection } from './InvoiceSection';
+import { MessagesSection } from './MessagesSection';
 import { NotificationsSection } from './NotificationsSection';
 import { PaymentAccountsSection } from './PaymentAccountsSection';
 import { PaymentInstructionsSection } from './PaymentInstructionsSection';
@@ -38,6 +39,7 @@ const SECTIONS: SectionInfo[] = [
   { id: 'accounts', label: 'Payment Accounts', icon: Wallet, title: 'Payment Accounts', subtitle: 'Where customers’ money lands: banks, UPI, cash.', saves: true },
   { id: 'instructions', label: 'Payment Instructions', icon: CreditCard, title: 'Payment Instructions', subtitle: 'How customers should pay you, printed on each invoice.', saves: true },
   { id: 'notifications', label: 'Notifications', icon: Bell, title: 'Notifications', subtitle: 'What InvoiceOn points out to you.', saves: true },
+  { id: 'messages', label: 'Message Templates', icon: MessageSquare, title: 'Message Templates', subtitle: 'Your own wording for the messages you send to customers.', saves: true },
   { id: 'data', label: 'Data Management', icon: Database, title: 'Data Management', subtitle: 'Where your data is, and keeping it safe.', saves: false },
   { id: 'preferences', label: 'Preferences', icon: Settings2, title: 'Preferences', subtitle: 'Defaults used across the app.', saves: true },
   { id: 'plus', label: 'InvoiceOn Plus', icon: Sparkles, title: 'InvoiceOn Plus', subtitle: 'Sync, teams and access from anywhere: what is planned.', saves: false },
@@ -61,6 +63,8 @@ function renderSection(id: SettingsSection, draft: Draft, set: SetDraft): ReactN
       return <PaymentInstructionsSection draft={draft} set={set} />;
     case 'notifications':
       return <NotificationsSection draft={draft} set={set} />;
+    case 'messages':
+      return <MessagesSection draft={draft} set={set} />;
     case 'data':
       return <DataManagementSection />;
     case 'preferences':

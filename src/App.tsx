@@ -7,10 +7,12 @@ import { DesignPage } from './pages/inventory/DesignPage';
 import { InventoryPage } from './pages/inventory/InventoryPage';
 import { AddSareesPage } from './pages/inventory/AddSareesPage';
 import { MaterialsPage } from './pages/inventory/MaterialsPage';
+import { StockTakePage } from './pages/inventory/StockTakePage';
 import { InvoicePage } from './pages/invoices/InvoicePage';
 import { InvoicesPage } from './pages/invoices/InvoicesPage';
 import { NewInvoicePage } from './pages/invoices/NewInvoicePage';
-import { PrintInvoicePage } from './pages/invoices/PrintInvoicePage';
+import { PrintInvoicePage, PrintInvoicesPage } from './pages/invoices/PrintInvoicePage';
+import { PrintReceiptPage, PrintStatementPage } from './pages/PrintOtherPages';
 import { ExpensesPage } from './pages/expenses/ExpensesPage';
 import { DuesPage, PaymentsPage } from './pages/payments/PaymentsPage';
 import { ProformaPage } from './pages/proformas/ProformaPage';
@@ -28,6 +30,8 @@ function renderRoute(route: Route) {
       return <MaterialsPage />;
     case 'inventory-add':
       return <AddSareesPage />;
+    case 'stock-take':
+      return <StockTakePage />;
     case 'design':
       return <DesignPage id={route.id} />;
     case 'invoices':
@@ -60,6 +64,9 @@ function renderRoute(route: Route) {
       return <ReportsPage tab={route.tab} period={route.period} asOf={route.asOf} />;
     case 'print-invoice':
     case 'print-proforma':
+    case 'print-statement':
+    case 'print-receipt':
+    case 'print-invoices':
       return null; // rendered outside the app shell, see App()
   }
 }
@@ -98,8 +105,11 @@ export default function App() {
   // Print/PDF export render just the paper, with none of the app around it.
   if (route.name === 'print-invoice') return <PrintInvoicePage id={route.id} />;
   if (route.name === 'print-proforma') return <PrintInvoicePage id={route.id} kind="proforma" />;
+  if (route.name === 'print-statement') return <PrintStatementPage customerId={route.id} />;
+  if (route.name === 'print-receipt') return <PrintReceiptPage paymentId={route.id} />;
+  if (route.name === 'print-invoices') return <PrintInvoicesPage ids={route.ids} />;
   return (
-    <AppShell active={sectionOf(route)} pageKey={pageKey(route)} hideFab={route.name === 'invoice-new' || route.name === 'proforma-new' || route.name === 'proforma-edit' || route.name === 'inventory-add'}>
+    <AppShell active={sectionOf(route)} pageKey={pageKey(route)} hideFab={route.name === 'invoice-new' || route.name === 'proforma-new' || route.name === 'proforma-edit' || route.name === 'inventory-add' || route.name === 'stock-take'}>
       {renderRoute(route)}
     </AppShell>
   );

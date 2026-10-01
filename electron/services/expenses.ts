@@ -134,3 +134,11 @@ export function expensesBreakdown(db: Db, query: ExpenseQuery = {}): ExpensesBre
     .sort((a, b) => b.totalPaise - a.totalPaise || a.category.localeCompare(b.category));
   return { months, rows: out, monthTotals: months.map((_, i) => out.reduce((s, r) => s + r.byMonth[i]!, 0)), totalPaise: rows.reduce((s, e) => s + e.amountPaise, 0), previous };
 }
+
+/** Brings back an expense that was deleted (the "Undo" after deleting one). */
+export function restoreExpense(db: Db, id: string): Expense {
+  const row = get<Row>(db, 'SELECT * FROM expenses WHERE id = ? AND deleted_at IS NOT NULL', id);
+  if (!row) throw new UserError("That expense can't be brought back.");
+  run(db, 'UPDATE expenses SET deleted_at = NULL, updated_at = ? WHERE id = ?', nowIso(), id);
+  return getExpense(db, id);
+}

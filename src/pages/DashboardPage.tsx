@@ -193,7 +193,7 @@ export function DashboardPage() {
           icon={Hourglass}
           tone="amber"
           value={<Money paise={o?.outstandingPaise ?? 0} fractionDigits={0} />}
-          sub={o ? (o.openInvoices === 0 ? 'Nothing owed on these invoices' : `${plural(o.openInvoices, 'unpaid invoice')}`) : ' '}
+          sub={o ? (o.openInvoices === 0 ? 'Nothing owed right now' : `${plural(o.openInvoices, 'unpaid invoice')}`) : ' '}
           onClick={() => navigate(paths.dues)}
         />
         <StatCard
@@ -314,7 +314,7 @@ export function DashboardPage() {
         <RecentInvoicesCard invoices={o?.recent ?? []} loaded={!!o} />
         <div className="space-y-4">
           <LowStockCard designs={lowDesigns.data ?? []} businessName={businessName} />
-          <OpenQuotesCard quotes={openQuotes.data ?? []} businessName={businessName} onNew={() => start('proforma')} />
+          <OpenQuotesCard quotes={openQuotes.data ?? []} businessName={businessName} template={settings.data?.msgQuote ?? ''} onNew={() => start('proforma')} />
         </div>
       </div>
     ),

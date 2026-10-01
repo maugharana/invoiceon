@@ -438,7 +438,7 @@ describe('invoice design settings', () => {
     saveSettings(db, { invoiceBank: 'New Bank A/c 2', invoiceFooter: 'New footer', invoiceAccent: '#1F3A6E', invoiceLogo: 'data:image/png;base64,iVBORw0KGgo=' });
     const again = invoices.getInvoice(db, inv.id);
     expect(again.seller).toMatchObject({ bank: 'Old Bank A/c 1', footer: 'Old footer' }); // what was promised on the invoice doesn't change
-    expect(again.branding).toEqual({ accent: '#1F3A6E', logo: 'data:image/png;base64,iVBORw0KGgo=', showSignature: true, showUpiQr: true }); // but the look does
+    expect(again.branding).toEqual({ accent: '#1F3A6E', logo: 'data:image/png;base64,iVBORw0KGgo=', showSignature: true, showUpiQr: true, language: 'en' }); // but the look does
   });
 
   it('reads an invoice issued before bank and footer existed', () => {

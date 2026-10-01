@@ -166,3 +166,11 @@ export function mergeCustomers(db: Db, keepId: string, duplicateId: string): Cus
   });
   return getCustomer(db, keepId);
 }
+
+/** Brings back an archived customer (the "Undo" after archiving one). */
+export function restoreCustomer(db: Db, id: string): Customer {
+  const row = get<{ id: string }>(db, 'SELECT id FROM customers WHERE id = ? AND deleted_at IS NOT NULL', id);
+  if (!row) throw new UserError("That customer can't be brought back.");
+  run(db, 'UPDATE customers SET deleted_at = NULL, updated_at = ? WHERE id = ?', nowIso(), id);
+  return getCustomer(db, id);
+}

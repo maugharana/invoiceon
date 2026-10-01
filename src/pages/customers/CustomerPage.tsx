@@ -1,12 +1,14 @@
-import { Archive, ArrowLeft, FileText, HandCoins, Pencil, Plus } from 'lucide-react';
+import { Archive, ArrowLeft, Download, FileText, HandCoins, Pencil, Plus, Printer, ScrollText } from 'lucide-react';
 import { useState } from 'react';
 import { formatDate } from '../../../shared/gst';
 import { formatMoney } from '../../../shared/money';
+import { Menu } from '../../components/Menu';
 import { ConfirmDialog } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { Button, Card, EmptyState, ErrorNote, Figure, InvoicePill, Money, PageHeader, Spinner, TypePill } from '../../components/ui';
-import { api } from '../../lib/api';
+import { api, errorMessage } from '../../lib/api';
 import { useQuery, useRefresh } from '../../lib/data';
+import { useDocumentOutput } from '../../lib/documents';
 import { useRecent } from '../../lib/recent';
 import { plural } from '../../lib/format';
 import { navigate, paths } from '../../lib/router';
@@ -22,6 +24,7 @@ export function CustomerPage({ id }: { id: string }) {
   const purchases = useQuery(() => api.customerPurchases(id), [id]);
   const [dialog, setDialog] = useState<'edit' | 'archive' | 'pay' | null>(null);
   const c = customer.data;
+  const docs = useDocumentOutput();
   useRecent(c ? { kind: 'customer', id: c.id, title: c.name, hint: [c.phone, c.city].filter(Boolean).join(' · ') } : null);
 
   const back = (
@@ -65,6 +68,14 @@ export function CustomerPage({ id }: { id: string }) {
         subtitle={[c.phone, c.email].filter(Boolean).join(' · ') || undefined}
         actions={
           <>
+            <Menu
+              label="Statement"
+              icon={<ScrollText className="h-4 w-4" />}
+              items={[
+                { label: 'Save as PDF', icon: <Download className="h-4 w-4" />, onClick: () => void docs.savePdf(paths.printStatement(id), () => api.customerStatementExportPdf(id)) },
+                { label: 'Print', icon: <Printer className="h-4 w-4" />, onClick: () => void docs.print(paths.printStatement(id), () => api.customerStatementPrint(id)) },
+              ]}
+            />
             <Button icon={<HandCoins className="h-4 w-4" />} onClick={() => setDialog('pay')}>
               Record payment
             </Button>
@@ -224,7 +235,8 @@ export function CustomerPage({ id }: { id: string }) {
           onConfirm={async () => {
             await api.customerArchive(c.id);
             refresh();
-            toast.success(`${c.name} archived`);
+            const id = c.id;
+            toast.success(`${c.name} archived`, { label: 'Undo', onClick: async () => { try { await api.customerRestore(id); refresh(); toast.success('Customer brought back'); } catch (err) { toast.error(errorMessage(err)); } } });
             navigate(paths.customers);
           }}
         />

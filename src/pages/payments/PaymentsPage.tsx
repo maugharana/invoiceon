@@ -1,4 +1,4 @@
-import { Ban, BellRing, Download, HandCoins, Plus, SearchX, Undo2 } from 'lucide-react';
+import { Ban, BellRing, Download, FileText, HandCoins, Plus, SearchX, Undo2 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { paymentsCsv } from '../../../shared/csv';
 import { formatDate, todayIso } from '../../../shared/gst';
@@ -9,6 +9,7 @@ import { DateRangeFilter, Pager, SortableTh, sortBy, usePager, useSort, type Dat
 import { Button, Card, EmptyState, ErrorNote, Field, Figure, IconButton, Input, Money, PageHeader, Pill, SearchInput, Segmented, Select, TableSkeleton } from '../../components/ui';
 import { api } from '../../lib/api';
 import { useQuery, useRefresh } from '../../lib/data';
+import { useDocumentOutput } from '../../lib/documents';
 import { useCsvExport } from '../../lib/exportCsv';
 import { plural } from '../../lib/format';
 import { navigate, paths } from '../../lib/router';
@@ -110,6 +111,7 @@ export function PaymentsPage() {
   const [method, setMethod] = useState<'' | PaymentMethod>('');
   const sort = useSort<'date' | 'customer' | 'method' | 'amount'>('date', 'desc');
   const saveCsv = useCsvExport();
+  const docs = useDocumentOutput();
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search), 150);
@@ -182,7 +184,7 @@ export function PaymentsPage() {
                     <SortableTh label="Method" active={sort.key === 'method'} dir={sort.dir} onSort={() => sort.toggle('method')} />
                     <th className="th">Applied to</th>
                     <SortableTh label="Amount" right active={sort.key === 'amount'} dir={sort.dir} onSort={() => sort.toggle('amount', 'desc')} />
-                    <th className="w-12" />
+                    <th className="w-20" />
                   </tr>
                 </thead>
                 <tbody>
@@ -219,11 +221,16 @@ export function PaymentsPage() {
                         <Money paise={p.amountPaise} className={p.voided ? 'line-through' : ''} />
                       </td>
                       <td className="td">
-                        {!p.voided && (
-                          <IconButton label={`Reverse payment from ${p.customerName}`} onClick={() => setVoiding(p)}>
-                            <Undo2 className="h-4 w-4" />
+                        <div className="flex justify-end gap-0.5">
+                          <IconButton label={`Receipt for ${p.customerName}, ${formatDate(p.receivedOn)}`} onClick={() => void docs.savePdf(paths.printReceipt(p.id), () => api.paymentReceiptExportPdf(p.id))}>
+                            <FileText className="h-4 w-4" />
                           </IconButton>
-                        )}
+                          {!p.voided && (
+                            <IconButton label={`Reverse payment from ${p.customerName}`} onClick={() => setVoiding(p)}>
+                              <Undo2 className="h-4 w-4" />
+                            </IconButton>
+                          )}
+                        </div>
                         {p.voided && <Ban className="h-4 w-4 text-ink-muted/50" aria-label="Reversed" />}
                       </td>
                     </tr>
@@ -345,7 +352,7 @@ export function DuesPage() {
           </>
         )
       )}
-      {reminding && d && <RemindersModal rows={d.rows} businessName={settings.data?.businessName ?? ''} upiId={settings.data?.upiId ?? ''} onClose={() => setReminding(false)} />}
+      {reminding && d && <RemindersModal rows={d.rows} businessName={settings.data?.businessName ?? ''} upiId={settings.data?.upiId ?? ''} template={settings.data?.msgDue ?? ''} onClose={() => setReminding(false)} />}
       {paying?.customerId && <CustomerPaymentModal customerId={paying.customerId} onClose={() => setPaying(null)} />}
     </PaymentsShell>
   );

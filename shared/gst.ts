@@ -95,10 +95,24 @@ export function addDays(isoDate: string, days: number): string {
   return todayIso(new Date(y, m - 1, d + days));
 }
 
-export const isIsoDate = (s: unknown): s is string => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s));
+/** A real calendar date written YYYY-MM-DD. "2026-02-29" and "2026-04-31" are not: the engine would quietly roll them into the next month. */
+export const isIsoDate = (s: unknown): s is string => {
+  if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const [y, m, d] = s.split('-').map(Number) as [number, number, number];
+  const probe = new Date(Date.UTC(y, m - 1, d));
+  return probe.getUTCFullYear() === y && probe.getUTCMonth() === m - 1 && probe.getUTCDate() === d;
+};
+
+// How dates are written. It is a setting (Preferences), applied once when the app loads, so every screen and printout agrees.
+let dateFormat: 'short' | 'slash' | 'iso' = 'short';
+export function setDateFormat(f: 'short' | 'slash' | 'iso'): void {
+  dateFormat = f;
+}
 
 export function formatDate(isoDate: string): string {
   const [y, m, d] = isoDate.split('-').map(Number) as [number, number, number];
+  if (dateFormat === 'iso') return isoDate;
+  if (dateFormat === 'slash') return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`;
   return new Date(y, m - 1, d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 

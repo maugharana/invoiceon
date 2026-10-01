@@ -247,7 +247,10 @@ describe('dashboard overview (sample data)', () => {
       netProfitPaise: reports.salesReport(db, before).grossProfitPaise - rupees(21600 + 3200),
     });
     // The old invoice from 52 days ago still shows in "owed today" even though it's outside the period.
-    expect(o.aging.reduce((s, b) => s + b.paise, 0)).toBeGreaterThan(o.outstandingPaise);
+    // What is owed doesn't depend on the period: the old invoice outside it still counts, and it agrees with aging and the sidebar badge.
+    expect(o.aging.reduce((s, b) => s + b.paise, 0)).toBe(o.outstandingPaise);
+    expect(o.outstandingPaise).toBe(invoices.dashboardSummary(db).outstandingPaise);
+    expect(o.overdueCount).toBe(invoices.dashboardSummary(db).overdueCount);
   });
 
   it('can compare with the same dates a year earlier instead of the period before', () => {

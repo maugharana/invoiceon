@@ -1,5 +1,6 @@
 import { isValidGstin } from '../../shared/gst';
 import { STATE_NAMES } from '../../shared/states';
+import { DATE_FORMATS, LANGUAGES, PAPER_SIZES } from '../../shared/prefs';
 import { isValidUpiId } from '../../shared/upi';
 import { DEFAULT_EXPENSE_CATEGORIES, PAYMENT_ACCOUNT_KINDS, type PaymentAccount, type Settings } from '../../shared/types';
 import { all, run, tx, type Db } from '../db/connection';
@@ -65,6 +66,12 @@ const FIELDS: { [K in keyof Settings]: Field<K> } = {
   paymentAccounts: json<PaymentAccount[]>('payment_accounts', []),
   notifyLowStock: bool('notify_low_stock', true),
   notifyOverdue: bool('notify_overdue', true),
+  paperSize: text('paper_size', 'A4'),
+  dateFormat: text('date_format', 'short'),
+  invoiceLanguage: text('invoice_language', 'en'),
+  msgInvoice: text('msg_invoice'),
+  msgQuote: text('msg_quote'),
+  msgDue: text('msg_due'),
 };
 
 export function getSettings(db: Db): Settings {
@@ -170,6 +177,21 @@ function validate(patch: Partial<Settings>): Partial<Settings> {
   }
   if (patch.notifyLowStock !== undefined) v.notifyLowStock = !!patch.notifyLowStock;
   if (patch.notifyOverdue !== undefined) v.notifyOverdue = !!patch.notifyOverdue;
+  if (patch.paperSize !== undefined) {
+    if (!(PAPER_SIZES as readonly string[]).includes(patch.paperSize)) throw new UserError('Choose A4, A5 or Letter.');
+    v.paperSize = patch.paperSize;
+  }
+  if (patch.dateFormat !== undefined) {
+    if (!(DATE_FORMATS as readonly string[]).includes(patch.dateFormat)) throw new UserError('Choose a date format from the list.');
+    v.dateFormat = patch.dateFormat;
+  }
+  if (patch.invoiceLanguage !== undefined) {
+    if (!(LANGUAGES as readonly string[]).includes(patch.invoiceLanguage)) throw new UserError('Choose English, Hindi or Gujarati.');
+    v.invoiceLanguage = patch.invoiceLanguage;
+  }
+  if (patch.msgInvoice !== undefined) v.msgInvoice = optionalText(patch.msgInvoice, 'Invoice message', 1000);
+  if (patch.msgQuote !== undefined) v.msgQuote = optionalText(patch.msgQuote, 'Quote message', 1000);
+  if (patch.msgDue !== undefined) v.msgDue = optionalText(patch.msgDue, 'Reminder message', 1000);
   return v;
 }
 

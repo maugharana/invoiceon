@@ -1,4 +1,4 @@
-import { ChevronRight, Download, FileText, Plus, SearchX } from 'lucide-react';
+import { ChevronRight, Download, FileText, Plus, Printer, SearchX } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { invoicesCsv } from '../../../shared/csv';
 import { formatDate, todayIso } from '../../../shared/gst';
@@ -6,6 +6,7 @@ import { DateRangeFilter, Pager, SortableTh, sortBy, usePager, useSort, type Dat
 import { Button, Card, EmptyState, ErrorNote, InvoicePill, Money, PageHeader, SearchInput, Segmented, TableSkeleton, TypePill } from '../../components/ui';
 import { api } from '../../lib/api';
 import { useQuery } from '../../lib/data';
+import { useDocumentOutput } from '../../lib/documents';
 import { useCsvExport } from '../../lib/exportCsv';
 import { navigate, paths } from '../../lib/router';
 
@@ -20,6 +21,7 @@ export function InvoicesPage({ initialStatus }: { initialStatus: Status }) {
   const [dates, setDates] = useState<DateRangeValue>({});
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const saveCsv = useCsvExport();
+  const docs = useDocumentOutput();
   const sort = useSort<'date' | 'number' | 'customer' | 'total'>('date', 'desc');
 
   useEffect(() => {
@@ -66,9 +68,21 @@ export function InvoicesPage({ initialStatus }: { initialStatus: Status }) {
         subtitle="Every invoice you've issued, newest first."
         actions={
           !none && (
+            <>
+              {selected.size > 0 && (
+                <>
+                  <Button icon={<Download className="h-4 w-4" />} onClick={() => void docs.savePdf(paths.printInvoices([...selected]), () => api.invoicesExportPdf([...selected]))} title="Save the ticked invoices together in one PDF, one per page">
+                    PDF of {selected.size}
+                  </Button>
+                  <Button icon={<Printer className="h-4 w-4" />} onClick={() => void docs.print(paths.printInvoices([...selected]), () => api.invoicesPrint([...selected]))} title="Print the ticked invoices">
+                    Print {selected.size}
+                  </Button>
+                </>
+              )}
             <Button icon={<Download className="h-4 w-4" />} disabled={toExport.length === 0} onClick={() => void saveCsv(`invoices-${todayIso()}.csv`, invoicesCsv(toExport), 'Invoices saved')} title={selected.size > 0 ? 'Save the ticked invoices as a spreadsheet' : 'Save everything the filters show as a spreadsheet'}>
               {selected.size > 0 ? `Export ${selected.size} selected` : 'Export CSV'}
             </Button>
+            </>
           )
         }
       />

@@ -1,4 +1,4 @@
-import { Download, Pencil, Plus, Receipt, SearchX, Table2, Trash2 } from 'lucide-react';
+import { Download, Pencil, Plus, Receipt, SearchX, Table2, Trash2, Upload } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { expensesBreakdownCsv, expensesCsv } from '../../../shared/csv';
 import { formatDate, todayIso } from '../../../shared/gst';
@@ -8,11 +8,12 @@ import { ConfirmDialog } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { Pager, SortableTh, sortBy, usePager, useSort } from '../../components/listTools';
 import { Button, Card, EmptyState, ErrorNote, Figure, IconButton, Money, PageHeader, SearchInput, Select, TableSkeleton } from '../../components/ui';
-import { api } from '../../lib/api';
+import { api, errorMessage } from '../../lib/api';
 import { useQuery, useRefresh } from '../../lib/data';
 import { useCsvExport } from '../../lib/exportCsv';
 import { plural } from '../../lib/format';
 import { ExpenseFormModal } from './ExpenseFormModal';
+import { ImportExpensesModal } from './ImportExpensesModal';
 
 type Period = 'all' | Exclude<PeriodPreset, 'custom'>;
 const PERIODS: Period[] = ['all', 'this-month', 'last-month', 'this-quarter', 'this-fy', 'last-fy'];
@@ -28,6 +29,7 @@ export function ExpensesPage({ category: initialCategory }: { category: string |
   const [editing, setEditing] = useState<Expense | 'new' | null>(null);
   const [deleting, setDeleting] = useState<Expense | null>(null);
   const [breakdownOpen, setBreakdownOpen] = useState(false);
+  const [importing, setImporting] = useState(false);
   const sort = useSort<'date' | 'category' | 'vendor' | 'method' | 'amount'>('date', 'desc');
   const saveCsv = useCsvExport();
 
@@ -81,9 +83,14 @@ export function ExpensesPage({ category: initialCategory }: { category: string |
         title="Expenses"
         subtitle="What the business spends, by category."
         actions={
-          <Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => setEditing('new')}>
-            New expense
-          </Button>
+          <>
+            <Button icon={<Upload className="h-4 w-4" />} onClick={() => setImporting(true)} title="Add many expenses from an Excel or CSV sheet">
+              Add from a sheet
+            </Button>
+            <Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => setEditing('new')}>
+              New expense
+            </Button>
+          </>
         }
       />
       {(list.error || overview.error) && <ErrorNote>{list.error ?? overview.error}</ErrorNote>}
@@ -271,6 +278,7 @@ export function ExpensesPage({ category: initialCategory }: { category: string |
         </>
       )}
 
+      {importing && <ImportExpensesModal onClose={() => setImporting(false)} />}
       {editing && <ExpenseFormModal expense={editing === 'new' ? undefined : editing} defaultCategory={category} onClose={() => setEditing(null)} />}
       {deleting && (
         <ConfirmDialog
@@ -287,7 +295,8 @@ export function ExpensesPage({ category: initialCategory }: { category: string |
           onConfirm={async () => {
             await api.expenseDelete(deleting.id);
             refresh();
-            toast.success('Expense deleted');
+            const id = deleting.id;
+            toast.success('Expense deleted', { label: 'Undo', onClick: async () => { try { await api.expenseRestore(id); refresh(); toast.success('Expense brought back'); } catch (err) { toast.error(errorMessage(err)); } } });
           }}
         />
       )}

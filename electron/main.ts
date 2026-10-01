@@ -70,6 +70,16 @@ function createHost(getParent: () => BrowserWindow | null): Host {
       }
       return { saved: true, path: filePath };
     },
+    async saveZipFile(fileName, base64) {
+      const filePath = await chooseSavePath(getParent(), 'Save export', fileName, { name: 'ZIP file', extensions: ['zip'] });
+      if (!filePath) return { saved: false };
+      try {
+        await writeFile(filePath, Buffer.from(base64, 'base64'));
+      } catch (err) {
+        throw new UserError(`Couldn't save the file: ${(err as Error).message}`);
+      }
+      return { saved: true, path: filePath };
+    },
     async printDocument(route) {
       const w = await openDocumentWindow(route);
       await new Promise<void>((resolve, reject) => {

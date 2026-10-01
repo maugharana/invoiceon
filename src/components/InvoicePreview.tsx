@@ -26,7 +26,7 @@ export function sampleInvoice(s: Settings): Invoice {
     paidPaise: paid,
     status: 'partial',
     seller: { name: s.businessName || 'Your business name', gstin: s.gstin, address: s.addressLine, city: s.city, state: s.state, pincode: s.pincode, phone: s.phone, email: s.email, terms: s.invoiceTerms, bank: s.invoiceBank, footer: s.invoiceFooter, upiId: s.upiId },
-    branding: { accent: s.invoiceAccent, logo: s.invoiceLogo, showSignature: s.invoiceShowSignature, showUpiQr: s.invoiceShowUpiQr },
+    branding: { accent: s.invoiceAccent, logo: s.invoiceLogo, showSignature: s.invoiceShowSignature, showUpiQr: s.invoiceShowUpiQr, language: s.invoiceLanguage },
     buyer: { name: 'Kanchan Sarees & Fabrics', gstin: '09AABCK1234M1ZI', address: 'Chowk Bazaar', city: 'Varanasi', state: 'Uttar Pradesh', pincode: '221001', phone: '9876500022' },
     placeOfSupply: 'Uttar Pradesh',
     gstRatePercent: s.gstRatePercent,

@@ -62,14 +62,14 @@ export function LowStockCard({ designs, businessName }: { designs: DesignSummary
 }
 
 /** Quotes waiting for an answer, each with a one-click reminder: it opens WhatsApp when the customer has a number, and always copies the message. */
-export function OpenQuotesCard({ quotes, businessName, onNew }: { quotes: ProformaSummary[]; businessName: string; onNew: () => void }) {
+export function OpenQuotesCard({ quotes, businessName, template = '', onNew }: { quotes: ProformaSummary[]; businessName: string; template?: string; onNew: () => void }) {
   const toast = useToast();
   const [busyId, setBusyId] = useState<string | null>(null);
 
   async function remind(q: ProformaSummary) {
     setBusyId(q.id);
     try {
-      const text = quoteReminder(q, businessName);
+      const text = quoteReminder(q, businessName, template);
       const copied = await copyText(text);
       const phone = q.customerId ? whatsappPhone((await api.customerGet(q.customerId)).phone) : null;
       if (phone) {

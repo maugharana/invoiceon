@@ -12,12 +12,12 @@ import { plural } from '../../lib/format';
 const overdueOf = (r: DuesRow) => r.days1to30Paise + r.days31to60Paise + r.days61plusPaise;
 
 /** Everyone with money overdue, each with a ready-written reminder: open it in WhatsApp (when there's a number) or copy it. */
-export function RemindersModal({ rows, businessName, upiId, onClose }: { rows: DuesRow[]; businessName: string; upiId: string; onClose: () => void }) {
+export function RemindersModal({ rows, businessName, upiId, template = '', onClose }: { rows: DuesRow[]; businessName: string; upiId: string; template?: string; onClose: () => void }) {
   const toast = useToast();
   const customers = useQuery(() => api.customersList());
   const phones = new Map((customers.data ?? []).map((c) => [c.id, c.phone]));
   const overdue = rows.filter((r) => r.customerId && overdueOf(r) > 0).sort((a, b) => overdueOf(b) - overdueOf(a));
-  const messageFor = (r: DuesRow) => dueReminder({ customerName: r.customerName, owedPaise: r.outstandingPaise, overduePaise: overdueOf(r), openInvoices: r.openInvoices, oldestDueDate: r.oldestDueDate }, { name: businessName, upiId });
+  const messageFor = (r: DuesRow) => dueReminder({ customerName: r.customerName, owedPaise: r.outstandingPaise, overduePaise: overdueOf(r), openInvoices: r.openInvoices, oldestDueDate: r.oldestDueDate }, { name: businessName, upiId }, template);
 
   async function copyOne(r: DuesRow) {
     if (await copyText(messageFor(r))) toast.success(`Reminder for ${r.customerName} copied`);

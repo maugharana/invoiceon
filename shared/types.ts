@@ -69,6 +69,17 @@ export interface Settings {
   // ── Notifications: badges in the sidebar ──
   notifyLowStock: boolean;
   notifyOverdue: boolean;
+  // ── Look and wording ──
+  /** The paper invoices, statements and receipts are printed on. */
+  paperSize: 'A4' | 'A5' | 'Letter';
+  /** How dates are written everywhere in the app. */
+  dateFormat: 'short' | 'slash' | 'iso';
+  /** The language of the words printed on invoices (names, numbers and amounts are never translated). */
+  invoiceLanguage: 'en' | 'hi' | 'gu';
+  // ── Messages you send, in your own words. Blank means the built-in wording. ──
+  msgInvoice: string;
+  msgQuote: string;
+  msgDue: string;
 }
 
 /** What Data management shows: where the data lives and the backups that exist. */
@@ -84,6 +95,8 @@ export interface InvoiceBranding {
   logo: string;
   showSignature: boolean;
   showUpiQr: boolean;
+  /** The language of the words printed on the document. */
+  language: 'en' | 'hi' | 'gu';
 }
 
 // ── Raw materials ───────────────────────────────────────────────────────────
@@ -898,7 +911,7 @@ export interface DashboardOverview {
   /** Payments that arrived in the period. */
   receivedPaise: Paise;
   paymentCount: number;
-  /** Of the period's invoices, what is still owed. */
+  /** Everything still owed on issued invoices as of today (not limited to the period). */
   outstandingPaise: Paise;
   openInvoices: number;
   overduePaise: Paise;
@@ -1058,4 +1071,36 @@ export interface DayBook {
   outPaise: Paise;
   invoicedPaise: Paise;
   entries: DayBookEntry[];
+}
+
+// ── Bulk tools ──────────────────────────────────────────────────────────────
+export interface CustomerImportResult {
+  created: number;
+  skipped: { row: number; name: string; reason: string }[];
+}
+
+export interface StockTakeLine {
+  variantId: string;
+  counted: number;
+}
+
+export interface StockTakeResult {
+  checked: number;
+  /** How many variants had a different count and were adjusted. */
+  adjusted: number;
+  /** Net change in pieces across everything adjusted. */
+  pieceDifference: number;
+  changes: { variantId: string; before: number; after: number }[];
+}
+
+export type BulkDesignAction =
+  | { ids: string[]; kind: 'archive' }
+  | { ids: string[]; kind: 'reorder'; level: number }
+  /** `set`: every variant's selling price becomes `value` (paise). `percent`: prices change by `value` percent (negative to lower them). */
+  | { ids: string[]; kind: 'price'; mode: 'set' | 'percent'; value: number };
+
+export interface BulkDesignResult {
+  designs: number;
+  /** Variants whose reorder level or price was changed (0 for archive). */
+  variants: number;
 }

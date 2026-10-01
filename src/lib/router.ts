@@ -6,7 +6,7 @@ import { PAYMENT_METHODS, type PaymentMethod, type ProformaStatus } from '../../
 
 export type Section = 'dashboard' | 'inventory' | 'invoices' | 'proformas' | 'customers' | 'payments' | 'expenses' | 'reports' | 'settings';
 
-export const SETTINGS_SECTIONS = ['business', 'tax', 'invoice', 'proforma', 'expenses', 'accounts', 'instructions', 'notifications', 'data', 'preferences', 'plus'] as const;
+export const SETTINGS_SECTIONS = ['business', 'tax', 'invoice', 'proforma', 'expenses', 'accounts', 'instructions', 'notifications', 'messages', 'data', 'preferences', 'plus'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 export type Route =
@@ -14,6 +14,7 @@ export type Route =
   | { name: 'inventory'; status: 'all' | 'low' | 'out' }
   | { name: 'materials' }
   | { name: 'inventory-add' }
+  | { name: 'stock-take' }
   | { name: 'design'; id: string }
   | { name: 'invoices'; status: 'all' | 'open' | 'overdue' | 'cancelled' }
   | { name: 'invoice-new'; customerId: string | null; advance: AdvancePreset | null; /** An earlier invoice to start from (Duplicate). */ copyFrom: string | null }
@@ -31,6 +32,9 @@ export type Route =
   /** Bare invoice document with no app chrome — what PDF export and printing render. */
   | { name: 'print-invoice'; id: string }
   | { name: 'print-proforma'; id: string }
+  | { name: 'print-statement'; id: string }
+  | { name: 'print-receipt'; id: string }
+  | { name: 'print-invoices'; ids: string[] }
   | { name: 'reports'; tab: ReportTab; period: PeriodSpec; /** Stock valuation date; null means today. */ asOf: string | null };
 
 export const REPORT_TABS = ['sales', 'profit', 'margin', 'gst', 'daybook', 'stock', 'movement', 'movers', 'receivables'] as const;
@@ -53,6 +57,7 @@ export function parseHash(hash: string): Route {
     case 'inventory': {
       if (parts[1] === 'materials') return { name: 'materials' };
       if (parts[1] === 'add') return { name: 'inventory-add' };
+      if (parts[1] === 'stock-take') return { name: 'stock-take' };
       if (parts[1] === 'designs' && id) return { name: 'design', id };
       const status = params.get('status');
       return { name: 'inventory', status: status === 'low' || status === 'out' ? status : 'all' };
@@ -84,6 +89,9 @@ export function parseHash(hash: string): Route {
     case 'print':
       if (parts[1] === 'invoice' && id) return { name: 'print-invoice', id };
       if (parts[1] === 'proforma' && id) return { name: 'print-proforma', id };
+      if (parts[1] === 'statement' && id) return { name: 'print-statement', id };
+      if (parts[1] === 'receipt' && id) return { name: 'print-receipt', id };
+      if (parts[1] === 'invoices') return { name: 'print-invoices', ids: (params.get('ids') ?? '').split(',').map(decodeURIComponent).filter(Boolean) };
       return { name: 'dashboard' };
     case 'payments':
       return parts[1] === 'dues' ? { name: 'dues' } : { name: 'payments' };
@@ -112,6 +120,7 @@ export const sectionOf = (route: Route): Section => {
     case 'inventory':
     case 'materials':
     case 'inventory-add':
+    case 'stock-take':
     case 'design':
       return 'inventory';
     case 'invoices':
@@ -125,6 +134,12 @@ export const sectionOf = (route: Route): Section => {
     case 'proforma':
     case 'print-proforma':
       return 'proformas';
+    case 'print-statement':
+      return 'customers';
+    case 'print-receipt':
+      return 'payments';
+    case 'print-invoices':
+      return 'invoices';
     case 'expenses':
       return 'expenses';
     case 'customers':
@@ -141,6 +156,7 @@ export const paths = {
   inventory: (status?: 'low' | 'out') => (status ? `/inventory?status=${status}` : '/inventory'),
   materials: '/inventory/materials',
   addSarees: '/inventory/add',
+  stockTake: '/inventory/stock-take',
   design: (id: string) => `/inventory/designs/${encodeURIComponent(id)}`,
   invoices: (status?: 'open' | 'overdue' | 'cancelled') => (status ? `/invoices?status=${status}` : '/invoices'),
   newInvoice: (customerId?: string, advance?: AdvancePreset) => {
@@ -175,6 +191,9 @@ export const paths = {
     return `/reports/${tab}${q.size ? `?${q}` : ''}`;
   },
   invoice: (id: string) => `/invoices/${encodeURIComponent(id)}`,
+  printStatement: (customerId: string) => `/print/statement/${encodeURIComponent(customerId)}`,
+  printReceipt: (paymentId: string) => `/print/receipt/${encodeURIComponent(paymentId)}`,
+  printInvoices: (ids: string[]) => `/print/invoices?ids=${ids.map(encodeURIComponent).join(',')}`,
   customers: '/customers',
   customer: (id: string) => `/customers/${encodeURIComponent(id)}`,
   settings: '/settings',

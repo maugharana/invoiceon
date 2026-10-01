@@ -222,7 +222,8 @@ export function DesignPage({ id }: { id: string }) {
           onConfirm={async () => {
             await api.variantArchive(dialog.variant.id);
             refresh();
-            toast.success('Variant archived');
+            const id = dialog.variant.id;
+            toast.success('Variant archived', { label: 'Undo', onClick: async () => { try { await api.variantRestore(id); refresh(); toast.success('Variant brought back'); } catch (err) { toast.error(errorMessage(err)); } } });
           }}
         />
       )}
@@ -241,7 +242,8 @@ export function DesignPage({ id }: { id: string }) {
           onConfirm={async () => {
             await api.designArchive(d.id);
             refresh();
-            toast.success(`${d.name} archived`);
+            const id = d.id;
+            toast.success(`${d.name} archived`, { label: 'Undo', onClick: async () => { try { await api.designRestore(id); refresh(); toast.success('Design brought back'); } catch (err) { toast.error(errorMessage(err)); } } });
             navigate(paths.inventory());
           }}
         />
