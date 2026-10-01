@@ -1,5 +1,6 @@
 import { isValidGstin } from '../../shared/gst';
 import { STATE_NAMES } from '../../shared/states';
+import { isValidUpiId } from '../../shared/upi';
 import { DEFAULT_EXPENSE_CATEGORIES, PAYMENT_ACCOUNT_KINDS, type PaymentAccount, type Settings } from '../../shared/types';
 import { all, run, tx, type Db } from '../db/connection';
 import { UserError, nowIso, optionalText, requireInt, requireText } from './common';
@@ -55,6 +56,8 @@ const FIELDS: { [K in keyof Settings]: Field<K> } = {
   invoiceBank: text('invoice_bank'),
   invoiceFooter: text('invoice_footer'),
   invoiceShowSignature: bool('invoice_show_signature', true),
+  upiId: text('upi_id'),
+  invoiceShowUpiQr: bool('invoice_show_upi_qr', true),
   proformaPrefix: text('proforma_prefix', 'PF'),
   proformaValidDays: num('proforma_valid_days', 15),
   proformaTerms: text('proforma_terms'),
@@ -122,6 +125,12 @@ function validate(patch: Partial<Settings>): Partial<Settings> {
   if (patch.invoiceBank !== undefined) v.invoiceBank = optionalText(patch.invoiceBank, 'Bank details', 300);
   if (patch.invoiceFooter !== undefined) v.invoiceFooter = optionalText(patch.invoiceFooter, 'Footer note', 200);
   if (patch.invoiceShowSignature !== undefined) v.invoiceShowSignature = !!patch.invoiceShowSignature;
+  if (patch.upiId !== undefined) {
+    const id = optionalText(patch.upiId, 'UPI ID', 60).replace(/\s+/g, '');
+    if (id && !isValidUpiId(id)) throw new UserError("That UPI ID doesn't look right. It should look like name@bank.");
+    v.upiId = id;
+  }
+  if (patch.invoiceShowUpiQr !== undefined) v.invoiceShowUpiQr = !!patch.invoiceShowUpiQr;
   if (patch.ownerName !== undefined) v.ownerName = optionalText(patch.ownerName, 'Your name', 80);
   if (patch.country !== undefined) {
     if (!COUNTRIES.includes(patch.country)) throw new UserError('InvoiceOn handles GST, so India is the only country for now.');

@@ -39,6 +39,7 @@ export function loadSampleData(db: Db): void {
         pincode: '275101',
         phone: '9876543210',
         email: 'hello@maugharana.example',
+        upiId: 'maugharana@sbi',
         invoiceBank: 'State Bank of India, Mau branch\nA/c 1234567890 · IFSC SBIN0001234\nUPI: maugharana@sbi',
         invoiceFooter: 'Thank you for shopping with Mau Gharana!',
         proformaTerms: '50% advance to confirm the order. Balance before dispatch.',

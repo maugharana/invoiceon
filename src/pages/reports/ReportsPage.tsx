@@ -6,31 +6,17 @@ import { formatMoney } from '../../../shared/money';
 import { PERIOD_LABEL, PERIOD_PRESETS, resolvePeriod, type PeriodPreset, type PeriodSpec } from '../../../shared/periods';
 import { PAYMENT_METHOD_LABEL } from '../../../shared/types';
 import { SalesChart, bucketLabel } from '../../components/SalesChart';
-import { useToast } from '../../components/Toast';
+import { useCsvExport } from '../../lib/exportCsv';
 import { Button, Card, EmptyState, ErrorNote, Field, Figure, Input, Money, PageHeader, Segmented, Spinner, TypePill } from '../../components/ui';
-import { api, errorMessage } from '../../lib/api';
+import { api } from '../../lib/api';
 import { useQuery } from '../../lib/data';
 import { plural } from '../../lib/format';
 import { navigate, paths, type ReportTab } from '../../lib/router';
 
 // ── Saving a report as CSV ──────────────────────────────────────────────────
-/** Desktop: a save dialog via the main process. Browser dev mode: a normal file download. */
-function useCsvExport() {
-  const toast = useToast();
-  return async (fileName: string, content: string) => {
-    try {
-      if (window.invoiceon) {
-        const result = await api.exportSave(fileName, content);
-        if (result.saved) toast.success('Report saved');
-      } else {
-        const url = URL.createObjectURL(new Blob([content], { type: 'text/csv;charset=utf-8' }));
-        Object.assign(document.createElement('a'), { href: url, download: fileName }).click();
-        URL.revokeObjectURL(url);
-      }
-    } catch (err) {
-      toast.error(errorMessage(err));
-    }
-  };
+function useReportExport() {
+  const save = useCsvExport();
+  return (fileName: string, content: string) => save(fileName, content, 'Report saved');
 }
 
 const ExportButton = ({ label = 'Export CSV', onClick }: { label?: string; onClick: () => void }) => (
@@ -111,7 +97,7 @@ const Section = ({ title, note, actions, children }: { title: string; note?: Rea
 
 // ── Sales ───────────────────────────────────────────────────────────────────
 function SalesTab({ period }: { period: PeriodSpec }) {
-  const exportCsv = useCsvExport();
+  const exportCsv = useReportExport();
   const range = resolvePeriod(period);
   const report = useQuery(() => api.reportSales(range), [range.from, range.to]);
   const [asTable, setAsTable] = useState(false);
@@ -293,7 +279,7 @@ function SalesTab({ period }: { period: PeriodSpec }) {
 
 // ── GST ─────────────────────────────────────────────────────────────────────
 function GstTab({ period }: { period: PeriodSpec }) {
-  const exportCsv = useCsvExport();
+  const exportCsv = useReportExport();
   const range = resolvePeriod(period);
   const report = useQuery(() => api.reportGst(range), [range.from, range.to]);
   const r = report.data;
@@ -485,7 +471,7 @@ function GstTab({ period }: { period: PeriodSpec }) {
 
 // ── Stock valuation ─────────────────────────────────────────────────────────
 function StockTab({ asOf }: { asOf: string | null }) {
-  const exportCsv = useCsvExport();
+  const exportCsv = useReportExport();
   const today = todayIso();
   const date = asOf ?? today;
   const report = useQuery(() => api.reportStock(date), [date]);

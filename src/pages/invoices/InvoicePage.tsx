@@ -1,15 +1,18 @@
-import { ArrowLeft, Ban, Download, HandCoins, Printer } from 'lucide-react';
+import { ArrowLeft, Ban, ClipboardCopy, Copy, Download, HandCoins, Mail, MessageCircle, Printer, Send } from 'lucide-react';
 import { useState } from 'react';
 import { formatDate } from '../../../shared/gst';
+import { invoiceMessage, mailtoLink, whatsappLink, whatsappPhone } from '../../../shared/messages';
 import { formatMoney } from '../../../shared/money';
 import { PAYMENT_METHOD_LABEL } from '../../../shared/types';
 import { InvoiceDocument } from '../../components/InvoiceDocument';
+import { Menu } from '../../components/Menu';
 import { ConfirmDialog } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { Button, Card, ErrorNote, Field, Figure, Input, InvoicePill, Money, PageHeader, Spinner, TypePill } from '../../components/ui';
 import { api, errorMessage } from '../../lib/api';
+import { copyText } from '../../lib/clipboard';
 import { useQuery, useRefresh } from '../../lib/data';
-import { paths } from '../../lib/router';
+import { navigate, paths } from '../../lib/router';
 import { RecordPaymentModal } from '../payments/RecordPaymentModal';
 
 export function InvoicePage({ id }: { id: string }) {
@@ -69,6 +72,23 @@ export function InvoicePage({ id }: { id: string }) {
   };
   const exportPdf = () => (window.invoiceon ? run('pdf', async () => ((await api.invoiceExportPdf(id)).saved ? toast.success('PDF saved') : undefined)) : openPrintView());
   const print = () => (window.invoiceon ? run('print', () => api.invoicePrint(id)) : openPrintView());
+  // Sharing: a ready-written message. WhatsApp and email can't take the PDF from us, so the person attaches the one they save.
+  const message = invoiceMessage(inv, { name: inv.seller.name, upiId: inv.seller.upiId });
+  const phone = whatsappPhone(inv.buyer.phone ?? '');
+  const email = customer.data?.email ?? '';
+  const remindToAttach = 'Save the PDF (Save PDF) and attach it before you send.';
+  const shareWhatsApp = () => {
+    if (!phone) return;
+    window.open(whatsappLink(phone, message.body), '_blank');
+    toast.info(`WhatsApp opened with the message. ${remindToAttach}`);
+  };
+  const shareEmail = () => {
+    window.open(mailtoLink(email, message.subject, message.body), '_blank');
+    toast.info(`Your mail program opened with the message. ${remindToAttach}`);
+  };
+  const copyMessage = async () => (await copyText(`${message.subject}
+
+${message.body}`)) ? toast.success('Message copied — paste it anywhere') : toast.error('Couldn’t copy to the clipboard');
   const applyAdvance = () =>
     run('advance', async () => {
       const after = await api.invoiceApplyAdvance(id);
@@ -95,6 +115,20 @@ export function InvoicePage({ id }: { id: string }) {
             </Button>
             <Button icon={<Printer className="h-4 w-4" />} loading={busy === 'print'} disabled={busy !== null} onClick={() => void print()}>
               Print
+            </Button>
+            {!cancelled && (
+              <Menu
+                label="Share"
+                icon={<Send className="h-4 w-4" />}
+                items={[
+                  { label: 'WhatsApp', icon: <MessageCircle className="h-4 w-4" />, onClick: shareWhatsApp, disabledReason: phone ? undefined : 'No phone number saved for this customer' },
+                  { label: 'Email', icon: <Mail className="h-4 w-4" />, onClick: shareEmail },
+                  { label: 'Copy the message', icon: <ClipboardCopy className="h-4 w-4" />, onClick: () => void copyMessage() },
+                ]}
+              />
+            )}
+            <Button icon={<Copy className="h-4 w-4" />} onClick={() => navigate(paths.duplicateInvoice(id))} title="Start a new invoice with the same customer, items and prices">
+              Duplicate
             </Button>
             {!cancelled && (
               <Button variant="danger" icon={<Ban className="h-4 w-4" />} onClick={() => setCancelling(true)}>

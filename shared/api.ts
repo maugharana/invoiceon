@@ -63,6 +63,8 @@ export interface Api {
   designCreate(input: DesignInput): Promise<DesignDetail>;
   designUpdate(id: string, input: DesignInput): Promise<DesignDetail>;
   designArchive(id: string): Promise<void>;
+  /** A new design copied from this one: same details, and a copy of each variant with its price and raw-material costing, but no stock. */
+  designDuplicate(id: string): Promise<DesignDetail>;
 
   /** Adds many sarees at once. All or nothing: if any row has a problem, none are added and the problems come back per row. */
   inventoryBulkAdd(rows: BulkSareeRow[]): Promise<BulkAddResult>;

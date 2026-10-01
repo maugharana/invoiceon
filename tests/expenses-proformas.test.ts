@@ -7,7 +7,7 @@ import * as expenses from '../electron/services/expenses';
 import { reorderList } from '../electron/services/deadstock';
 import { DASHBOARD_SECTIONS, defaultLayout, moveSection, normaliseLayout, toggleSection, visibleSections } from '../shared/dashboardLayout';
 import { FESTIVALS, festivalById, festivalSeason } from '../shared/festivals';
-import { quoteReminder, reorderNote, whatsappLink, whatsappPhone } from '../shared/messages';
+import { invoiceMessage, mailtoLink, quoteReminder, reorderNote, whatsappLink, whatsappPhone } from '../shared/messages';
 import * as inventory from '../electron/services/inventory';
 import * as invoices from '../electron/services/invoices';
 import * as customers from '../electron/services/customers';
@@ -452,6 +452,22 @@ describe('dashboard layout', () => {
 });
 
 describe('reminders and reorder notes', () => {
+  it('writes an invoice message that says what is owed, by when, and where to pay', () => {
+    const inv = { number: 'MG/2026-27/0004', buyerName: 'Sunita Devi', totalPaise: rupees(10500), paidPaise: rupees(2500), dueDate: '2026-10-20' };
+    const m = invoiceMessage(inv, { name: 'Mau Gharana', upiId: 'maugharana@sbi' });
+    expect(m.subject).toBe('Invoice MG/2026-27/0004 from Mau Gharana');
+    expect(m.body).toContain('Hello Sunita Devi,');
+    expect(m.body).toContain('₹10,500');
+    expect(m.body).toContain('We have received ₹2,500.');
+    expect(m.body).toContain('balance of ₹8,000 is due by');
+    expect(m.body).toContain('maugharana@sbi');
+    const paid = invoiceMessage({ ...inv, paidPaise: inv.totalPaise }, { name: 'Mau Gharana', upiId: 'maugharana@sbi' });
+    expect(paid.body).toContain('paid in full');
+    expect(paid.body).not.toContain('maugharana@sbi');
+    expect(invoiceMessage({ ...inv, buyerName: 'Walk-in customer', dueDate: null }, { name: '', upiId: '' }).body).toMatch(/^Hello there,[\s\S]*is due\./);
+    expect(mailtoLink('a b@x.com', 'Hi there', 'Line 1\nLine 2')).toBe('mailto:a%20b%40x.com?subject=Hi%20there&body=Line%201%0ALine%202');
+  });
+
   it('turns a phone number into one WhatsApp understands', () => {
     expect(whatsappPhone('98765 43210')).toBe('919876543210');
     expect(whatsappPhone('09876543210')).toBe('919876543210');

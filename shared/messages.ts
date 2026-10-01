@@ -41,3 +41,21 @@ export function reorderNote(rows: ReorderRow[], businessName: string, today: str
   });
   return [`Reorder list${businessName ? ` — ${businessName}` : ''} — ${formatDate(today)}`, ...lines].join('\n\n');
 }
+
+/** A friendly message to send with an invoice: what it's for, what is still owed and by when, and where to pay. */
+export function invoiceMessage(inv: { number: string; buyerName: string; totalPaise: number; paidPaise: number; dueDate: string | null }, seller: { name: string; upiId: string }): { subject: string; body: string } {
+  const name = inv.buyerName && inv.buyerName !== 'Walk-in customer' ? inv.buyerName : 'there';
+  const owed = inv.totalPaise - inv.paidPaise;
+  const money = (p: number) => formatMoney(p, { fractionDigits: p % 100 === 0 ? 0 : 2 });
+  const lines = [`Hello ${name},`, `Thank you for shopping with ${seller.name || 'us'}. Your invoice ${inv.number} for ${money(inv.totalPaise)} is attached.`];
+  if (owed <= 0) lines.push('It has been paid in full. Thank you!');
+  else {
+    lines.push(`${inv.paidPaise > 0 ? `We have received ${money(inv.paidPaise)}. ` : ''}The balance of ${money(owed)} is due${inv.dueDate ? ` by ${formatDate(inv.dueDate)}` : ''}.`);
+    if (seller.upiId) lines.push(`You can pay by UPI to ${seller.upiId}, or scan the QR code on the invoice.`);
+  }
+  lines.push(seller.name ? `Warm regards, ${seller.name}` : 'Thank you');
+  return { subject: `Invoice ${inv.number}${seller.name ? ` from ${seller.name}` : ''}`, body: lines.join('\n\n') };
+}
+
+/** A link that opens the person's mail program with the message ready to send. */
+export const mailtoLink = (to: string, subject: string, body: string): string => `mailto:${encodeURIComponent(to.trim())}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;

@@ -1,10 +1,12 @@
-import { ChevronRight, FileText, Plus, SearchX } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { formatDate } from '../../../shared/gst';
+import { ChevronRight, Download, FileText, Plus, SearchX } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { invoicesCsv } from '../../../shared/csv';
+import { formatDate, todayIso } from '../../../shared/gst';
+import { DateRangeFilter, Pager, SortableTh, sortBy, usePager, useSort, type DateRangeValue } from '../../components/listTools';
 import { Button, Card, EmptyState, ErrorNote, InvoicePill, Money, PageHeader, SearchInput, Segmented, TableSkeleton, TypePill } from '../../components/ui';
 import { api } from '../../lib/api';
 import { useQuery } from '../../lib/data';
-import { plural } from '../../lib/format';
+import { useCsvExport } from '../../lib/exportCsv';
 import { navigate, paths } from '../../lib/router';
 
 type Status = 'all' | 'open' | 'overdue' | 'cancelled';
@@ -15,20 +17,61 @@ export function InvoicesPage({ initialStatus }: { initialStatus: Status }) {
   const [type, setType] = useState<Type>('all');
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
+  const [dates, setDates] = useState<DateRangeValue>({});
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const saveCsv = useCsvExport();
+  const sort = useSort<'date' | 'number' | 'customer' | 'total'>('date', 'desc');
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search), 150);
     return () => clearTimeout(t);
   }, [search]);
 
-  const invoices = useQuery(() => api.invoicesList({ search: debounced, status, type }), [debounced, status, type]);
+  const invoices = useQuery(() => api.invoicesList({ search: debounced, status, type, from: dates.from, to: dates.to }), [debounced, status, type, dates.from, dates.to]);
   const anyInvoices = useQuery(() => api.invoicesList());
   const list = invoices.data;
+  const sorted = useMemo(() => {
+    const rows = list ?? [];
+    if (sort.key === 'date') return sortBy(rows, (i) => i.issueDate + String(i.number), sort.dir);
+    if (sort.key === 'number') return sortBy(rows, (i) => i.number, sort.dir);
+    if (sort.key === 'customer') return sortBy(rows, (i) => i.buyerName, sort.dir);
+    return sortBy(rows, (i) => i.totalPaise, sort.dir);
+  }, [list, sort.key, sort.dir]);
+  const pager = usePager(sorted);
+  const toExport = selected.size > 0 ? sorted.filter((i) => selected.has(i.id)) : sorted;
+  const pageAllSelected = pager.pageItems.length > 0 && pager.pageItems.every((i) => selected.has(i.id));
+  const toggleOne = (id: string) =>
+    setSelected((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const togglePage = () =>
+    setSelected((s) => {
+      const next = new Set(s);
+      for (const i of pager.pageItems) {
+        if (pageAllSelected) next.delete(i.id);
+        else next.add(i.id);
+      }
+      return next;
+    });
+  useEffect(() => pager.setPage(0), [debounced, status, type, dates.from, dates.to, sort.key, sort.dir]); // eslint-disable-line react-hooks/exhaustive-deps
   const none = anyInvoices.data?.length === 0;
 
   return (
     <>
-      <PageHeader title="Invoices" subtitle="Every invoice you've issued, newest first." />
+      <PageHeader
+        title="Invoices"
+        subtitle="Every invoice you've issued, newest first."
+        actions={
+          !none && (
+            <Button icon={<Download className="h-4 w-4" />} disabled={toExport.length === 0} onClick={() => void saveCsv(`invoices-${todayIso()}.csv`, invoicesCsv(toExport), 'Invoices saved')} title={selected.size > 0 ? 'Save the ticked invoices as a spreadsheet' : 'Save everything the filters show as a spreadsheet'}>
+              {selected.size > 0 ? `Export ${selected.size} selected` : 'Export CSV'}
+            </Button>
+          )
+        }
+      />
       {invoices.error && <ErrorNote>{invoices.error}</ErrorNote>}
 
       {none ? (
@@ -48,7 +91,8 @@ export function InvoicesPage({ initialStatus }: { initialStatus: Status }) {
         <>
           <div className="mb-4 flex items-center justify-between gap-4">
             <SearchInput value={search} onChange={setSearch} placeholder="Search invoice number or customer" />
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              <DateRangeFilter onChange={setDates} />
               <Segmented
                 label="Invoice type"
                 value={type}
@@ -97,17 +141,20 @@ export function InvoicesPage({ initialStatus }: { initialStatus: Status }) {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-line">
-                    <th className="th">Invoice</th>
-                    <th className="th">Date</th>
-                    <th className="th">Customer</th>
+                    <th className="w-10 pl-4">
+                      <input type="checkbox" checked={pageAllSelected} onChange={togglePage} aria-label="Select all invoices on this page" className="h-4 w-4 accent-[#0F6E56]" />
+                    </th>
+                    <SortableTh label="Invoice" active={sort.key === 'number'} dir={sort.dir} onSort={() => sort.toggle('number')} />
+                    <SortableTh label="Date" active={sort.key === 'date'} dir={sort.dir} onSort={() => sort.toggle('date', 'desc')} />
+                    <SortableTh label="Customer" active={sort.key === 'customer'} dir={sort.dir} onSort={() => sort.toggle('customer')} />
                     <th className="th">Type</th>
-                    <th className="th text-right">Total</th>
+                    <SortableTh label="Total" right active={sort.key === 'total'} dir={sort.dir} onSort={() => sort.toggle('total', 'desc')} />
                     <th className="th">Status</th>
                     <th className="w-10" />
                   </tr>
                 </thead>
                 <tbody>
-                  {list?.map((i) => (
+                  {pager.pageItems.map((i) => (
                     <tr
                       key={i.id}
                       tabIndex={0}
@@ -115,6 +162,9 @@ export function InvoicesPage({ initialStatus }: { initialStatus: Status }) {
                       onKeyDown={(e) => e.key === 'Enter' && navigate(paths.invoice(i.id))}
                       className="animate-fade-in group cursor-pointer border-b border-line/70 transition-colors duration-150 last:border-0 hover:bg-canvas focus-visible:bg-canvas"
                     >
+                      <td className="w-10 pl-4" onClick={(e) => e.stopPropagation()}>
+                        <input type="checkbox" checked={selected.has(i.id)} onChange={() => toggleOne(i.id)} aria-label={`Select ${i.number}`} className="h-4 w-4 accent-[#0F6E56]" />
+                      </td>
                       <td className="td num whitespace-nowrap">{i.number}</td>
                       <td className="td num whitespace-nowrap text-ink-muted">{formatDate(i.issueDate)}</td>
                       <td className="td">{i.buyerName}</td>
@@ -136,7 +186,7 @@ export function InvoicesPage({ initialStatus }: { initialStatus: Status }) {
               </table>
             )}
           </Card>
-          {list && list.length > 0 && <p className="mt-3 text-xs text-ink-muted">Showing {plural(list.length, 'invoice')}</p>}
+          {list && list.length > 0 && <Pager pager={pager} noun="invoice" />}
         </>
       )}
     </>

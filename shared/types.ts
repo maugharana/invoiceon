@@ -54,6 +54,10 @@ export interface Settings {
   /** A closing line, e.g. "Thank you for shopping with us". */
   invoiceFooter: string;
   invoiceShowSignature: boolean;
+  /** Your UPI ID (like name@bank). With it, invoices can print a QR code that opens a payment for the balance. '' for none. */
+  upiId: string;
+  /** Print that QR code on invoices that still have a balance. Needs a UPI ID. */
+  invoiceShowUpiQr: boolean;
   // ── Proforma invoices (a quote to pay against; no stock or tax effect) ──
   proformaPrefix: string;
   /** Days a proforma stays valid. */
@@ -79,6 +83,7 @@ export interface InvoiceBranding {
   accent: string;
   logo: string;
   showSignature: boolean;
+  showUpiQr: boolean;
 }
 
 // ── Raw materials ───────────────────────────────────────────────────────────
@@ -141,6 +146,17 @@ export interface DesignSummary {
   totalStock: number;
   stockValuePaise: Paise;
   status: StockStatus;
+  /** The lowest and highest selling price among the variants that have one, before GST. Both 0 when none is priced. */
+  minPricePaise: Paise;
+  maxPricePaise: Paise;
+  /** Profit as a share of the selling price, across the variants that have a price. Null when none is priced. */
+  marginPercent: number | null;
+  /** The day the design last sold, or null if it never has. */
+  lastSoldOn: string | null;
+  /** Pieces sold in the last 30 days. */
+  soldLast30Days: number;
+  /** At the last 30 days' pace, how many days the stock on hand will last. Null when nothing sold recently, 0 when out of stock. */
+  daysOfStock: number | null;
 }
 export interface DesignDetail extends DesignSummary {
   variants: Variant[];
@@ -420,7 +436,7 @@ export interface Invoice extends InvoiceSummary {
    * The seller's details as they were when the invoice was issued. Content that matters legally or to the customer (address,
    * GSTIN, terms, where to pay) is frozen here; how it's dressed is `branding`, below.
    */
-  seller: Party & { email: string; terms: string; bank: string; footer: string };
+  seller: Party & { email: string; terms: string; bank: string; footer: string; upiId: string };
   branding: InvoiceBranding;
   buyer: Party;
   placeOfSupply: string;
@@ -466,6 +482,9 @@ export interface InvoiceQuery {
   type?: 'all' | InvoiceType;
   status?: 'all' | 'open' | 'overdue' | 'cancelled';
   customerId?: string;
+  /** Only invoices dated on or after / on or before these days ("YYYY-MM-DD"). */
+  from?: string;
+  to?: string;
 }
 
 /** One sellable variant, flattened for the invoice item picker. */
@@ -682,7 +701,7 @@ export interface ProformaSummary {
 }
 
 export interface Proforma extends ProformaSummary {
-  seller: Party & { email: string; terms: string; bank: string; footer: string };
+  seller: Party & { email: string; terms: string; bank: string; footer: string; upiId: string };
   branding: InvoiceBranding;
   buyer: Party;
   placeOfSupply: string;

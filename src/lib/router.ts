@@ -16,7 +16,7 @@ export type Route =
   | { name: 'inventory-add' }
   | { name: 'design'; id: string }
   | { name: 'invoices'; status: 'all' | 'open' | 'overdue' | 'cancelled' }
-  | { name: 'invoice-new'; customerId: string | null; advance: AdvancePreset | null }
+  | { name: 'invoice-new'; customerId: string | null; advance: AdvancePreset | null; /** An earlier invoice to start from (Duplicate). */ copyFrom: string | null }
   | { name: 'payments' }
   | { name: 'dues' }
   | { name: 'invoice'; id: string }
@@ -60,7 +60,7 @@ export function parseHash(hash: string): Route {
         const amount = Number(params.get('advance'));
         const method = params.get('method') as PaymentMethod;
         const advance: AdvancePreset | null = Number.isInteger(amount) && amount > 0 ? { amountPaise: amount, method: (PAYMENT_METHODS as readonly string[]).includes(method) ? method : 'cash', reference: params.get('ref') ?? '' } : null;
-        return { name: 'invoice-new', customerId: params.get('customer'), advance };
+        return { name: 'invoice-new', customerId: params.get('customer'), advance, copyFrom: params.get('copy') };
       }
       if (parts[1]) return { name: 'invoice', id: decodeURIComponent(parts[1]) };
       const status = params.get('status');
@@ -149,6 +149,8 @@ export const paths = {
     }
     return q.size ? `/invoices/new?${q}` : '/invoices/new';
   },
+  /** A new invoice that starts as a copy of an earlier one: same customer, items, prices, discount and notes; today's date; no payment. */
+  duplicateInvoice: (id: string) => `/invoices/new?copy=${encodeURIComponent(id)}`,
   proformas: (status?: ProformaStatus) => (status ? `/proformas?status=${status}` : '/proformas'),
   newProforma: (customerId?: string) => (customerId ? `/proformas/new?customer=${encodeURIComponent(customerId)}` : '/proformas/new'),
   proforma: (id: string) => `/proformas/${encodeURIComponent(id)}`,

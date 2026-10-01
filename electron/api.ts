@@ -42,6 +42,7 @@ export function createApi(db: Db, host?: Host, dataDir?: string): Api {
     designNextCode: async () => inventory.nextDesignCode(db),
     designCreate: async (input) => inventory.createDesign(db, input),
     designUpdate: async (id, input) => inventory.updateDesign(db, id, input),
+    designDuplicate: async (id) => inventory.duplicateDesign(db, id),
     designArchive: async (id) => inventory.archiveDesign(db, id),
 
     inventoryBulkAdd: async (rows) => inventory.bulkAddSarees(db, rows),

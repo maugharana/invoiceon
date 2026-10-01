@@ -78,7 +78,7 @@ function toProforma(db: Db, r: Row): Proforma {
   );
   return {
     ...toSummary(r),
-    seller: { bank: '', footer: '', ...JSON.parse(r.seller_json) },
+    seller: { bank: '', footer: '', upiId: '', ...JSON.parse(r.seller_json) },
     branding: brandingOf(db),
     buyer: JSON.parse(r.buyer_json),
     placeOfSupply: r.place_of_supply,

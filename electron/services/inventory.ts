@@ -1,3 +1,4 @@
+import { addDays, todayIso } from '../../shared/gst';
 import { mulPaise } from '../../shared/money';
 import { matchesAll } from '../../shared/search';
 import { designStatus, variantStatus } from '../../shared/stock';
@@ -117,7 +118,32 @@ export function loadVariants(db: Db, filter: { designId?: string; variantId?: st
   });
 }
 
-function summarise(d: DesignRow, variants: Variant[]): DesignSummary {
+/** How many days of sales to judge the pace by. */
+export const VELOCITY_DAYS = 30;
+
+interface DesignSales {
+  lastSoldOn: string | null;
+  soldRecently: number;
+}
+
+/** When each design last sold, and how many pieces went in the last 30 days. */
+function salesByDesign(db: Db): Map<string, DesignSales> {
+  const since = addDays(todayIso(), -(VELOCITY_DAYS - 1));
+  const rows = all<{ design_id: string; last_sold: string; recent: number }>(
+    db,
+    `SELECT v.design_id, MAX(i.issue_date) AS last_sold, SUM(CASE WHEN i.issue_date >= ? THEN l.qty ELSE 0 END) AS recent
+     FROM invoice_lines l JOIN invoices i ON i.id = l.invoice_id JOIN variants v ON v.id = l.variant_id
+     WHERE i.status = 'issued' GROUP BY v.design_id`,
+    since,
+  );
+  return new Map(rows.map((r) => [r.design_id, { lastSoldOn: r.last_sold, soldRecently: r.recent }]));
+}
+
+function summarise(d: DesignRow, variants: Variant[], sales?: DesignSales): DesignSummary {
+  const priced = variants.filter((v) => v.sellPricePaise > 0);
+  const totalStock = variants.reduce((s, v) => s + v.stock, 0);
+  const soldLast30Days = sales?.soldRecently ?? 0;
+  const sellTotal = priced.reduce((s, v) => s + v.sellPricePaise, 0);
   return {
     id: d.id,
     code: d.code,
@@ -128,9 +154,15 @@ function summarise(d: DesignRow, variants: Variant[]): DesignSummary {
     description: d.description,
     defaultPricePaise: d.default_price_paise,
     variantCount: variants.length,
-    totalStock: variants.reduce((s, v) => s + v.stock, 0),
+    totalStock,
     stockValuePaise: variants.reduce((s, v) => s + v.stock * v.unitCostPaise, 0),
     status: designStatus(variants),
+    minPricePaise: priced.length ? Math.min(...priced.map((v) => v.sellPricePaise)) : 0,
+    maxPricePaise: priced.length ? Math.max(...priced.map((v) => v.sellPricePaise)) : 0,
+    marginPercent: sellTotal > 0 ? ((sellTotal - priced.reduce((s, v) => s + v.unitCostPaise, 0)) / sellTotal) * 100 : null,
+    lastSoldOn: sales?.lastSoldOn ?? null,
+    soldLast30Days,
+    daysOfStock: totalStock <= 0 ? 0 : soldLast30Days > 0 ? Math.round(totalStock / (soldLast30Days / VELOCITY_DAYS)) : null,
   };
 }
 
@@ -148,13 +180,14 @@ function groupByDesign(variants: Variant[]): Map<string, Variant[]> {
 export function listDesigns(db: Db, query: DesignQuery = {}): DesignSummary[] {
   const designs = all<DesignRow>(db, 'SELECT * FROM designs WHERE deleted_at IS NULL ORDER BY name COLLATE NOCASE');
   const byDesign = groupByDesign(loadVariants(db));
+  const sales = salesByDesign(db);
 
   return designs
     .filter((d) => {
       const vs = byDesign.get(d.id) ?? [];
       return matchesAll([d.code, d.name, d.nickname, d.fabric, ...vs.flatMap((v) => [v.sku, v.color])].join(' '), query.search);
     })
-    .map((d) => summarise(d, byDesign.get(d.id) ?? []))
+    .map((d) => summarise(d, byDesign.get(d.id) ?? [], sales.get(d.id)))
     .filter((s) => {
       if (query.status === 'low') return s.status === 'low' || s.status === 'out';
       if (query.status === 'out') return s.status === 'out';
@@ -166,7 +199,7 @@ export function getDesign(db: Db, id: string): DesignDetail {
   const row = get<DesignRow>(db, 'SELECT * FROM designs WHERE id = ? AND deleted_at IS NULL', id);
   if (!row) throw new UserError('That design no longer exists.');
   const variants = loadVariants(db, { designId: id });
-  return { ...summarise(row, variants), variants };
+  return { ...summarise(row, variants, salesByDesign(db).get(id)), variants };
 }
 
 /** Suggests the next free code in the MG-001 style, continuing from the highest number in use. */
@@ -222,6 +255,29 @@ export function updateDesign(db: Db, id: string, input: DesignInput): DesignDeta
     throw err;
   }
   return getDesign(db, id);
+}
+
+/**
+ * Starts a new design from an existing one: same fabric, HSN, description and price, and a copy of each variant (colour, size,
+ * prices, reorder level and raw-material costing) with no stock. The copy gets the next free code and "(copy)" after its name
+ * so it can be told apart until it's renamed. Nothing is copied halfway: if any step fails, no design is made.
+ */
+export function duplicateDesign(db: Db, id: string): DesignDetail {
+  const source = getDesign(db, id);
+  return tx(db, () => {
+    const copy = createDesign(db, {
+      code: nextDesignCode(db, /^([A-Za-z]+)-\d+$/.exec(source.code)?.[1] ?? 'MG'),
+      name: `${source.name} (copy)`.slice(0, 120),
+      fabric: source.fabric,
+      hsnCode: source.hsnCode,
+      description: source.description,
+      defaultPricePaise: source.defaultPricePaise,
+    });
+    for (const v of source.variants) {
+      createVariant(db, copy.id, { color: v.color, size: v.size, sellPricePaise: v.sellPricePaise, mrpPaise: v.mrpPaise, baseCostPaise: v.baseCostPaise, reorderLevel: v.reorderLevel, bom: v.bom.map((b) => ({ materialId: b.materialId, qty: b.qty })) });
+    }
+    return getDesign(db, copy.id);
+  });
 }
 
 /** Archives rather than deletes, so past invoices that reference the design keep working. */

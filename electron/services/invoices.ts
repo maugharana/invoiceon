@@ -57,7 +57,7 @@ interface LineRow {
 
 export function brandingOf(db: Db): InvoiceBranding {
   const s = getSettings(db);
-  return { accent: s.invoiceAccent, logo: s.invoiceLogo, showSignature: s.invoiceShowSignature };
+  return { accent: s.invoiceAccent, logo: s.invoiceLogo, showSignature: s.invoiceShowSignature, showUpiQr: s.invoiceShowUpiQr };
 }
 
 // ── Mapping ─────────────────────────────────────────────────────────────────
@@ -96,7 +96,7 @@ function toInvoice(db: Db, r: InvoiceRow): Invoice {
     ...toSummary(r, paidFor(db, r.id)),
     payments: paymentsOnInvoice(db, r.id),
     // Content is frozen at issue. Invoices from before "bank" and "footer" existed simply have none.
-    seller: { bank: '', footer: '', ...JSON.parse(r.seller_json) },
+    seller: { bank: '', footer: '', upiId: '', ...JSON.parse(r.seller_json) },
     // Styling is not frozen: change the logo or colour and every invoice, old ones included, is redrawn with it.
     branding: brandingOf(db),
     buyer: JSON.parse(r.buyer_json),
@@ -136,6 +136,16 @@ export function listInvoices(db: Db, query: InvoiceQuery = {}): InvoiceSummary[]
   if (query.customerId) {
     where.push('customer_id = ?');
     params.push(query.customerId);
+  }
+  if (query.from !== undefined && query.from !== '') {
+    if (!isIsoDate(query.from)) throw new UserError('Enter a valid "from" date.');
+    where.push('issue_date >= ?');
+    params.push(query.from);
+  }
+  if (query.to !== undefined && query.to !== '') {
+    if (!isIsoDate(query.to)) throw new UserError('Enter a valid "to" date.');
+    where.push('issue_date <= ?');
+    params.push(query.to);
   }
   const rows = all<InvoiceRow>(db, `SELECT * FROM invoices ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY issue_date DESC, seq DESC, created_at DESC`, ...params);
   const paid = loadPaid(db);
@@ -237,7 +247,7 @@ export function checkDocument(db: Db, settings: Settings, input: DocumentInput) 
 
 /** Seller details as they are right now, to be frozen onto a document. `terms` differ between an invoice and a proforma. */
 export function sellerSnapshot(settings: Settings, terms: string) {
-  return { name: settings.businessName, gstin: settings.gstin, address: settings.addressLine, city: settings.city, state: settings.state, pincode: settings.pincode, phone: settings.phone, email: settings.email, terms, bank: settings.invoiceBank, footer: settings.invoiceFooter };
+  return { name: settings.businessName, gstin: settings.gstin, address: settings.addressLine, city: settings.city, state: settings.state, pincode: settings.pincode, phone: settings.phone, email: settings.email, terms, bank: settings.invoiceBank, footer: settings.invoiceFooter, upiId: settings.upiId };
 }
 
 /** Prices and descriptions are frozen from the variant as it is right now; the discount and tax are worked out once. */

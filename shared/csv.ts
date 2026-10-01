@@ -1,4 +1,6 @@
-import type { GstReport, SalesReport, StockReport } from './types';
+import { INVOICE_STATUS_LABEL } from './gst';
+import { STOCK_STATUS_LABEL } from './stock';
+import type { DesignSummary, GstReport, InvoiceSummary, SalesReport, StockReport } from './types';
 import { PAYMENT_METHOD_LABEL } from './types';
 
 type Row = (string | number)[];
@@ -92,5 +94,22 @@ export function stockCsv(r: StockReport): string {
     ...r.rows.flatMap((d) => d.variants.map((v): Row => [d.code, d.name, v.sku, v.color, v.size, v.pieces, rs(v.unitCostPaise), rs(v.sellPricePaise), rs(v.costValuePaise), rs(v.retailValuePaise), v.lastSoldOn ?? ''])),
     [],
     ['Total', '', '', '', '', r.pieces, '', '', rs(r.costValuePaise), rs(r.retailValuePaise), ''],
+  ]);
+}
+
+// ── Lists ───────────────────────────────────────────────────────────────────
+/** The invoices as listed: one row each, with what was paid and what is still owed. */
+export function invoicesCsv(rows: InvoiceSummary[]): string {
+  return toCsv([
+    ['Invoice', 'Date', 'Due date', 'Customer', 'Type', 'Total', 'Paid', 'Balance', 'Status'],
+    ...rows.map((i) => [i.number, i.issueDate, i.dueDate ?? '', i.buyerName, i.type, rs(i.totalPaise), rs(i.paidPaise), rs(i.status === 'cancelled' ? 0 : i.totalPaise - i.paidPaise), INVOICE_STATUS_LABEL[i.status]]),
+  ]);
+}
+
+/** The designs as listed, with their stock and what it is worth at cost. */
+export function designsCsv(rows: DesignSummary[]): string {
+  return toCsv([
+    ['Code', 'Design', 'Short name', 'Fabric', 'HSN', 'Variants', 'In stock', 'Stock value (cost)', 'Default price (excl. GST)', 'Status'],
+    ...rows.map((d) => [d.code, d.name, d.nickname, d.fabric, d.hsnCode, d.variantCount, d.totalStock, rs(d.stockValuePaise), rs(d.defaultPricePaise), STOCK_STATUS_LABEL[d.status]]),
   ]);
 }
