@@ -1,4 +1,5 @@
 import { addDays } from './gst';
+import { hasTag } from './tags';
 import type { DesignSummary } from './types';
 
 export type MarginBand = 'any' | 'none' | 'low' | 'mid' | 'high';
@@ -15,14 +16,16 @@ export interface DesignFilters {
   margin: MarginBand;
   /** recent = sold in the last 30 days, stale = not sold for 90 days (or ever), never = has never sold. */
   sold: SoldBand;
+  /** Carrying this tag, or '' for any. */
+  tag: string;
 }
 
-export const NO_FILTERS: DesignFilters = { fabric: '', minPricePaise: 0, maxPricePaise: 0, margin: 'any', sold: 'any' };
+export const NO_FILTERS: DesignFilters = { fabric: '', minPricePaise: 0, maxPricePaise: 0, margin: 'any', sold: 'any', tag: '' };
 
 export const MARGIN_LABEL: Record<MarginBand, string> = { any: 'Any margin', none: 'Not priced', low: 'Under 20%', mid: '20% to 40%', high: 'Over 40%' };
 export const SOLD_LABEL: Record<SoldBand, string> = { any: 'Any sales', recent: 'Sold in the last 30 days', stale: 'Not sold for 90 days', never: 'Never sold' };
 
-export const filtersActive = (f: DesignFilters): boolean => f.fabric !== '' || f.minPricePaise > 0 || f.maxPricePaise > 0 || f.margin !== 'any' || f.sold !== 'any';
+export const filtersActive = (f: DesignFilters): boolean => f.fabric !== '' || f.minPricePaise > 0 || f.maxPricePaise > 0 || f.margin !== 'any' || f.sold !== 'any' || f.tag !== '';
 
 export function marginBand(d: Pick<DesignSummary, 'marginPercent'>): Exclude<MarginBand, 'any'> {
   if (d.marginPercent === null) return 'none';
@@ -37,6 +40,7 @@ export function applyDesignFilters(rows: DesignSummary[], f: DesignFilters, toda
     // A design matches when any part of its price range falls inside the asked range.
     if (f.minPricePaise > 0 && d.maxPricePaise < f.minPricePaise) return false;
     if (f.maxPricePaise > 0 && (d.minPricePaise === 0 || d.minPricePaise > f.maxPricePaise)) return false;
+    if (f.tag && !hasTag(d.tags, f.tag)) return false;
     if (f.margin !== 'any' && marginBand(d) !== f.margin) return false;
     if (f.sold === 'recent' && !(d.lastSoldOn !== null && d.lastSoldOn >= recent)) return false;
     if (f.sold === 'stale' && !(d.lastSoldOn === null || d.lastSoldOn < stale)) return false;

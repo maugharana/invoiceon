@@ -3,8 +3,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { customersCsv } from '../../../shared/csv';
 import { CUSTOMER_FILTER_LABEL, filterCustomers, findDuplicateGroups, type CustomerFilter } from '../../../shared/customerList';
 import { todayIso } from '../../../shared/gst';
+import { hasTag, tagCounts } from '../../../shared/tags';
 import { Pager, SortableTh, sortBy, usePager, useSort } from '../../components/listTools';
-import { Button, Card, EmptyState, ErrorNote, Money, PageHeader, SearchInput, Segmented, TableSkeleton, TypePill } from '../../components/ui';
+import { TagChips } from '../../components/TagInput';
+import { Button, Card, EmptyState, ErrorNote, Money, PageHeader, SearchInput, Segmented, Select, TableSkeleton, TypePill } from '../../components/ui';
 import { api } from '../../lib/api';
 import { useQuery } from '../../lib/data';
 import { useCsvExport } from '../../lib/exportCsv';
@@ -23,6 +25,7 @@ export function CustomersPage() {
   const [reviewing, setReviewing] = useState(false);
   const [importing, setImporting] = useState(false);
   const [filter, setFilter] = useState<CustomerFilter>('all');
+  const [tag, setTag] = useState('');
   const sort = useSort<SortKey>('name', 'asc');
   const saveCsv = useCsvExport();
 
@@ -36,16 +39,18 @@ export function CustomersPage() {
   const none = everyone.data?.length === 0;
   const duplicates = useMemo(() => findDuplicateGroups(everyone.data ?? []), [everyone.data]);
 
+  const tags = useMemo(() => tagCounts((everyone.data ?? []).map((c) => c.tags)), [everyone.data]);
+
   const shown = useMemo(() => {
-    const rows = filterCustomers(customers.data ?? [], filter);
+    const rows = filterCustomers(customers.data ?? [], filter).filter((c) => hasTag(c.tags, tag));
     if (sort.key === 'invoices') return sortBy(rows, (c) => c.invoiceCount, sort.dir);
     if (sort.key === 'billed') return sortBy(rows, (c) => c.billedPaise, sort.dir);
     // Balance: what they owe counts as positive, what you hold for them as negative, so "largest first" puts the biggest debtors on top.
     if (sort.key === 'balance') return sortBy(rows, (c) => c.outstandingPaise - c.advancePaise, sort.dir);
     return sortBy(rows, (c) => c.name, sort.dir);
-  }, [customers.data, filter, sort.key, sort.dir]);
+  }, [customers.data, filter, tag, sort.key, sort.dir]);
   const pager = usePager(shown);
-  useEffect(() => pager.setPage(0), [debounced, filter, sort.key, sort.dir]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => pager.setPage(0), [debounced, filter, tag, sort.key, sort.dir]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <>
@@ -96,7 +101,19 @@ export function CustomersPage() {
             </div>
           )}
           <div className="mb-4 flex items-center justify-between gap-4">
-            <SearchInput value={search} onChange={setSearch} placeholder="Search name, phone, GSTIN or city" />
+            <div className="flex items-center gap-3">
+              <SearchInput value={search} onChange={setSearch} placeholder="Search name, phone, GSTIN, city or tag" />
+              {tags.length > 0 && (
+                <Select value={tag} onChange={(e) => setTag(e.target.value)} className="w-44" aria-label="Filter by tag">
+                  <option value="">All tags</option>
+                  {tags.map((t) => (
+                    <option key={t.tag} value={t.tag}>
+                      {t.tag} ({t.count})
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </div>
             <Segmented
               label="Customer filter"
               value={filter}
@@ -117,6 +134,7 @@ export function CustomersPage() {
                     onClick={() => {
                       setSearch('');
                       setFilter('all');
+                      setTag('');
                     }}
                   >
                     Clear filters
@@ -149,6 +167,11 @@ export function CustomersPage() {
                       <td className="td">
                         <div>{c.name}</div>
                         {c.phone && <div className="num text-xs text-ink-muted">{c.phone}</div>}
+                        {c.tags && (
+                          <div className="mt-1" onClick={(e) => e.stopPropagation()}>
+                            <TagChips tags={c.tags} onClick={setTag} />
+                          </div>
+                        )}
                       </td>
                       <td className="td">
                         <TypePill type={c.type} />

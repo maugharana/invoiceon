@@ -2,7 +2,7 @@ import { computeTotals, financialYear, formatInvoiceNumber, invoiceStatus, isIso
 import { matchesAll } from '../../shared/search';
 import { formatMoney } from '../../shared/money';
 import { sameState } from '../../shared/states';
-import type { DashboardSummary, Invoice, InvoiceBranding, InvoiceInput, InvoiceLine, InvoiceQuery, InvoiceSummary, InvoiceType, Party, SaleVariant, Settings } from '../../shared/types';
+import { DELIVERY_STATUS_LABEL, type DashboardSummary, type DeliveryStatus, type DeliveryUpdate, type Invoice, type InvoiceBranding, type InvoiceInput, type InvoiceLine, type InvoiceQuery, type InvoiceSummary, type InvoiceType, type Party, type SaleVariant, type Settings, type ShipTo } from '../../shared/types';
 import { all, get, run, tx, type Db } from '../db/connection';
 import { UserError, isUniqueViolation, newId, nowIso, optionalText, requireInt } from './common';
 import { getCustomer } from './customers';
@@ -39,6 +39,12 @@ interface InvoiceRow {
   status: 'issued' | 'cancelled';
   cancelled_at: string | null;
   cancel_reason: string;
+  series: string;
+  ship_to_json: string;
+  transport: string;
+  tracking_no: string;
+  delivery_status: DeliveryStatus;
+  delivered_on: string | null;
   created_at: string;
 }
 
@@ -66,6 +72,7 @@ function toSummary(r: InvoiceRow, paid: number): InvoiceSummary {
   return {
     id: r.id,
     number: r.number,
+    deliveryStatus: r.delivery_status,
     type: r.type,
     customerId: r.customer_id,
     buyerName: buyer.name,
@@ -113,6 +120,11 @@ function toInvoice(db: Db, r: InvoiceRow): Invoice {
     roundOffPaise: r.round_off_paise,
     notes: r.notes,
     lines,
+    shipTo: r.ship_to_json ? (JSON.parse(r.ship_to_json) as ShipTo) : null,
+    transport: r.transport,
+    trackingNo: r.tracking_no,
+    deliveredOn: r.delivered_on,
+    series: r.series,
     cancelledAt: r.cancelled_at,
     cancelReason: r.cancel_reason,
     createdAt: r.created_at,
@@ -129,6 +141,10 @@ export function getInvoice(db: Db, id: string): Invoice {
 export function listInvoices(db: Db, query: InvoiceQuery = {}): InvoiceSummary[] {
   const where: string[] = [];
   const params: string[] = [];
+  if (query.delivery && query.delivery in DELIVERY_STATUS_LABEL) {
+    where.push('delivery_status = ?');
+    params.push(query.delivery);
+  }
   if (query.type === 'B2B' || query.type === 'B2C') {
     where.push('type = ?');
     params.push(query.type);
@@ -194,14 +210,50 @@ export function variantsForSale(db: Db): SaleVariant[] {
   }));
 }
 
-function nextSequence(db: Db, fy: string): number {
-  return (get<{ next: number }>(db, 'SELECT COALESCE(MAX(seq), 0) + 1 AS next FROM invoices WHERE fy = ?', fy)?.next ?? 1);
+function nextSequence(db: Db, fy: string, series: string): number {
+  return (get<{ next: number }>(db, 'SELECT COALESCE(MAX(seq), 0) + 1 AS next FROM invoices WHERE fy = ? AND series = ?', fy, series)?.next ?? 1);
 }
 
-export function nextInvoiceNumber(db: Db, issueDate: string): string {
+/** B2B tax invoices run their own numbers when a B2B prefix is set in Settings; everything else shares the main run. */
+function seriesOf(settings: Settings, type: InvoiceType): { series: string; prefix: string } {
+  return type === 'B2B' && settings.b2bPrefix ? { series: 'B2B', prefix: settings.b2bPrefix } : { series: '', prefix: settings.invoicePrefix };
+}
+
+export function nextInvoiceNumber(db: Db, issueDate: string, type: InvoiceType = 'B2C'): string {
   if (!isIsoDate(issueDate)) throw new UserError('Enter a valid invoice date.');
   const fy = financialYear(issueDate);
-  return formatInvoiceNumber(getSettings(db).invoicePrefix, fy, nextSequence(db, fy));
+  const { series, prefix } = seriesOf(getSettings(db), type === 'B2B' ? 'B2B' : 'B2C');
+  return formatInvoiceNumber(prefix, fy, nextSequence(db, fy, series));
+}
+
+function checkShipTo(input: ShipTo | null | undefined): ShipTo | null {
+  if (!input) return null;
+  const ship: ShipTo = {
+    name: optionalText(input.name, 'Ship-to name', 120),
+    address: optionalText(input.address, 'Ship-to address', 200),
+    city: optionalText(input.city, 'Ship-to city', 60),
+    state: optionalText(input.state, 'Ship-to state', 60),
+    pincode: optionalText(input.pincode, 'Ship-to pincode', 6),
+    phone: optionalText(input.phone, 'Ship-to phone', 20),
+  };
+  if (!ship.address && !ship.city && !ship.pincode) return null; // nothing to ship to is the same as no ship-to
+  if (ship.pincode && !/^\d{6}$/.test(ship.pincode)) throw new UserError('The ship-to pincode should be 6 digits.');
+  return ship;
+}
+
+/**
+ * Updates the logistics of an issued invoice: who carries it, the tracking number and how far it has got. This is the one part of
+ * an invoice that changes after issue, because it isn't part of the tax document — what was billed and to whom stays frozen.
+ */
+export function setDelivery(db: Db, id: string, update: DeliveryUpdate): Invoice {
+  const invoice = getInvoice(db, id);
+  if (invoice.status === 'cancelled') throw new UserError('This invoice is cancelled.');
+  if (!(update.status in DELIVERY_STATUS_LABEL)) throw new UserError('Choose a delivery status.');
+  const deliveredOn = update.status === 'delivered' ? (update.deliveredOn || invoice.deliveredOn || todayIso()) : null;
+  if (deliveredOn !== null && !isIsoDate(deliveredOn)) throw new UserError('Enter a valid delivery date.');
+  if (deliveredOn !== null && deliveredOn < invoice.issueDate) throw new UserError("It can't have been delivered before the invoice date.");
+  run(db, 'UPDATE invoices SET delivery_status = ?, transport = ?, tracking_no = ?, delivered_on = ?, updated_at = ? WHERE id = ?', update.status, optionalText(update.transport, 'Transport', 80), optionalText(update.trackingNo, 'Tracking number', 60), deliveredOn, nowIso(), id);
+  return getInvoice(db, id);
 }
 
 // ── Issue ───────────────────────────────────────────────────────────────────
@@ -275,24 +327,29 @@ export function createInvoice(db: Db, input: InvoiceInput): Invoice {
   if (advanceToApply > 0 && !customer) throw new UserError("Advance can only be applied to a saved customer's invoice.");
 
   const seller = sellerSnapshot(settings, settings.invoiceTerms);
+  const shipTo = checkShipTo(input.shipTo);
+  const transport = optionalText(input.transport, 'Transport', 80);
+  const trackingNo = optionalText(input.trackingNo, 'Tracking number', 60);
+  const deliveryStatus: DeliveryStatus = input.deliveryStatus && input.deliveryStatus in DELIVERY_STATUS_LABEL ? input.deliveryStatus : shipTo || transport ? 'pending' : 'none';
+  const { series, prefix } = seriesOf(settings, type);
 
   const id = newId();
   tx(db, () => {
     const { items, totals } = priceLines(db, settings, input.lines, discount, intraState);
 
     const fy = financialYear(input.issueDate);
-    const seq = nextSequence(db, fy);
-    const number = formatInvoiceNumber(settings.invoicePrefix, fy, seq);
+    const seq = nextSequence(db, fy, series);
+    const number = formatInvoiceNumber(prefix, fy, seq);
     const now = nowIso();
 
     try {
       run(
         db,
-        `INSERT INTO invoices (id, number, fy, seq, type, customer_id, seller_json, buyer_json, place_of_supply, issue_date, due_date, gst_rate_percent, prices_include_gst, intra_state,
-           subtotal_paise, discount_paise, taxable_paise, cgst_paise, sgst_paise, igst_paise, round_off_paise, total_paise, notes, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        id, number, fy, seq, type, customer?.id ?? null, JSON.stringify(seller), JSON.stringify(buyer), placeOfSupply, input.issueDate, input.dueDate, settings.gstRatePercent, settings.pricesIncludeGst ? 1 : 0, intraState ? 1 : 0,
-        totals.subtotalPaise, totals.discountPaise, totals.taxablePaise, totals.cgstPaise, totals.sgstPaise, totals.igstPaise, totals.roundOffPaise, totals.totalPaise, notes, now, now,
+        `INSERT INTO invoices (id, number, fy, seq, series, type, customer_id, seller_json, buyer_json, place_of_supply, issue_date, due_date, gst_rate_percent, prices_include_gst, intra_state,
+           subtotal_paise, discount_paise, taxable_paise, cgst_paise, sgst_paise, igst_paise, round_off_paise, total_paise, notes, ship_to_json, transport, tracking_no, delivery_status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        id, number, fy, seq, series, type, customer?.id ?? null, JSON.stringify(seller), JSON.stringify(buyer), placeOfSupply, input.issueDate, input.dueDate, settings.gstRatePercent, settings.pricesIncludeGst ? 1 : 0, intraState ? 1 : 0,
+        totals.subtotalPaise, totals.discountPaise, totals.taxablePaise, totals.cgstPaise, totals.sgstPaise, totals.igstPaise, totals.roundOffPaise, totals.totalPaise, notes, shipTo ? JSON.stringify(shipTo) : '', transport, trackingNo, deliveryStatus, now, now,
       );
     } catch (err) {
       if (isUniqueViolation(err)) throw new UserError('Another invoice took that number a moment ago. Please try again.');
@@ -359,8 +416,23 @@ export function cancelInvoice(db: Db, id: string, reason: string): Invoice {
       if (live) recordMovement(db, line.variantId, line.qty, 'return', `Invoice ${invoice.number} cancelled`, { type: 'invoice', id });
     }
     run(db, "UPDATE invoices SET status = 'cancelled', cancelled_at = ?, cancel_reason = ?, updated_at = ? WHERE id = ?", nowIso(), why, nowIso(), id);
+    reopenQuoteLines(db, invoice);
   });
   return getInvoice(db, id);
+}
+
+/**
+ * If this invoice was made from a quote, the pieces on it are available to invoice again: the quote's "invoiced" counts go back
+ * down, and a quote that had been fully invoiced is open once more.
+ */
+function reopenQuoteLines(db: Db, invoice: Invoice): void {
+  const quotes = all<{ proforma_id: string }>(db, 'SELECT proforma_id FROM proforma_invoices WHERE invoice_id = ?', invoice.id);
+  for (const q of quotes) {
+    for (const line of invoice.lines) {
+      run(db, 'UPDATE proforma_lines SET invoiced_qty = MAX(0, invoiced_qty - ?) WHERE proforma_id = ? AND variant_id = ?', line.qty, q.proforma_id, line.variantId);
+    }
+    run(db, "UPDATE proformas SET status = 'open', updated_at = ? WHERE id = ? AND status = 'converted'", nowIso(), q.proforma_id);
+  }
 }
 
 // ── Dashboard ───────────────────────────────────────────────────────────────

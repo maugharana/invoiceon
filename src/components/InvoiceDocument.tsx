@@ -76,7 +76,7 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
       </header>
 
       {/* Parties */}
-      <section className="grid grid-cols-2 gap-8 border-b border-line py-4">
+      <section className={`grid gap-8 border-b border-line py-4 ${inv.shipTo && tax ? 'grid-cols-3' : 'grid-cols-2'}`}>
         <div>
           <div className="mb-1 text-[10px] uppercase tracking-wider text-ink-muted">{w.billTo}</div>
           <div className="text-sm font-medium">{inv.buyer.name}</div>
@@ -88,6 +88,23 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
           </div>
           {tax && inv.buyer.gstin && <div className="mt-1.5">GSTIN: <span className="num font-medium">{inv.buyer.gstin}</span></div>}
         </div>
+        {inv.shipTo && (
+          <div>
+            <div className="mb-1 text-[10px] uppercase tracking-wider text-ink-muted">{w.shipTo}</div>
+            <div className="text-sm font-medium">{inv.shipTo.name || inv.buyer.name}</div>
+            <div className="text-ink-muted">
+              {addressLines({ ...inv.shipTo, gstin: '' }).map((l) => (
+                <div key={l}>{l}</div>
+              ))}
+              {inv.shipTo.phone && <div>Phone: {inv.shipTo.phone}</div>}
+              {(inv.transport || inv.trackingNo) && (
+                <div className="mt-1">
+                  {w.transport}: {[inv.transport, inv.trackingNo && `#${inv.trackingNo}`].filter(Boolean).join(' ')}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
         {tax && (
           <div>
             <div className="mb-1 text-[10px] uppercase tracking-wider text-ink-muted">Supply</div>

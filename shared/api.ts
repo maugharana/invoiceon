@@ -7,12 +7,25 @@ import type {
   StockTakeResult,
   BulkSareeRow,
   Customer,
+  ProformaRevision,
+  QuoteStage,
+  QuoteTemplate,
+  QuoteTemplateInput,
+  DeliveryUpdate,
+  InvoiceType,
+  DueNote,
+  Note,
+  NoteInput,
+  NoteKind,
+  NoteSubject,
   CustomerInput,
   CustomerPurchase,
   DashboardNow,
   DayBook,
   DayBookMode,
   MarginBy,
+  QuotesReport,
+  PricePoint,
   MarginLine,
   MarginReport,
   MoversReport,
@@ -73,6 +86,7 @@ export interface Api {
   inventorySummary(): Promise<InventorySummary>;
 
   designsList(query?: DesignQuery): Promise<DesignSummary[]>;
+  variantPriceHistory(variantId: string): Promise<PricePoint[]>;
   designGet(id: string): Promise<DesignDetail>;
   designNextCode(): Promise<string>;
   designCreate(input: DesignInput): Promise<DesignDetail>;
@@ -123,12 +137,22 @@ export interface Api {
   /** Folds a duplicate into the customer you keep: their invoices, payments and quotes move across, blank details are filled in, and the duplicate is archived. */
   customerMerge(keepId: string, duplicateId: string): Promise<Customer>;
 
+  notesList(subjectType: NoteSubject, subjectId: string): Promise<Note[]>;
+  noteAdd(input: NoteInput): Promise<Note>;
+  noteDone(id: string, done: boolean): Promise<Note>;
+  noteDelete(id: string): Promise<void>;
+  /** Open follow-ups and promises to pay, soonest first (overdue ones included). */
+  notesDue(query?: { kind?: NoteKind; onOrBefore?: string }): Promise<DueNote[]>;
+
   variantsForSale(): Promise<SaleVariant[]>;
 
   invoicesList(query?: InvoiceQuery): Promise<InvoiceSummary[]>;
   invoiceGet(id: string): Promise<Invoice>;
   /** The number the next invoice issued on this date will get. */
-  invoiceNextNumber(issueDate: string): Promise<string>;
+  /** The number the next invoice of this type would get. B2B can run its own series (Settings). */
+  invoiceNextNumber(issueDate: string, type?: InvoiceType): Promise<string>;
+  /** Updates carrier, tracking and delivery progress on an issued invoice. */
+  invoiceSetDelivery(id: string, update: DeliveryUpdate): Promise<Invoice>;
   /** Issues the invoice and takes the stock out, atomically. */
   invoiceCreate(input: InvoiceInput): Promise<Invoice>;
   /** Cancels an issued invoice and puts its stock back. The number is never reused. */
@@ -179,6 +203,7 @@ export interface Api {
   /** Fast sellers and stock that isn't moving, over the last `days` days (default 90). */
   reportMovers(days?: number): Promise<MoversReport>;
   /** The day book, cash book or bank book for a date range. */
+  reportQuotes(range: { from: string; to: string }): Promise<QuotesReport>;
   reportDayBook(range: { from: string; to: string }, mode: DayBookMode): Promise<DayBook>;
   /** Saves text (a CSV) to a file the user chooses. Desktop app only. */
   exportSave(fileName: string, content: string): Promise<{ saved: boolean; path?: string }>;
@@ -211,7 +236,13 @@ export interface Api {
   proformaUpdate(id: string, input: ProformaInput): Promise<Proforma>;
   proformaCancel(id: string, reason: string): Promise<Proforma>;
   /** Turns the quote into an invoice dated today, taking the stock off the shelves. */
-  proformaConvert(id: string): Promise<Invoice>;
+  /** Invoices the quote, or just the chosen items and quantities when `pick` is given. */
+  proformaConvert(id: string, pick?: { variantId: string; qty: number }[]): Promise<Invoice>;
+  proformaSetStage(id: string, stage: QuoteStage, lostReason?: string): Promise<Proforma>;
+  proformaRevisions(id: string): Promise<ProformaRevision[]>;
+  quoteTemplatesList(): Promise<QuoteTemplate[]>;
+  quoteTemplateSave(input: QuoteTemplateInput): Promise<QuoteTemplate>;
+  quoteTemplateDelete(id: string): Promise<void>;
   proformaExportPdf(id: string): Promise<{ saved: boolean; path?: string }>;
   proformaPrint(id: string): Promise<void>;
 

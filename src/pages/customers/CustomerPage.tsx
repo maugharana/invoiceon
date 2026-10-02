@@ -1,9 +1,12 @@
 import { Archive, ArrowLeft, Download, FileText, HandCoins, Pencil, Plus, Printer, ScrollText } from 'lucide-react';
 import { useState } from 'react';
-import { formatDate } from '../../../shared/gst';
+import { formatDate, todayIso } from '../../../shared/gst';
 import { formatMoney } from '../../../shared/money';
+import { occasionLabel, upcomingOccasions } from '../../../shared/occasions';
 import { Menu } from '../../components/Menu';
 import { ConfirmDialog } from '../../components/Modal';
+import { NotesPanel } from '../../components/NotesPanel';
+import { TagChips } from '../../components/TagInput';
 import { useToast } from '../../components/Toast';
 import { Button, Card, EmptyState, ErrorNote, Figure, InvoicePill, Money, PageHeader, Spinner, TypePill } from '../../components/ui';
 import { api, errorMessage } from '../../lib/api';
@@ -54,6 +57,8 @@ export function CustomerPage({ id }: { id: string }) {
   const balance = c.outstandingPaise - c.advancePaise; // + they owe you, − you hold their money
   const balanceLabel = balance > 0 ? 'They owe you' : balance < 0 ? 'Advance held' : 'Settled';
   const received = ledger.data?.receivedPaise ?? 0;
+  const occasions = upcomingOccasions(c, todayIso(), 14);
+  const overLimit = c.creditLimitPaise > 0 && c.outstandingPaise > c.creditLimitPaise;
 
   return (
     <>
@@ -101,8 +106,47 @@ export function CustomerPage({ id }: { id: string }) {
         </Figure>
         <Figure label="Invoices">{c.invoiceCount}</Figure>
       </div>
-      <div className="mb-8 text-ink-muted">
+      <div className="mb-4 text-ink-muted">
         {[c.gstin && `GSTIN ${c.gstin}`, ...address, c.notes].filter(Boolean).join(' · ') || 'No address or GSTIN saved.'}
+      </div>
+      <div className="mb-8 space-y-2 text-sm">
+        {(c.tags || c.creditLimitPaise > 0 || c.paymentTermsDays != null || occasions.length > 0) && (
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-ink-muted">
+            <TagChips tags={c.tags} />
+            {c.creditLimitPaise > 0 && (
+              <span className={overLimit ? 'text-status-partial-fg' : ''}>
+                Credit limit <Money paise={c.creditLimitPaise} fractionDigits={0} />
+                {overLimit && ' · over the limit'}
+              </span>
+            )}
+            {c.paymentTermsDays != null && <span>Pays in {c.paymentTermsDays === 0 ? 'the day' : `${c.paymentTermsDays} days`}</span>}
+            {occasions.map((o) => (
+              <span key={o.kind}>
+                {occasionLabel(o.kind)} {o.daysAway === 0 ? 'today' : o.daysAway === 1 ? 'tomorrow' : `in ${o.daysAway} days`}
+              </span>
+            ))}
+          </div>
+        )}
+        {c.addresses.length > 0 && (
+          <div className="text-ink-muted">
+            {c.addresses.map((a, i) => (
+              <div key={i}>
+                <span className="text-ink">{a.label || 'Address'}:</span> {[a.address, a.city, a.state, a.pincode].filter(Boolean).join(', ')}
+              </div>
+            ))}
+          </div>
+        )}
+        {c.contacts.length > 0 && (
+          <div className="text-ink-muted">
+            {c.contacts.map((p, i) => (
+              <div key={i}>
+                <span className="text-ink">{p.name || 'Contact'}</span>
+                {p.role && ` (${p.role})`}
+                {[p.phone, p.email].filter(Boolean).length > 0 && ` · ${[p.phone, p.email].filter(Boolean).join(' · ')}`}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Ledger */}
@@ -187,6 +231,8 @@ export function CustomerPage({ id }: { id: string }) {
           </Card>
         </>
       )}
+
+      <NotesPanel subjectType="customer" subjectId={c.id} title="Notes and follow-ups" />
 
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-base">Invoices</h2>

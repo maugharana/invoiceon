@@ -296,6 +296,100 @@ ALTER TABLE invoices ADD COLUMN prices_include_gst INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE proformas ADD COLUMN prices_include_gst INTEGER NOT NULL DEFAULT 0;
 `;
 
+// Stage 10: who customers are beyond a name (tags, credit limit, terms, birthdays, extra addresses and contacts), tags on designs, a
+// notes timeline for calls and follow-ups (shared by customers, quotes and invoices), and a history of each variant's prices.
+const V8 = `
+ALTER TABLE designs ADD COLUMN tags TEXT NOT NULL DEFAULT '';
+ALTER TABLE customers ADD COLUMN tags TEXT NOT NULL DEFAULT '';
+ALTER TABLE customers ADD COLUMN credit_limit_paise INTEGER NOT NULL DEFAULT 0 CHECK (credit_limit_paise >= 0);
+ALTER TABLE customers ADD COLUMN payment_terms_days INTEGER CHECK (payment_terms_days IS NULL OR (payment_terms_days >= 0 AND payment_terms_days <= 365));
+ALTER TABLE customers ADD COLUMN birthday TEXT NOT NULL DEFAULT '';
+ALTER TABLE customers ADD COLUMN anniversary TEXT NOT NULL DEFAULT '';
+ALTER TABLE customers ADD COLUMN addresses_json TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE customers ADD COLUMN contacts_json TEXT NOT NULL DEFAULT '[]';
+
+CREATE TABLE notes (
+  id           TEXT PRIMARY KEY,
+  subject_type TEXT NOT NULL CHECK (subject_type IN ('customer','proforma','invoice')),
+  subject_id   TEXT NOT NULL,
+  kind         TEXT NOT NULL DEFAULT 'note' CHECK (kind IN ('note','call','visit','followup','promise')),
+  body         TEXT NOT NULL DEFAULT '',
+  due_date     TEXT,
+  amount_paise INTEGER NOT NULL DEFAULT 0 CHECK (amount_paise >= 0),
+  done_at      TEXT,
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL,
+  deleted_at   TEXT
+);
+CREATE INDEX ix_notes_subject ON notes (subject_type, subject_id);
+CREATE INDEX ix_notes_due ON notes (due_date) WHERE done_at IS NULL AND deleted_at IS NULL;
+
+CREATE TABLE price_history (
+  id               TEXT PRIMARY KEY,
+  variant_id       TEXT NOT NULL REFERENCES variants (id),
+  sell_price_paise INTEGER NOT NULL,
+  mrp_paise        INTEGER NOT NULL DEFAULT 0,
+  base_cost_paise  INTEGER NOT NULL DEFAULT 0,
+  changed_at       TEXT NOT NULL
+);
+CREATE INDEX ix_price_history_variant ON price_history (variant_id, changed_at);
+-- Every variant that already exists starts its history with the prices it has now.
+INSERT INTO price_history (id, variant_id, sell_price_paise, mrp_paise, base_cost_paise, changed_at)
+  SELECT lower(hex(randomblob(16))), id, sell_price_paise, mrp_paise, base_cost_paise, created_at FROM variants;
+`;
+
+// Stage 11: delivery details on an invoice (where it goes, who carries it, whether it arrived) and separate numbering series, so B2B
+// invoices can run their own sequence. A number is unique within its year and series.
+const V9 = `
+ALTER TABLE invoices ADD COLUMN series TEXT NOT NULL DEFAULT '';
+DROP INDEX ux_invoices_fy_seq;
+CREATE UNIQUE INDEX ux_invoices_fy_series_seq ON invoices (fy, series, seq);
+ALTER TABLE invoices ADD COLUMN ship_to_json TEXT NOT NULL DEFAULT '';
+ALTER TABLE invoices ADD COLUMN transport TEXT NOT NULL DEFAULT '';
+ALTER TABLE invoices ADD COLUMN tracking_no TEXT NOT NULL DEFAULT '';
+ALTER TABLE invoices ADD COLUMN delivery_status TEXT NOT NULL DEFAULT 'none' CHECK (delivery_status IN ('none','pending','dispatched','delivered'));
+ALTER TABLE invoices ADD COLUMN delivered_on TEXT;
+`;
+
+// Stage 12: the life of a quote. Where it stands with the customer (open, accepted, lost), how much has been invoiced line by line
+// (partial conversion), older versions of it, deposits taken against it, and reusable quote templates.
+const V10 = `
+ALTER TABLE proformas ADD COLUMN stage TEXT NOT NULL DEFAULT 'open' CHECK (stage IN ('open','accepted','lost'));
+ALTER TABLE proformas ADD COLUMN lost_reason TEXT NOT NULL DEFAULT '';
+ALTER TABLE proforma_lines ADD COLUMN invoiced_qty INTEGER NOT NULL DEFAULT 0 CHECK (invoiced_qty >= 0);
+
+CREATE TABLE proforma_invoices (
+  proforma_id TEXT NOT NULL REFERENCES proformas (id),
+  invoice_id  TEXT NOT NULL REFERENCES invoices (id),
+  created_at  TEXT NOT NULL,
+  PRIMARY KEY (proforma_id, invoice_id)
+);
+INSERT INTO proforma_invoices (proforma_id, invoice_id, created_at) SELECT id, invoice_id, updated_at FROM proformas WHERE invoice_id IS NOT NULL;
+UPDATE proforma_lines SET invoiced_qty = qty WHERE proforma_id IN (SELECT id FROM proformas WHERE status = 'converted');
+
+CREATE TABLE proforma_revisions (
+  id            TEXT PRIMARY KEY,
+  proforma_id   TEXT NOT NULL REFERENCES proformas (id),
+  version       INTEGER NOT NULL,
+  snapshot_json TEXT NOT NULL,
+  created_at    TEXT NOT NULL,
+  UNIQUE (proforma_id, version)
+);
+
+CREATE TABLE quote_templates (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  notes      TEXT NOT NULL DEFAULT '',
+  lines_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
+);
+CREATE UNIQUE INDEX ux_quote_templates_name ON quote_templates (name COLLATE NOCASE) WHERE deleted_at IS NULL;
+
+ALTER TABLE payments ADD COLUMN proforma_id TEXT REFERENCES proformas (id);
+`;
+
 // Append new migrations to the end; never edit one that has shipped.
 const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 1, sql: V1 },
@@ -305,12 +399,16 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 5, sql: V5 },
   { version: 6, sql: V6 },
   { version: 7, sql: V7 },
+  { version: 8, sql: V8 },
+  { version: 9, sql: V9 },
+  { version: 10, sql: V10 },
 ];
 
-export function migrate(db: DatabaseSync): void {
+/** Brings a database up to date. `upTo` stops early at a version, which only the tests use, to build an older database to upgrade. */
+export function migrate(db: DatabaseSync, upTo: number = Number.POSITIVE_INFINITY): void {
   const row = db.prepare('PRAGMA user_version').get() as { user_version: number };
   for (const m of MIGRATIONS) {
-    if (m.version <= row.user_version) continue;
+    if (m.version <= row.user_version || m.version > upTo) continue;
     db.exec('BEGIN IMMEDIATE');
     try {
       db.exec(m.sql);

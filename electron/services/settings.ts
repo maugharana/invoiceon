@@ -48,6 +48,7 @@ const FIELDS: { [K in keyof Settings]: Field<K> } = {
   gstRatePercent: num('gst_rate_percent', 5),
   pricesIncludeGst: bool('prices_include_gst', false),
   invoicePrefix: text('invoice_prefix', 'INV'),
+  b2bPrefix: text('b2b_prefix', ''),
   defaultDueDays: num('default_due_days', 15),
   defaultReorderLevel: num('default_reorder_level', 2),
   monthlyTargetPaise: num('monthly_target_paise', 0),
@@ -113,6 +114,11 @@ function validate(patch: Partial<Settings>): Partial<Settings> {
     const p = requireText(patch.invoicePrefix, 'Invoice prefix', 10).toUpperCase();
     if (!/^[A-Z0-9-]+$/.test(p)) throw new UserError('Invoice prefix can only use letters, numbers and dashes.');
     v.invoicePrefix = p;
+  }
+  if (patch.b2bPrefix !== undefined) {
+    const p = optionalText(patch.b2bPrefix, 'B2B prefix', 10).toUpperCase();
+    if (p && !/^[A-Z0-9-]+$/.test(p)) throw new UserError('B2B prefix can only use letters, numbers and dashes.');
+    v.b2bPrefix = p;
   }
   if (patch.defaultDueDays !== undefined) v.defaultDueDays = requireInt(patch.defaultDueDays, 'Due days', { max: 365 });
   if (patch.defaultReorderLevel !== undefined) v.defaultReorderLevel = requireInt(patch.defaultReorderLevel, 'Reorder level', { max: 100000 });
@@ -197,6 +203,9 @@ function validate(patch: Partial<Settings>): Partial<Settings> {
 
 export function saveSettings(db: Db, patch: Partial<Settings>): Settings {
   const valid = validate(patch);
+  const merged = { ...getSettings(db), ...valid };
+  // Two series sharing a prefix would hand out the same number twice.
+  if (merged.b2bPrefix && merged.b2bPrefix === merged.invoicePrefix) throw new UserError('The B2B series needs a different prefix from your main invoices.');
   tx(db, () => {
     for (const [name, value] of Object.entries(valid)) {
       const field = FIELDS[name as keyof Settings] as Field<any>;

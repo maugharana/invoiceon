@@ -36,6 +36,8 @@ export interface Settings {
   /** True when the prices you enter already include GST, so the tax is carved out of them instead of added on top. */
   pricesIncludeGst: boolean;
   invoicePrefix: string;
+  /** If set, B2B tax invoices are numbered in their own series with this prefix (MGB/2026-27/0001). Empty: one series for all. */
+  b2bPrefix: string;
   /** Days until a B2B invoice falls due. B2C is due on the day. */
   defaultDueDays: number;
   /** Prefilled reorder level for new variants. */
@@ -155,6 +157,7 @@ export interface DesignSummary {
   hsnCode: string;
   description: string;
   defaultPricePaise: Paise;
+  tags: string;
   variantCount: number;
   totalStock: number;
   stockValuePaise: Paise;
@@ -184,6 +187,16 @@ export interface DesignInput {
   hsnCode: string;
   description: string;
   defaultPricePaise: Paise;
+  /** Comma separated labels (collection, occasion, season…) for grouping and filtering. */
+  tags?: string;
+}
+
+/** One entry in a variant's price history: the prices it had from that moment. */
+export interface PricePoint {
+  changedAt: string;
+  sellPricePaise: Paise;
+  mrpPaise: Paise;
+  baseCostPaise: Paise;
 }
 
 export interface VariantInput {
@@ -272,9 +285,42 @@ export interface CustomerInput {
   state: string;
   pincode: string;
   notes: string;
+  /** Comma separated labels ("bridal, regular") used to group and filter customers. */
+  tags?: string;
+  /** The most they should owe at once. 0 = no limit. */
+  creditLimitPaise?: Paise;
+  /** Days after the invoice date that payment is due. null = no agreed terms. */
+  paymentTermsDays?: number | null;
+  /** YYYY-MM-DD; the year may be a placeholder. Only the month and day matter. */
+  birthday?: string;
+  anniversary?: string;
+  /** Other places they take delivery, beyond the main address. */
+  addresses?: CustomerAddress[];
+  /** Other people to call about this customer. */
+  contacts?: CustomerContact[];
+}
+export interface CustomerAddress {
+  label: string;
+  address: string;
+  city: string;
+  state: string;
+  pincode: string;
+}
+export interface CustomerContact {
+  name: string;
+  role: string;
+  phone: string;
+  email: string;
 }
 export interface Customer extends CustomerInput {
   id: string;
+  tags: string;
+  creditLimitPaise: Paise;
+  paymentTermsDays: number | null;
+  birthday: string;
+  anniversary: string;
+  addresses: CustomerAddress[];
+  contacts: CustomerContact[];
   invoiceCount: number;
   billedPaise: Paise;
   /** What they still owe on issued invoices. */
@@ -324,6 +370,8 @@ export interface PaymentInput {
   note: string;
   /** How much of the payment goes to which invoice. Whatever is left over is held as the customer's advance. */
   allocations: { invoiceId: string; amountPaise: Paise }[];
+  /** A deposit against this quote: held as the customer's advance and put toward the invoice when the quote is invoiced. */
+  proformaId?: string | null;
 }
 
 export interface Payment {
@@ -447,9 +495,32 @@ export interface InvoiceLine {
   amountPaise: Paise;
 }
 
+export type DeliveryStatus = 'none' | 'pending' | 'dispatched' | 'delivered';
+export const DELIVERY_STATUS_LABEL: Record<DeliveryStatus, string> = { none: 'No delivery', pending: 'To dispatch', dispatched: 'Dispatched', delivered: 'Delivered' };
+
+/** Where the goods are sent, when that is not the billing address. */
+export interface ShipTo {
+  name: string;
+  address: string;
+  city: string;
+  state: string;
+  pincode: string;
+  phone: string;
+}
+
+/** The logistics of an invoice: unlike the tax document itself, these can be updated after it is issued. */
+export interface DeliveryUpdate {
+  status: DeliveryStatus;
+  transport: string;
+  trackingNo: string;
+  /** The day it arrived. Defaults to today when the status becomes "delivered". */
+  deliveredOn?: string | null;
+}
+
 export interface InvoiceSummary {
   id: string;
   number: string;
+  deliveryStatus: DeliveryStatus;
   type: InvoiceType;
   customerId: string | null;
   buyerName: string;
@@ -483,6 +554,13 @@ export interface Invoice extends InvoiceSummary {
   roundOffPaise: Paise;
   notes: string;
   lines: InvoiceLine[];
+  /** Where it is delivered if not to the buyer's address. Fixed when the invoice is issued, since it is printed on it. */
+  shipTo: ShipTo | null;
+  transport: string;
+  trackingNo: string;
+  deliveredOn: string | null;
+  /** The numbering series it belongs to: '' for the main one, 'B2B' for the separate B2B run. */
+  series: string;
   /** Payments currently applied to this invoice. */
   payments: InvoicePayment[];
   cancelledAt: string | null;
@@ -505,12 +583,19 @@ export interface InvoiceInput {
   payment?: { amountPaise: Paise; method: PaymentMethod; reference: string };
   /** How much of the customer's held advance to put toward this invoice. */
   applyAdvancePaise?: Paise;
+  shipTo?: ShipTo | null;
+  transport?: string;
+  trackingNo?: string;
+  /** Defaults to 'pending' when there is a ship-to or a transporter, otherwise 'none'. */
+  deliveryStatus?: DeliveryStatus;
 }
 
 export interface InvoiceQuery {
   search?: string;
   type?: 'all' | InvoiceType;
   status?: 'all' | 'open' | 'overdue' | 'cancelled';
+  /** Only invoices at this delivery stage. */
+  delivery?: DeliveryStatus;
   customerId?: string;
   /** Only invoices dated on or after / on or before these days ("YYYY-MM-DD"). */
   from?: string;
@@ -723,9 +808,14 @@ export interface ExpensesBreakdown {
 
 // ── Proforma invoices ───────────────────────────────────────────────────────
 /** 'expired' is worked out from the valid-until date; it is never stored. */
-export type ProformaStatus = 'open' | 'expired' | 'converted' | 'cancelled';
+/** open = waiting; expired = past its date; partial = some of it invoiced; converted = all invoiced; lost = the customer said no; cancelled = withdrawn. */
+export type ProformaStatus = 'open' | 'expired' | 'partial' | 'converted' | 'lost' | 'cancelled';
 
-export const PROFORMA_STATUS_LABEL: Record<ProformaStatus, string> = { open: 'Open', expired: 'Expired', converted: 'Invoiced', cancelled: 'Cancelled' };
+export const PROFORMA_STATUS_LABEL: Record<ProformaStatus, string> = { open: 'Open', expired: 'Expired', partial: 'Part-invoiced', converted: 'Invoiced', lost: 'Lost', cancelled: 'Cancelled' };
+
+/** Where a quote stands with the customer, apart from what has been invoiced. */
+export type QuoteStage = 'open' | 'accepted' | 'lost';
+export const QUOTE_STAGE_LABEL: Record<QuoteStage, string> = { open: 'Waiting', accepted: 'Accepted', lost: 'Lost' };
 
 export interface ProformaSummary {
   id: string;
@@ -737,9 +827,22 @@ export interface ProformaSummary {
   validUntil: string;
   totalPaise: Paise;
   status: ProformaStatus;
-  /** The invoice this quote became, once converted. */
+  /** The latest invoice made from this quote. */
   invoiceId: string | null;
+  /** The numbers of the invoices made from it, joined with commas. */
   invoiceNumber: string | null;
+  stage: QuoteStage;
+  /** Why it was lost, when it was. */
+  lostReason: string;
+  /** Deposit money taken against this quote and not reversed. */
+  depositPaise: Paise;
+  /** How much of the quoted total has been invoiced so far (the value of the invoiced quantities). */
+  invoicedPaise: Paise;
+}
+
+export interface ProformaLine extends InvoiceLine {
+  /** How many of this line's pieces have been invoiced so far. */
+  invoicedQty: number;
 }
 
 export interface Proforma extends ProformaSummary {
@@ -759,10 +862,38 @@ export interface Proforma extends ProformaSummary {
   igstPaise: Paise;
   roundOffPaise: Paise;
   notes: string;
-  lines: InvoiceLine[];
+  lines: ProformaLine[];
+  /** The invoices made from it that still stand (cancelled ones drop off). */
+  invoices: { id: string; number: string }[];
   cancelledAt: string | null;
   cancelReason: string;
   createdAt: string;
+}
+
+/** An earlier version of a quote, kept when it was changed. */
+export interface ProformaRevision {
+  version: number;
+  /** When this version was replaced. */
+  replacedAt: string;
+  issueDate: string;
+  validUntil: string;
+  totalPaise: Paise;
+  discountPaise: Paise;
+  notes: string;
+  lines: { designName: string; color: string; size: string; sku: string; qty: number; unitPricePaise: Paise; amountPaise: Paise }[];
+}
+
+/** A saved set of items to start new quotes from. */
+export interface QuoteTemplate {
+  id: string;
+  name: string;
+  notes: string;
+  lines: { variantId: string; qty: number; unitPricePaise: Paise }[];
+}
+export interface QuoteTemplateInput {
+  name: string;
+  notes: string;
+  lines: { variantId: string; qty: number; unitPricePaise: Paise }[];
 }
 
 export interface ProformaInput {
@@ -782,6 +913,29 @@ export interface ProformaQuery {
   /** Only quotes dated on or after / on or before these days ("YYYY-MM-DD"). */
   from?: string;
   to?: string;
+}
+
+/** How the quotes of a stretch of dates turned out: what was quoted, won, lost, and why. */
+export interface QuotesReport {
+  range: { from: string; to: string };
+  /** Quotes dated in the range, not counting ones withdrawn (cancelled). */
+  quoteCount: number;
+  quotedPaise: Paise;
+  /** Any of it invoiced. */
+  won: { count: number; quotedPaise: Paise; invoicedPaise: Paise };
+  lost: { count: number; quotedPaise: Paise };
+  /** Lapsed with no decision. */
+  expired: { count: number; quotedPaise: Paise };
+  /** Still waiting for an answer. */
+  open: { count: number; quotedPaise: Paise };
+  withdrawn: number;
+  /** Won as a share of the quotes that got an answer or lapsed (won + lost + expired), by count and by quoted value. Null with nothing to measure. */
+  winRatePercent: number | null;
+  winRateByValuePercent: number | null;
+  /** From the quote date to its first invoice, on average. */
+  averageDaysToWin: number | null;
+  lostReasons: { reason: string; count: number; quotedPaise: Paise }[];
+  byMonth: { month: string; count: number; quotedPaise: Paise; wonCount: number }[];
 }
 
 // ── Dashboard ───────────────────────────────────────────────────────────────
@@ -881,7 +1035,7 @@ export interface FestivalComparison {
   lastSeason: FestivalFigures | null;
 }
 
-export type AttentionKind = 'payment-reversed' | 'quote-expiring' | 'below-cost';
+export type AttentionKind = 'payment-reversed' | 'quote-expiring' | 'below-cost' | 'follow-up' | 'promise' | 'occasion';
 
 /** Something on the dashboard's "needs attention" list. `link` says where to go to deal with it. */
 export interface AttentionItem {
@@ -1103,4 +1257,40 @@ export interface BulkDesignResult {
   designs: number;
   /** Variants whose reorder level or price was changed (0 for archive). */
   variants: number;
+}
+
+// ── Notes: calls, visits, follow-ups and promises to pay ────────────────────
+export const NOTE_KINDS = ['note', 'call', 'visit', 'followup', 'promise'] as const;
+export type NoteKind = (typeof NOTE_KINDS)[number];
+export const NOTE_KIND_LABEL: Record<NoteKind, string> = { note: 'Note', call: 'Call', visit: 'Visit', followup: 'Follow-up', promise: 'Promise to pay' };
+export type NoteSubject = 'customer' | 'proforma' | 'invoice';
+
+export interface NoteInput {
+  subjectType: NoteSubject;
+  subjectId: string;
+  kind: NoteKind;
+  body: string;
+  /** A follow-up's day, or the day a customer promised to pay. */
+  dueDate?: string | null;
+  /** For a promise: how much they said they'd pay. */
+  amountPaise?: Paise;
+}
+export interface Note {
+  id: string;
+  subjectType: NoteSubject;
+  subjectId: string;
+  kind: NoteKind;
+  body: string;
+  dueDate: string | null;
+  amountPaise: Paise;
+  /** When it was ticked off. Null while still open. */
+  doneAt: string | null;
+  createdAt: string;
+}
+/** An open follow-up or promise, with who it is about. */
+export interface DueNote extends Note {
+  customerId: string | null;
+  customerName: string;
+  /** The invoice or quote number; empty for a note on the customer. */
+  subjectLabel: string;
 }

@@ -91,7 +91,7 @@ const INVOICE_TONE: Record<InvoiceStatus, PillTone> = { paid: 'paid', partial: '
 
 export const InvoicePill = ({ status }: { status: InvoiceStatus }) => <Pill tone={INVOICE_TONE[status]}>{INVOICE_STATUS_LABEL[status]}</Pill>;
 
-const PROFORMA_TONE: Record<ProformaStatus, PillTone> = { open: 'partial', expired: 'overdue', converted: 'paid', cancelled: 'neutral' };
+const PROFORMA_TONE: Record<ProformaStatus, PillTone> = { open: 'partial', expired: 'overdue', partial: 'partial', converted: 'paid', lost: 'overdue', cancelled: 'neutral' };
 
 export const ProformaPill = ({ status }: { status: ProformaStatus }) => <Pill tone={PROFORMA_TONE[status]}>{PROFORMA_STATUS_LABEL[status]}</Pill>;
 

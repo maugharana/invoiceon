@@ -15,6 +15,7 @@ import * as expenses from './services/expenses';
 import * as inventory from './services/inventory';
 import * as invoices from './services/invoices';
 import * as materials from './services/materials';
+import * as notes from './services/notes';
 import * as payments from './services/payments';
 import * as proformas from './services/proformas';
 import * as receivables from './services/receivables';
@@ -56,6 +57,7 @@ export function createApi(db: Db, host?: Host, dataDir?: string): Api {
     designNextCode: async () => inventory.nextDesignCode(db),
     designCreate: async (input) => inventory.createDesign(db, input),
     designUpdate: async (id, input) => inventory.updateDesign(db, id, input),
+    variantPriceHistory: async (variantId) => inventory.variantPriceHistory(db, variantId),
     designDuplicate: async (id) => inventory.duplicateDesign(db, id),
     designRestore: async (id) => inventory.restoreDesign(db, id),
     designsBulk: async (action) => bulk.bulkChangeDesigns(db, action),
@@ -88,6 +90,12 @@ export function createApi(db: Db, host?: Host, dataDir?: string): Api {
     customerUpdate: async (id, input) => customers.updateCustomer(db, id, input),
     customerPurchases: async (id) => customers.customerPurchases(db, id),
     customerMerge: async (keepId, duplicateId) => customers.mergeCustomers(db, keepId, duplicateId),
+
+    notesList: async (subjectType, subjectId) => notes.listNotes(db, subjectType, subjectId),
+    noteAdd: async (input) => notes.addNote(db, input),
+    noteDone: async (id, done) => notes.setNoteDone(db, id, done),
+    noteDelete: async (id) => notes.deleteNote(db, id),
+    notesDue: async (query) => notes.openDueNotes(db, query ?? {}),
     customerRestore: async (id) => customers.restoreCustomer(db, id),
     customersImport: async (rows) => bulk.importCustomers(db, rows),
     customerArchive: async (id) => customers.archiveCustomer(db, id),
@@ -96,7 +104,8 @@ export function createApi(db: Db, host?: Host, dataDir?: string): Api {
 
     invoicesList: async (query) => invoices.listInvoices(db, query ?? {}),
     invoiceGet: async (id) => invoices.getInvoice(db, id),
-    invoiceNextNumber: async (date) => invoices.nextInvoiceNumber(db, date),
+    invoiceNextNumber: async (date, type) => invoices.nextInvoiceNumber(db, date, type),
+    invoiceSetDelivery: async (id, update) => invoices.setDelivery(db, id, update),
     invoiceCreate: async (input) => invoices.createInvoice(db, input),
     invoiceCancel: async (id, reason) => invoices.cancelInvoice(db, id, reason),
     paymentGet: async (id) => payments.getPayment(db, id),
@@ -153,6 +162,7 @@ export function createApi(db: Db, host?: Host, dataDir?: string): Api {
     reportSales: async (range) => reports.salesReport(db, range),
     reportGst: async (range) => reports.gstReport(db, range),
     reportProfitLoss: async (range) => moreReports.profitAndLoss(db, range),
+    reportQuotes: async (range) => moreReports.quotesReport(db, range),
     reportMargin: async (range, by) => moreReports.marginReport(db, range, by),
     reportMarginDrill: async (range, by, key) => moreReports.marginDrill(db, range, by, String(key)),
     reportMovement: async (range) => moreReports.stockMovementReport(db, range),
@@ -186,7 +196,12 @@ export function createApi(db: Db, host?: Host, dataDir?: string): Api {
     proformaCreate: async (input) => proformas.createProforma(db, input),
     proformaUpdate: async (id, input) => proformas.updateProforma(db, id, input),
     proformaCancel: async (id, reason) => proformas.cancelProforma(db, id, reason),
-    proformaConvert: async (id) => proformas.convertProforma(db, id),
+    proformaConvert: async (id, pick) => proformas.convertProforma(db, id, pick),
+    proformaSetStage: async (id, stage, lostReason) => proformas.setQuoteStage(db, id, stage, lostReason),
+    proformaRevisions: async (id) => proformas.listRevisions(db, id),
+    quoteTemplatesList: async () => proformas.listTemplates(db),
+    quoteTemplateSave: async (input) => proformas.saveTemplate(db, input),
+    quoteTemplateDelete: async (id) => proformas.deleteTemplate(db, id),
     proformaExportPdf: async (id) => {
       if (!host) throw new UserError(DESKTOP_ONLY);
       const p = proformas.getProforma(db, id);

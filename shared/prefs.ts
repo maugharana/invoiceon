@@ -20,6 +20,8 @@ export interface InvoiceWords {
   taxInvoice: string;
   proforma: string;
   billTo: string;
+  shipTo: string;
+  transport: string;
   date: string;
   dueDate: string;
   validUntil: string;
@@ -39,9 +41,9 @@ export interface InvoiceWords {
 }
 
 export const INVOICE_WORDS: Record<Language, InvoiceWords> = {
-  en: { invoice: 'Invoice', taxInvoice: 'Tax Invoice', proforma: 'Proforma Invoice', billTo: 'Bill to', date: 'Date', dueDate: 'Due date', validUntil: 'Valid until', item: 'Item', qty: 'Qty', rate: 'Rate', amount: 'Amount', subtotal: 'Subtotal', discount: 'Discount', total: 'Total', balanceDue: 'Balance due', received: 'Received', payTo: 'Pay to', terms: 'Terms', signatory: 'Authorised signatory', scanToPay: 'Scan to pay' },
-  hi: { invoice: 'चालान', taxInvoice: 'कर चालान', proforma: 'प्रोफार्मा चालान', billTo: 'बिल प्राप्तकर्ता', date: 'दिनांक', dueDate: 'देय तिथि', validUntil: 'मान्य तिथि', item: 'विवरण', qty: 'मात्रा', rate: 'दर', amount: 'राशि', subtotal: 'उप-योग', discount: 'छूट', total: 'कुल', balanceDue: 'बकाया राशि', received: 'प्राप्त', payTo: 'भुगतान करें', terms: 'शर्तें', signatory: 'अधिकृत हस्ताक्षरकर्ता', scanToPay: 'भुगतान के लिए स्कैन करें' },
-  gu: { invoice: 'ઇન્વૉઇસ', taxInvoice: 'ટેક્સ ઇન્વૉઇસ', proforma: 'પ્રોફોર્મા ઇન્વૉઇસ', billTo: 'બિલ મેળવનાર', date: 'તારીખ', dueDate: 'નિયત તારીખ', validUntil: 'માન્ય તારીખ', item: 'વિગત', qty: 'જથ્થો', rate: 'દર', amount: 'રકમ', subtotal: 'પેટા-સરવાળો', discount: 'છૂટ', total: 'કુલ', balanceDue: 'બાકી રકમ', received: 'મળેલ', payTo: 'ચુકવણી કરો', terms: 'શરતો', signatory: 'અધિકૃત સહી કરનાર', scanToPay: 'ચુકવણી માટે સ્કૅન કરો' },
+  en: { invoice: 'Invoice', taxInvoice: 'Tax Invoice', proforma: 'Proforma Invoice', billTo: 'Bill to', shipTo: 'Ship to', transport: 'Transport', date: 'Date', dueDate: 'Due date', validUntil: 'Valid until', item: 'Item', qty: 'Qty', rate: 'Rate', amount: 'Amount', subtotal: 'Subtotal', discount: 'Discount', total: 'Total', balanceDue: 'Balance due', received: 'Received', payTo: 'Pay to', terms: 'Terms', signatory: 'Authorised signatory', scanToPay: 'Scan to pay' },
+  hi: { invoice: 'चालान', taxInvoice: 'कर चालान', proforma: 'प्रोफार्मा चालान', billTo: 'बिल प्राप्तकर्ता', shipTo: 'माल भेजने का पता', transport: 'परिवहन', date: 'दिनांक', dueDate: 'देय तिथि', validUntil: 'मान्य तिथि', item: 'विवरण', qty: 'मात्रा', rate: 'दर', amount: 'राशि', subtotal: 'उप-योग', discount: 'छूट', total: 'कुल', balanceDue: 'बकाया राशि', received: 'प्राप्त', payTo: 'भुगतान करें', terms: 'शर्तें', signatory: 'अधिकृत हस्ताक्षरकर्ता', scanToPay: 'भुगतान के लिए स्कैन करें' },
+  gu: { invoice: 'ઇન્વૉઇસ', taxInvoice: 'ટેક્સ ઇન્વૉઇસ', proforma: 'પ્રોફોર્મા ઇન્વૉઇસ', billTo: 'બિલ મેળવનાર', shipTo: 'માલ મોકલવાનું સરનામું', transport: 'પરિવહન', date: 'તારીખ', dueDate: 'નિયત તારીખ', validUntil: 'માન્ય તારીખ', item: 'વિગત', qty: 'જથ્થો', rate: 'દર', amount: 'રકમ', subtotal: 'પેટા-સરવાળો', discount: 'છૂટ', total: 'કુલ', balanceDue: 'બાકી રકમ', received: 'મળેલ', payTo: 'ચુકવણી કરો', terms: 'શરતો', signatory: 'અધિકૃત સહી કરનાર', scanToPay: 'ચુકવણી માટે સ્કૅન કરો' },
 };
 
 // ── Message templates ───────────────────────────────────────────────────────

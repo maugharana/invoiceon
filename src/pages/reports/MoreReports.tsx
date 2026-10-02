@@ -1,6 +1,6 @@
 import { ChevronRight, Table2 } from 'lucide-react';
 import { Fragment, useState, type ReactNode } from 'react';
-import { dayBookCsv, marginCsv, movementCsv, moversCsv, profitLossCsv, receivablesCsv } from '../../../shared/csv';
+import { dayBookCsv, marginCsv, movementCsv, moversCsv, profitLossCsv, quotesCsv, receivablesCsv } from '../../../shared/csv';
 import { formatDate } from '../../../shared/gst';
 import { formatMoney } from '../../../shared/money';
 import { resolvePeriod, type PeriodSpec } from '../../../shared/periods';
@@ -547,6 +547,141 @@ export function DayBookTab({ period }: { period: PeriodSpec }) {
             </tbody>
           </table>
         </Card>
+      )}
+    </>
+  );
+}
+
+// ── Quotes: won, lost and why ───────────────────────────────────────────────
+export function QuotesTab({ period }: { period: PeriodSpec }) {
+  const exportCsv = useReportExport();
+  const range = resolvePeriod(period);
+  const q = useQuery(() => api.reportQuotes(range), [range.from, range.to]);
+  const r = q.data;
+  if (q.error && !r) return <ErrorNote>{q.error}</ErrorNote>;
+  if (!r) return <Spinner />;
+  const nothing = r.quoteCount === 0 && r.withdrawn === 0;
+
+  return (
+    <>
+      <Toolbar>
+        <p className="text-xs text-ink-muted">Quotes dated in this period. Won means any of it was invoiced; the win rate counts quotes that were won, lost or lapsed.</p>
+        <div className="flex gap-2">
+          <ExportButton onClick={() => void exportCsv(`quotes-${range.from}_${range.to}.csv`, quotesCsv(r))} />
+        </div>
+      </Toolbar>
+      {nothing ? (
+        <Empty title="No quotes in this period" body="Proformas dated in the period you choose appear here, with how many became invoices." />
+      ) : (
+        <>
+          <div className="mb-8 grid grid-cols-4 gap-6">
+            <Figure label="Quoted" sub={plural(r.quoteCount, 'quote')}>
+              <Money paise={r.quotedPaise} fractionDigits={0} />
+            </Figure>
+            <Figure label="Win rate" sub={r.winRateByValuePercent === null ? 'Nothing decided yet' : `${r.winRateByValuePercent.toFixed(0)}% by value`} highlight>
+              {pct(r.winRatePercent)}
+            </Figure>
+            <Figure label="Invoiced from quotes" sub={plural(r.won.count, 'quote')}>
+              <Money paise={r.won.invoicedPaise} fractionDigits={0} />
+            </Figure>
+            <Figure label="Time to win" sub="Quote date to first invoice">
+              {r.averageDaysToWin === null ? '—' : `${r.averageDaysToWin.toFixed(r.averageDaysToWin < 10 ? 1 : 0)} days`}
+            </Figure>
+          </div>
+
+          <Section title="How they turned out">
+            <Card className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-line">
+                    <th className="th">Outcome</th>
+                    <th className="th text-right">Quotes</th>
+                    <th className="th text-right">Quoted value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[
+                    { label: 'Won', note: 'any of it invoiced', ...r.won },
+                    { label: 'Lost', note: 'the customer said no', ...r.lost },
+                    { label: 'Lapsed', note: 'expired without an answer', ...r.expired },
+                    { label: 'Still open', note: 'waiting for an answer', ...r.open },
+                  ].map((row) => (
+                    <tr key={row.label} className="border-b border-line/70 last:border-0">
+                      <td className="td">
+                        {row.label} <span className="text-xs text-ink-muted">· {row.note}</span>
+                      </td>
+                      <td className="td num text-right">{row.count || dash}</td>
+                      <td className="td text-right">{row.count ? <Money paise={row.quotedPaise} /> : dash}</td>
+                    </tr>
+                  ))}
+                  {r.withdrawn > 0 && (
+                    <tr className="border-b border-line/70 text-ink-muted last:border-0">
+                      <td className="td">Withdrawn · cancelled, not counted above</td>
+                      <td className="td num text-right">{r.withdrawn}</td>
+                      <td className="td" />
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </Card>
+          </Section>
+
+          {r.lostReasons.length > 0 && (
+            <Section title="Why quotes were lost" note="From the reason entered when a quote is marked lost.">
+              <Card className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-line">
+                      <th className="th">Reason</th>
+                      <th className="th text-right">Quotes</th>
+                      <th className="th text-right">Quoted value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {r.lostReasons.map((l) => (
+                      <tr key={l.reason} className="border-b border-line/70 last:border-0">
+                        <td className="td">{l.reason}</td>
+                        <td className="td num text-right">{l.count}</td>
+                        <td className="td text-right">
+                          <Money paise={l.quotedPaise} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </Card>
+            </Section>
+          )}
+
+          {r.byMonth.length > 1 && (
+            <Section title="Month by month">
+              <Card className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-line">
+                      <th className="th">Month</th>
+                      <th className="th text-right">Quotes</th>
+                      <th className="th text-right">Quoted value</th>
+                      <th className="th text-right">Won</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {r.byMonth.map((m) => (
+                      <tr key={m.month} className="border-b border-line/70 last:border-0">
+                        <td className="td num">{m.month}</td>
+                        <td className="td num text-right">{m.count}</td>
+                        <td className="td text-right">
+                          <Money paise={m.quotedPaise} />
+                        </td>
+                        <td className="td num text-right">{m.wonCount || dash}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </Card>
+            </Section>
+          )}
+        </>
       )}
     </>
   );

@@ -2,6 +2,7 @@ import { addDays, todayIso } from '../../shared/gst';
 import { mulPaise } from '../../shared/money';
 import { matchesAll } from '../../shared/search';
 import { designStatus, variantStatus } from '../../shared/stock';
+import { normalizeTags } from '../../shared/tags';
 import {
   MANUAL_STOCK_REASONS,
   type BomLine,
@@ -12,6 +13,7 @@ import {
   type DesignQuery,
   type DesignSummary,
   type InventorySummary,
+  type PricePoint,
   type StockAdjustInput,
   type StockMovement,
   type StockReason,
@@ -34,6 +36,7 @@ interface DesignRow {
   hsn_code: string;
   description: string;
   default_price_paise: number;
+  tags: string;
   deleted_at: string | null;
 }
 interface VariantRow {
@@ -154,6 +157,7 @@ function summarise(d: DesignRow, variants: Variant[], sales?: DesignSales): Desi
     hsnCode: d.hsn_code,
     description: d.description,
     defaultPricePaise: d.default_price_paise,
+    tags: d.tags,
     variantCount: variants.length,
     totalStock,
     stockValuePaise: variants.reduce((s, v) => s + v.stock * v.unitCostPaise, 0),
@@ -186,7 +190,7 @@ export function listDesigns(db: Db, query: DesignQuery = {}): DesignSummary[] {
   return designs
     .filter((d) => {
       const vs = byDesign.get(d.id) ?? [];
-      return matchesAll([d.code, d.name, d.nickname, d.fabric, ...vs.flatMap((v) => [v.sku, v.color])].join(' '), query.search);
+      return matchesAll([d.code, d.name, d.nickname, d.fabric, d.tags, ...vs.flatMap((v) => [v.sku, v.color])].join(' '), query.search);
     })
     .map((d) => summarise(d, byDesign.get(d.id) ?? [], sales.get(d.id)))
     .filter((s) => {
@@ -230,6 +234,7 @@ function validateDesign(input: DesignInput) {
     hsn: optionalText(input.hsnCode, 'HSN code', 12),
     description: optionalText(input.description, 'Description', 500),
     price: requireInt(input.defaultPricePaise, 'Default price', { max: MAX_PAISE }),
+    tags: normalizeTags(input.tags),
   };
 }
 
@@ -238,7 +243,7 @@ export function createDesign(db: Db, input: DesignInput): DesignDetail {
   const id = newId();
   const now = nowIso();
   try {
-    run(db, 'INSERT INTO designs (id, code, name, nickname, fabric, hsn_code, description, default_price_paise, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', id, v.code, v.name, v.nickname, v.fabric, v.hsn, v.description, v.price, now, now);
+    run(db, 'INSERT INTO designs (id, code, name, nickname, fabric, hsn_code, description, default_price_paise, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', id, v.code, v.name, v.nickname, v.fabric, v.hsn, v.description, v.price, v.tags, now, now);
   } catch (err) {
     if (isUniqueViolation(err)) throw new UserError(`Design code "${v.code}" is already in use.`);
     throw err;
@@ -250,7 +255,7 @@ export function updateDesign(db: Db, id: string, input: DesignInput): DesignDeta
   const v = validateDesign(input);
   getDesign(db, id);
   try {
-    run(db, 'UPDATE designs SET code = ?, name = ?, nickname = ?, fabric = ?, hsn_code = ?, description = ?, default_price_paise = ?, updated_at = ? WHERE id = ?', v.code, v.name, v.nickname, v.fabric, v.hsn, v.description, v.price, nowIso(), id);
+    run(db, 'UPDATE designs SET code = ?, name = ?, nickname = ?, fabric = ?, hsn_code = ?, description = ?, default_price_paise = ?, tags = ?, updated_at = ? WHERE id = ?', v.code, v.name, v.nickname, v.fabric, v.hsn, v.description, v.price, v.tags, nowIso(), id);
   } catch (err) {
     if (isUniqueViolation(err)) throw new UserError(`Design code "${v.code}" is already in use.`);
     throw err;
@@ -273,6 +278,7 @@ export function duplicateDesign(db: Db, id: string): DesignDetail {
       hsnCode: source.hsnCode,
       description: source.description,
       defaultPricePaise: source.defaultPricePaise,
+      tags: source.tags,
     });
     for (const v of source.variants) {
       createVariant(db, copy.id, { color: v.color, size: v.size, sellPricePaise: v.sellPricePaise, mrpPaise: v.mrpPaise, baseCostPaise: v.baseCostPaise, reorderLevel: v.reorderLevel, bom: v.bom.map((b) => ({ materialId: b.materialId, qty: b.qty })) });
@@ -369,8 +375,24 @@ export function createVariant(db: Db, designId: string, input: VariantInput): Va
     }
     writeBom(db, id, v.bom);
     if (opening > 0) recordMovement(db, id, opening, 'opening');
+    recordPrices(db, id, v.sell, v.mrp, v.base, now);
   });
   return getVariant(db, id);
+}
+
+/** Notes the prices a variant has from now on. Callers only call it when something changed (or at the start). */
+function recordPrices(db: Db, variantId: string, sell: number, mrp: number, base: number, at: string): void {
+  run(db, 'INSERT INTO price_history (id, variant_id, sell_price_paise, mrp_paise, base_cost_paise, changed_at) VALUES (?, ?, ?, ?, ?, ?)', newId(), variantId, sell, mrp, base, at);
+}
+
+/** Every price a variant has had, newest first. The first entry is what it has now. */
+export function variantPriceHistory(db: Db, variantId: string): PricePoint[] {
+  getVariant(db, variantId);
+  return all<{ changed_at: string; sell_price_paise: number; mrp_paise: number; base_cost_paise: number }>(
+    db,
+    'SELECT changed_at, sell_price_paise, mrp_paise, base_cost_paise FROM price_history WHERE variant_id = ? ORDER BY changed_at DESC, rowid DESC',
+    variantId,
+  ).map((r) => ({ changedAt: r.changed_at, sellPricePaise: r.sell_price_paise, mrpPaise: r.mrp_paise, baseCostPaise: r.base_cost_paise }));
 }
 
 export function updateVariant(db: Db, id: string, input: VariantInput): Variant {
@@ -387,6 +409,7 @@ export function updateVariant(db: Db, id: string, input: VariantInput): Variant 
       throw err;
     }
     writeBom(db, id, v.bom);
+    if (v.sell !== existing.sellPricePaise || v.mrp !== existing.mrpPaise || v.base !== existing.baseCostPaise) recordPrices(db, id, v.sell, v.mrp, v.base, nowIso());
   });
   return getVariant(db, id);
 }

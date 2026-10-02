@@ -2,9 +2,11 @@ import { useState, type FormEvent } from 'react';
 import type { DesignDetail, DesignSummary } from '../../../shared/types';
 import { Modal } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
+import { TagInput } from '../../components/TagInput';
 import { Button, ErrorNote, Field, Input, MoneyInput, Textarea } from '../../components/ui';
 import { api, errorMessage } from '../../lib/api';
-import { useRefresh } from '../../lib/data';
+import { useQuery, useRefresh } from '../../lib/data';
+import { tagCounts } from '../../../shared/tags';
 
 const FABRICS = ['Pure silk', 'Katan silk', 'Silk blend', 'Cotton silk', 'Cotton', 'Organza', 'Georgette', 'Linen', 'Tissue'];
 
@@ -27,6 +29,9 @@ export function DesignFormModal({ design, suggestedCode = '', onClose, onSaved }
   const [hsn, setHsn] = useState(design?.hsnCode ?? '');
   const [price, setPrice] = useState(design?.defaultPricePaise ?? 0);
   const [description, setDescription] = useState(design?.description ?? '');
+  const [tags, setTags] = useState(design?.tags ?? '');
+  const everything = useQuery(() => api.designsList());
+  const suggestions = tagCounts((everything.data ?? []).map((d) => d.tags)).map((t) => t.tag);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -34,7 +39,7 @@ export function DesignFormModal({ design, suggestedCode = '', onClose, onSaved }
     e.preventDefault();
     setSaving(true);
     setError(null);
-    const input = { code, name, nickname: nickname.trim(), fabric, hsnCode: hsn, description, defaultPricePaise: price };
+    const input = { code, name, nickname: nickname.trim(), fabric, hsnCode: hsn, description, defaultPricePaise: price, tags };
     try {
       const saved = design ? await api.designUpdate(design.id, input) : await api.designCreate(input);
       refresh();
@@ -86,6 +91,9 @@ export function DesignFormModal({ design, suggestedCode = '', onClose, onSaved }
         </div>
         <Field label="Default selling price" hint="Before GST. Prefilled for each new variant; every variant can override it.">
           <MoneyInput value={price} onChange={setPrice} />
+        </Field>
+        <Field label="Tags" hint="Collection, occasion or season: bridal, festive, summer…">
+          <TagInput value={tags} onChange={setTags} suggestions={suggestions} placeholder="bridal, festive" />
         </Field>
         <Field label="Notes">
           <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Weave, border, motifs… (optional)" />

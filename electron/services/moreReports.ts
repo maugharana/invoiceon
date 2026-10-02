@@ -1,9 +1,11 @@
 import { addDays, todayIso } from '../../shared/gst';
 import { sameDayLastYear } from '../../shared/periods';
+import type { QuotesReport } from '../../shared/types';
 import type { DayBook, DayBookEntry, DayBookMode, MarginBy, MarginLine, MarginReport, MarginRow, MoverClass, MoverRow, MoversReport, PaymentMethod, ProfitAndLoss, ProfitLossFigures, StockMovementReport, StockMovementRow } from '../../shared/types';
 import { all, type Db } from '../db/connection';
 import { UserError } from './common';
 import { listExpenses, overviewOf } from './expenses';
+import { listProformas } from './proformas';
 import { listDesigns } from './inventory';
 import { checkRange, loadInvoices, type LoadedInvoice } from './reports';
 
@@ -38,6 +40,81 @@ export function profitAndLoss(db: Db, range: Range): ProfitAndLoss {
   const lastYear = figuresFor(db, before);
   const hadAnything = lastYear.invoiceCount > 0 || lastYear.expensesPaise > 0;
   return { range, ...figuresFor(db, range), lastYear: hadAnything ? { range: before, ...lastYear } : null };
+}
+
+// ── Quotes: won, lost and why ───────────────────────────────────────────────
+/** How the quotes dated in the range turned out. A quote with any of it invoiced counts as won, even if it was only a part. */
+export function quotesReport(db: Db, range: Range): QuotesReport {
+  checkRange(range);
+  const quotes = listProformas(db, { from: range.from, to: range.to });
+  const firstInvoice = new Map(
+    all<{ proforma_id: string; first: string }>(db, "SELECT pi.proforma_id, MIN(i.issue_date) AS first FROM proforma_invoices pi JOIN invoices i ON i.id = pi.invoice_id WHERE i.status = 'issued' GROUP BY pi.proforma_id").map((r) => [r.proforma_id, r.first]),
+  );
+  // What was actually invoiced from each quote: the totals of its invoices that still stand.
+  const invoiced = new Map(
+    all<{ proforma_id: string; total: number }>(db, "SELECT pi.proforma_id, SUM(i.total_paise) AS total FROM proforma_invoices pi JOIN invoices i ON i.id = pi.invoice_id WHERE i.status = 'issued' GROUP BY pi.proforma_id").map((r) => [r.proforma_id, r.total]),
+  );
+  const group = () => ({ count: 0, quotedPaise: 0 });
+  const won = { count: 0, quotedPaise: 0, invoicedPaise: 0 };
+  const lost = group();
+  const expired = group();
+  const open = group();
+  let withdrawn = 0;
+  const reasons = new Map<string, { reason: string; count: number; quotedPaise: number }>();
+  const months = new Map<string, { month: string; count: number; quotedPaise: number; wonCount: number }>();
+  const wonDays: number[] = [];
+
+  for (const q of quotes) {
+    if (q.status === 'cancelled') {
+      withdrawn++;
+      continue;
+    }
+    const month = months.get(q.issueDate.slice(0, 7)) ?? { month: q.issueDate.slice(0, 7), count: 0, quotedPaise: 0, wonCount: 0 };
+    month.count++;
+    month.quotedPaise += q.totalPaise;
+    months.set(month.month, month);
+
+    if (q.status === 'converted' || q.status === 'partial') {
+      won.count++;
+      won.quotedPaise += q.totalPaise;
+      won.invoicedPaise += invoiced.get(q.id) ?? 0;
+      month.wonCount++;
+      const first = firstInvoice.get(q.id);
+      if (first) wonDays.push(Math.max(0, Math.round((Date.parse(first) - Date.parse(q.issueDate)) / 86_400_000)));
+    } else if (q.status === 'lost') {
+      lost.count++;
+      lost.quotedPaise += q.totalPaise;
+      const reason = q.lostReason.trim() || 'No reason given';
+      const r = reasons.get(reason.toLowerCase()) ?? { reason, count: 0, quotedPaise: 0 };
+      r.count++;
+      r.quotedPaise += q.totalPaise;
+      reasons.set(reason.toLowerCase(), r);
+    } else if (q.status === 'expired') {
+      expired.count++;
+      expired.quotedPaise += q.totalPaise;
+    } else {
+      open.count++;
+      open.quotedPaise += q.totalPaise;
+    }
+  }
+
+  const decided = won.count + lost.count + expired.count;
+  const decidedValue = won.quotedPaise + lost.quotedPaise + expired.quotedPaise;
+  return {
+    range,
+    quoteCount: quotes.length - withdrawn,
+    quotedPaise: sum(quotes.filter((q) => q.status !== 'cancelled'), (q) => q.totalPaise),
+    won,
+    lost,
+    expired,
+    open,
+    withdrawn,
+    winRatePercent: decided > 0 ? (won.count / decided) * 100 : null,
+    winRateByValuePercent: decidedValue > 0 ? (won.quotedPaise / decidedValue) * 100 : null,
+    averageDaysToWin: wonDays.length > 0 ? sum(wonDays, (d) => d) / wonDays.length : null,
+    lostReasons: [...reasons.values()].sort((a, b) => b.count - a.count || b.quotedPaise - a.quotedPaise),
+    byMonth: [...months.values()].sort((a, b) => a.month.localeCompare(b.month)),
+  };
 }
 
 // ── Margin, by design / colour / customer ───────────────────────────────────

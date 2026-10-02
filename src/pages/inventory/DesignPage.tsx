@@ -1,8 +1,9 @@
-import { Archive, ArrowLeft, Copy, History, Package, Pencil, PackagePlus, Plus } from 'lucide-react';
+import { Archive, ArrowLeft, Copy, History, LineChart, Package, Pencil, PackagePlus, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { formatMoney } from '../../../shared/money';
 import type { Variant } from '../../../shared/types';
 import { ConfirmDialog } from '../../components/Modal';
+import { TagChips } from '../../components/TagInput';
 import { useToast } from '../../components/Toast';
 import { Button, Card, EmptyState, ErrorNote, Figure, IconButton, Money, PageHeader, Spinner, StockPill } from '../../components/ui';
 import { api, errorMessage } from '../../lib/api';
@@ -11,7 +12,7 @@ import { useRecent } from '../../lib/recent';
 import { plural } from '../../lib/format';
 import { navigate, paths } from '../../lib/router';
 import { DesignFormModal } from './DesignFormModal';
-import { AdjustStockModal, StockHistoryModal } from './StockModals';
+import { AdjustStockModal, PriceHistoryModal, StockHistoryModal } from './StockModals';
 import { VariantFormModal } from './VariantFormModal';
 
 type Dialog =
@@ -20,6 +21,7 @@ type Dialog =
   | { kind: 'variant'; variant?: Variant }
   | { kind: 'adjust'; variant: Variant }
   | { kind: 'history'; variant: Variant }
+  | { kind: 'prices'; variant: Variant }
   | { kind: 'archive-variant'; variant: Variant };
 
 function Margin({ variant }: { variant: Variant }) {
@@ -101,6 +103,11 @@ export function DesignPage({ id }: { id: string }) {
         }
       />
 
+      {d.tags && (
+        <div className="-mt-4 mb-4">
+          <TagChips tags={d.tags} />
+        </div>
+      )}
       {d.description && <p className="-mt-4 mb-8 max-w-2xl text-ink-muted">{d.description}</p>}
 
       <div className="mb-8 grid grid-cols-4 gap-6">
@@ -179,6 +186,9 @@ export function DesignPage({ id }: { id: string }) {
                       <IconButton label={`Stock history, ${v.color} ${v.size}`} onClick={() => setDialog({ kind: 'history', variant: v })}>
                         <History className="h-4 w-4" />
                       </IconButton>
+                      <IconButton label={`Price history, ${v.color} ${v.size}`} onClick={() => setDialog({ kind: 'prices', variant: v })}>
+                        <LineChart className="h-4 w-4" />
+                      </IconButton>
                       <IconButton label={`Edit ${v.color} ${v.size}`} onClick={() => setDialog({ kind: 'variant', variant: v })}>
                         <Pencil className="h-4 w-4" />
                       </IconButton>
@@ -207,6 +217,7 @@ export function DesignPage({ id }: { id: string }) {
       {dialog?.kind === 'variant' && <VariantFormModal design={d} variant={dialog.variant} onClose={close} />}
       {dialog?.kind === 'adjust' && <AdjustStockModal variant={dialog.variant} onClose={close} />}
       {dialog?.kind === 'history' && <StockHistoryModal variant={dialog.variant} onClose={close} />}
+      {dialog?.kind === 'prices' && <PriceHistoryModal variant={dialog.variant} onClose={close} />}
       {dialog?.kind === 'archive-variant' && (
         <ConfirmDialog
           title="Archive this variant?"

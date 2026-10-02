@@ -109,9 +109,19 @@ export function recordPaymentTx(db: Db, input: PaymentDraft): string {
   if (allocated > amount) throw new UserError('More is applied to invoices than was received.');
   if (allocated < amount && !input.customerId) throw new UserError('A payment with no customer must be applied in full to an invoice. Choose a customer to keep the rest as advance.');
 
+  // A deposit is tied to one quote of the same customer that can still be invoiced.
+  let proformaId: string | null = null;
+  if (input.proformaId) {
+    const quote = get<{ customer_id: string | null; status: string; stage: string; number: string }>(db, 'SELECT customer_id, status, stage, number FROM proformas WHERE id = ?', input.proformaId);
+    if (!quote) throw new UserError('That quote no longer exists.');
+    if (!input.customerId || quote.customer_id !== input.customerId) throw new UserError(`A deposit for ${quote.number} has to be recorded against that quote's own customer.`);
+    if (quote.status !== 'open' || quote.stage === 'lost') throw new UserError(`${quote.number} is closed, so it can't take a deposit.`);
+    proformaId = input.proformaId;
+  }
+
   const id = newId();
   const now = nowIso();
-  run(db, 'INSERT INTO payments (id, customer_id, amount_paise, method, reference, received_on, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', id, input.customerId ?? null, amount, input.method, reference, input.receivedOn, note, now, now);
+  run(db, 'INSERT INTO payments (id, customer_id, amount_paise, method, reference, received_on, note, proforma_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', id, input.customerId ?? null, amount, input.method, reference, input.receivedOn, note, proformaId, now, now);
   for (const al of allocations) addAllocation(db, id, al.invoiceId, al.amountPaise);
   return id;
 }

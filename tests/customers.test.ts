@@ -58,7 +58,7 @@ describe('customer list filters', () => {
 });
 
 describe('finding duplicates', () => {
-  const fake = (over: Partial<Customer>): Customer => ({ ...blank, id: Math.random().toString(36), invoiceCount: 0, billedPaise: 0, outstandingPaise: 0, advancePaise: 0, ...over });
+  const fake = (over: Partial<Customer>): Customer => ({ ...blank, id: Math.random().toString(36), tags: '', creditLimitPaise: 0, paymentTermsDays: null, birthday: '', anniversary: '', addresses: [], contacts: [], invoiceCount: 0, billedPaise: 0, outstandingPaise: 0, advancePaise: 0, ...over });
 
   it('treats differently written phone numbers as the same number', () => {
     expect(phoneKey('+91 98765-43210')).toBe('9876543210');
@@ -161,7 +161,7 @@ describe('customer export', () => {
     sell(c.id, red.id);
     const csv = customersCsv(customers.listCustomers(db));
     const lines = csv.replace('﻿', '').trim().split('\r\n');
-    expect(lines[0]).toBe('Customer,Type,Phone,Email,GSTIN,City,State,Invoices,Billed,Owes,Advance held');
-    expect(lines[1]).toBe('"Sunita, Devi",B2C,9876543210,,,Mau,Uttar Pradesh,1,1050.00,1050.00,0.00');
+    expect(lines[0]).toBe('Customer,Type,Phone,Email,GSTIN,City,State,Invoices,Billed,Owes,Advance held,Tags');
+    expect(lines[1]).toBe('"Sunita, Devi",B2C,9876543210,,,Mau,Uttar Pradesh,1,1050.00,1050.00,0.00,');
   });
 });

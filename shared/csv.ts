@@ -1,6 +1,6 @@
 import { INVOICE_STATUS_LABEL } from './gst';
 import { STOCK_STATUS_LABEL } from './stock';
-import type { Customer, DayBook, DesignSummary, DuesReport, Expense, ExpensesBreakdown, MarginReport, MoversReport, ProfitAndLoss, StockMovementReport, StockMovementRow, GstReport, InvoiceSummary, Payment, ProformaSummary, SalesReport, StockReport } from './types';
+import type { Customer, DayBook, DesignSummary, QuotesReport, DuesReport, Expense, ExpensesBreakdown, MarginReport, MoversReport, ProfitAndLoss, StockMovementReport, StockMovementRow, GstReport, InvoiceSummary, Payment, ProformaSummary, SalesReport, StockReport } from './types';
 import { PAYMENT_METHOD_LABEL, PROFORMA_STATUS_LABEL } from './types';
 
 type Row = (string | number)[];
@@ -117,8 +117,8 @@ export function designsCsv(rows: DesignSummary[]): string {
 /** The customers as listed: contact details and what they owe or hold. */
 export function customersCsv(rows: Customer[]): string {
   return toCsv([
-    ['Customer', 'Type', 'Phone', 'Email', 'GSTIN', 'City', 'State', 'Invoices', 'Billed', 'Owes', 'Advance held'],
-    ...rows.map((c) => [c.name, c.type, c.phone, c.email, c.gstin, c.city, c.state, c.invoiceCount, rs(c.billedPaise), rs(c.outstandingPaise), rs(c.advancePaise)]),
+    ['Customer', 'Type', 'Phone', 'Email', 'GSTIN', 'City', 'State', 'Invoices', 'Billed', 'Owes', 'Advance held', 'Tags'],
+    ...rows.map((c) => [c.name, c.type, c.phone, c.email, c.gstin, c.city, c.state, c.invoiceCount, rs(c.billedPaise), rs(c.outstandingPaise), rs(c.advancePaise), c.tags]),
   ]);
 }
 
@@ -183,6 +183,31 @@ export function marginCsv(r: MarginReport): string {
     [by, 'Pieces', 'Invoices', 'Sales (excl. GST)', 'Cost', 'Profit', 'Margin %'],
     ...r.rows.map((m) => [m.name, m.pieces, m.invoiceCount, rs(m.revenuePaise), rs(m.costPaise), rs(m.profitPaise), m.marginPercent === null ? '' : m.marginPercent.toFixed(1)]),
     ['Total', r.totals.pieces, '', rs(r.totals.revenuePaise), rs(r.totals.costPaise), rs(r.totals.profitPaise), r.totals.marginPercent === null ? '' : r.totals.marginPercent.toFixed(1)],
+  ]);
+}
+
+export function quotesCsv(r: QuotesReport): string {
+  const pct = (v: number | null) => (v === null ? '' : v.toFixed(1));
+  return toCsv([
+    ['Quotes', `${r.range.from} to ${r.range.to}`],
+    [],
+    ['Outcome', 'Quotes', 'Quoted value'],
+    ['Won (any of it invoiced)', r.won.count, rs(r.won.quotedPaise)],
+    ['Lost', r.lost.count, rs(r.lost.quotedPaise)],
+    ['Expired without an answer', r.expired.count, rs(r.expired.quotedPaise)],
+    ['Still open', r.open.count, rs(r.open.quotedPaise)],
+    ['Withdrawn (cancelled)', r.withdrawn, ''],
+    [],
+    ['Win rate by count %', pct(r.winRatePercent)],
+    ['Win rate by value %', pct(r.winRateByValuePercent)],
+    ['Invoiced from won quotes', rs(r.won.invoicedPaise)],
+    ['Average days to win', r.averageDaysToWin === null ? '' : r.averageDaysToWin.toFixed(1)],
+    [],
+    ['Why quotes were lost', 'Quotes', 'Quoted value'],
+    ...r.lostReasons.map((l) => [l.reason, l.count, rs(l.quotedPaise)]),
+    [],
+    ['Month', 'Quotes', 'Quoted value', 'Won'],
+    ...r.byMonth.map((m) => [m.month, m.count, rs(m.quotedPaise), m.wonCount]),
   ]);
 }
 

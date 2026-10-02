@@ -4,6 +4,8 @@ import { designsCsv } from '../../../shared/csv';
 import { MARGIN_LABEL, NO_FILTERS, SOLD_LABEL, applyDesignFilters, fabricsOf, filtersActive, type DesignFilters, type MarginBand, type SoldBand } from '../../../shared/designFilters';
 import { formatDate, todayIso } from '../../../shared/gst';
 import { formatMoney } from '../../../shared/money';
+import { tagCounts } from '../../../shared/tags';
+import { TagChips } from '../../components/TagInput';
 import { Pager, SortableTh, sortBy, usePager, useSort } from '../../components/listTools';
 import { Button, Card, EmptyState, ErrorNote, Field, Figure, Money, MoneyInput, SearchInput, Segmented, Select, TableSkeleton, StockPill } from '../../components/ui';
 import { useToast } from '../../components/Toast';
@@ -47,6 +49,7 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
   const s = summary.data;
   const isEmptyInventory = s?.designCount === 0;
   const fabrics = useMemo(() => fabricsOf(everything.data ?? []), [everything.data]);
+  const tagList = useMemo(() => tagCounts((everything.data ?? []).map((d) => d.tags)), [everything.data]);
 
   const shown = useMemo(() => {
     const rows = applyDesignFilters(designs.data ?? [], columns, todayIso());
@@ -179,7 +182,17 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
 
           {showFilters && (
             <Card className="animate-fade-in mb-4 p-4">
-              <div className="grid grid-cols-5 items-end gap-4">
+              <div className="grid grid-cols-6 items-end gap-4">
+                <Field label="Tag">
+                  <Select value={columns.tag} onChange={(e) => setColumn('tag', e.target.value)}>
+                    <option value="">Any tag</option>
+                    {tagList.map((t) => (
+                      <option key={t.tag} value={t.tag}>
+                        {t.tag} ({t.count})
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
                 <Field label="Fabric">
                   <Select value={columns.fabric} onChange={(e) => setColumn('fabric', e.target.value)}>
                     <option value="">Any fabric</option>
@@ -305,6 +318,11 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
                           {d.nickname && ' · '}
                           {d.code} · {plural(d.variantCount, 'variant')}
                         </div>
+                        {d.tags && (
+                          <div className="mt-1" onClick={(e) => e.stopPropagation()}>
+                            <TagChips tags={d.tags} onClick={(t) => setColumn('tag', t)} />
+                          </div>
+                        )}
                       </td>
                       <td className="td text-ink-muted">{d.fabric || '—'}</td>
                       <td className="td num text-right">{d.totalStock}</td>

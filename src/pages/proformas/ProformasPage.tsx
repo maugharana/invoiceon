@@ -2,7 +2,8 @@ import { ChevronRight, ClipboardList, Download, Plus, SearchX } from 'lucide-rea
 import { useEffect, useMemo, useState } from 'react';
 import { proformasCsv } from '../../../shared/csv';
 import { formatDate, todayIso } from '../../../shared/gst';
-import type { ProformaStatus } from '../../../shared/types';
+import { buildPipeline } from '../../../shared/pipeline';
+import type { ProformaStatus, ProformaSummary } from '../../../shared/types';
 import { Button, Card, EmptyState, ErrorNote, Money, PageHeader, ProformaPill, SearchInput, Segmented, TableSkeleton, TypePill } from '../../components/ui';
 import { api } from '../../lib/api';
 import { useQuery } from '../../lib/data';
@@ -12,12 +13,54 @@ import { navigate, paths } from '../../lib/router';
 
 type Status = 'all' | ProformaStatus;
 
+/** The quotes as a board: one column per stage, so it is plain what is waiting, what is won, what is lost. */
+function Board({ quotes, loading }: { quotes: ProformaSummary[]; loading: boolean }) {
+  const groups = useMemo(() => buildPipeline(quotes), [quotes]);
+  if (loading) return <TableSkeleton />;
+  return (
+    <div className="grid grid-cols-5 items-start gap-3 overflow-x-auto pb-4">
+      {groups.map((g) => (
+        <div key={g.column} className="min-w-[11rem] rounded-xl bg-canvas p-3">
+          <div className="mb-3 px-1">
+            <div className="text-xs text-ink-muted">{g.label}</div>
+            <div className="flex items-baseline justify-between">
+              <span className="num text-base">{g.quotes.length}</span>
+              <Money paise={g.totalPaise} fractionDigits={0} className="text-xs text-ink-muted" />
+            </div>
+          </div>
+          <div className="space-y-2">
+            {g.quotes.length === 0 && <p className="px-1 py-3 text-xs text-ink-muted/70">Nothing here</p>}
+            {g.quotes.map((q) => (
+              <button
+                key={q.id}
+                type="button"
+                onClick={() => navigate(paths.proforma(q.id))}
+                className="block w-full rounded-lg border border-line bg-surface p-3 text-left transition-colors duration-150 hover:border-brand"
+              >
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="num text-xs text-ink-muted">{q.number}</span>
+                  <Money paise={q.totalPaise} fractionDigits={0} />
+                </div>
+                <div className="mt-1 truncate">{q.buyerName}</div>
+                <div className="mt-1 text-xs text-ink-muted">
+                  {g.column === 'closed' && q.lostReason ? q.lostReason : <>Valid until <span className="num">{formatDate(q.validUntil)}</span></>}
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function ProformasPage({ initialStatus }: { initialStatus: Status }) {
   const [status, setStatus] = useState<Status>(initialStatus);
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
   const [dates, setDates] = useState<DateRangeValue>({});
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [view, setView] = useState<'list' | 'board'>('list');
   const saveCsv = useCsvExport();
   const sort = useSort<'date' | 'number' | 'customer' | 'valid' | 'total'>('date', 'desc');
 
@@ -26,7 +69,7 @@ export function ProformasPage({ initialStatus }: { initialStatus: Status }) {
     return () => clearTimeout(t);
   }, [search]);
 
-  const proformas = useQuery(() => api.proformasList({ search: debounced, status, from: dates.from, to: dates.to }), [debounced, status, dates.from, dates.to]);
+  const proformas = useQuery(() => api.proformasList({ search: debounced, status: view === 'board' ? 'all' : status, from: dates.from, to: dates.to }), [debounced, status, view, dates.from, dates.to]);
   const any = useQuery(() => api.proformasList());
   const list = proformas.data;
   const none = any.data?.length === 0;
@@ -91,6 +134,16 @@ export function ProformasPage({ initialStatus }: { initialStatus: Status }) {
             <div className="flex flex-wrap items-center justify-end gap-3">
             <DateRangeFilter onChange={setDates} />
             <Segmented
+              label="View"
+              value={view}
+              onChange={setView}
+              options={[
+                { value: 'list', label: 'List' },
+                { value: 'board', label: 'Board' },
+              ]}
+            />
+            {view === 'list' && (
+            <Segmented
               label="Proforma status"
               value={status}
               onChange={setStatus}
@@ -98,13 +151,19 @@ export function ProformasPage({ initialStatus }: { initialStatus: Status }) {
                 { value: 'all', label: 'All' },
                 { value: 'open', label: 'Open' },
                 { value: 'expired', label: 'Expired' },
+                { value: 'partial', label: 'Part' },
                 { value: 'converted', label: 'Invoiced' },
+                { value: 'lost', label: 'Lost' },
                 { value: 'cancelled', label: 'Cancelled' },
               ]}
             />
+            )}
             </div>
           </div>
 
+          {view === 'board' ? (
+            <Board quotes={(view === 'board' ? proformas.data : undefined) ?? []} loading={proformas.loading} />
+          ) : (
           <Card className="overflow-x-auto">
             {proformas.loading ? (
               <TableSkeleton />
@@ -162,7 +221,8 @@ export function ProformasPage({ initialStatus }: { initialStatus: Status }) {
               </table>
             )}
           </Card>
-          {list && list.length > 0 && <Pager pager={pager} noun="proforma" />}
+          )}
+          {view === 'list' && list && list.length > 0 && <Pager pager={pager} noun="proforma" />}
         </>
       )}
     </>

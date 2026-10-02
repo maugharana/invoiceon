@@ -1,11 +1,12 @@
 import { Plus, Search, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { checkCredit, dueDateFromTerms } from '../../../shared/credit';
 import { addDays, computeTotals, todayIso } from '../../../shared/gst';
 import { formatMoney, mulPaise } from '../../../shared/money';
 import { matchesAll } from '../../../shared/search';
 import { parseInvoiceDraft, type InvoiceDraft } from '../../../shared/invoiceDraft';
 import { sameState } from '../../../shared/states';
-import { PAYMENT_METHODS, PAYMENT_METHOD_LABEL, type Customer, type Invoice, type InvoiceType, type PaymentMethod, type Proforma, type SaleVariant } from '../../../shared/types';
+import { PAYMENT_METHODS, PAYMENT_METHOD_LABEL, type Customer, type Invoice, type InvoiceType, type PaymentMethod, type Proforma, type QuoteTemplate, type SaleVariant, type ShipTo } from '../../../shared/types';
 import { useToast } from '../../components/Toast';
 import { Button, Card, ErrorNote, Field, Input, Money, MoneyInput, PageHeader, Segmented, Select, Textarea } from '../../components/ui';
 import { api, errorMessage } from '../../lib/api';
@@ -13,6 +14,7 @@ import { useQuery, useRefresh } from '../../lib/data';
 import { toNumber } from '../../lib/format';
 import { navigate, paths, type AdvancePreset } from '../../lib/router';
 import { CustomerFormModal } from '../customers/CustomerFormModal';
+import { ShipToCard } from './ShipToCard';
 
 interface Line {
   variantId: string;
@@ -228,6 +230,10 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
   const dueTouched = useRef(false);
   const [discount, setDiscount] = useState(0);
   const [notes, setNotes] = useState('');
+  const templates = useQuery(() => (quote ? api.quoteTemplatesList() : Promise.resolve([])), [quote]);
+  const [shipTo, setShipTo] = useState<ShipTo | null>(null);
+  const [transport, setTransport] = useState('');
+  const [trackingNo, setTrackingNo] = useState('');
   const [lines, setLines] = useState<Line[]>([]);
   // Money received as the invoice is made. It can arrive pre-filled from "Record payment → Record & create invoice".
   const [received, setReceived] = useState(advance?.amountPaise ?? 0);
@@ -303,7 +309,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
     toast.info(dropped > 0 ? `Copied from ${inv.number}. ${dropped} item${dropped === 1 ? ' is' : 's are'} no longer available and left out.` : `Copied from ${inv.number}. Check the quantities and prices, then ${quote ? 'create the proforma' : 'issue'}.`);
   }, [source.data, variants.data, toast]);
 
-  const nextNumber = useQuery(() => (quote ? api.proformaNextNumber(issueDate) : api.invoiceNextNumber(issueDate)), [issueDate, quote]);
+  const nextNumber = useQuery(() => (quote ? api.proformaNextNumber(issueDate) : api.invoiceNextNumber(issueDate, type)), [issueDate, quote, type]);
   const editing = source.data && editId ? source.data : null;
 
   const customer = customers.data?.find((c) => c.id === customerId) ?? null;
@@ -320,8 +326,20 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
   // Due date follows the invoice type and date until the user picks one themselves.
   useEffect(() => {
     if (dueTouched.current || !settings.data) return;
-    setDueDate(quote ? addDays(issueDate, settings.data.proformaValidDays) : type === 'B2B' ? addDays(issueDate, settings.data.defaultDueDays) : issueDate);
-  }, [type, issueDate, settings.data, quote]);
+    // A customer with agreed payment terms gets their own due date; everyone else follows the shop's default for the type.
+    const byTerms = quote ? null : dueDateFromTerms(issueDate, customer?.paymentTermsDays);
+    setDueDate(quote ? addDays(issueDate, settings.data.proformaValidDays) : (byTerms ?? (type === 'B2B' ? addDays(issueDate, settings.data.defaultDueDays) : issueDate)));
+  }, [type, issueDate, settings.data, quote, customer?.paymentTermsDays]);
+
+  // A template brings its items at the prices it was saved with, and its note. Items that no longer exist are left out, and the person is told.
+  function applyTemplate(t: QuoteTemplate) {
+    const known = new Set((variants.data ?? []).map((v) => v.variantId));
+    const kept = t.lines.filter((l) => known.has(l.variantId));
+    setLines(kept.map((l) => ({ variantId: l.variantId, qty: String(l.qty), price: l.unitPricePaise })));
+    if (t.notes) setNotes(t.notes);
+    const dropped = t.lines.length - kept.length;
+    toast.info(dropped > 0 ? `“${t.name}” added. ${dropped} item${dropped === 1 ? ' is' : 's are'} no longer available and left out.` : `“${t.name}” added. Check the quantities, then create the proforma.`);
+  }
 
   function changeType(next: InvoiceType) {
     setType(next);
@@ -346,6 +364,8 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
   const advanceApplied = useAdvance ? Math.min(advanceHeld, totals.totalPaise) : 0;
   const maxReceivable = totals.totalPaise - advanceApplied;
   const balanceDue = maxReceivable - Math.min(received, maxReceivable);
+  // A warning, not a block: the shop can still choose to bill a regular customer past their limit.
+  const credit = !quote && customer ? checkCredit(customer.creditLimitPaise, customer.outstandingPaise, Math.max(0, balanceDue)) : null;
 
   const sellerGstinMissing = type === 'B2B' && !!settings.data && !settings.data.gstin;
   const problems: string[] = [];
@@ -387,6 +407,9 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
         dueDate: dueDate || null,
         discountPaise: discount,
         notes,
+        shipTo,
+        transport,
+        trackingNo,
         lines: rows.map((r) => ({ variantId: r.line.variantId, qty: r.qty, unitPricePaise: r.line.price })),
         payment: received > 0 ? { amountPaise: received, method: payMethod, reference: payRef } : undefined,
         applyAdvancePaise: advanceApplied > 0 ? advanceApplied : undefined,
@@ -446,8 +469,26 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
             </div>
 
             <Field label="Customer">
-              <CustomerPicker customers={customers.data ?? []} type={type} value={customer} onChange={(c) => setCustomerId(c?.id ?? null)} onCreate={(name) => setCreating(name)} />
+              <CustomerPicker customers={customers.data ?? []} type={type} value={customer} onChange={(c) => { setCustomerId(c?.id ?? null); setShipTo(null); }} onCreate={(name) => setCreating(name)} />
             </Field>
+            {customer && !quote && customer.paymentTermsDays != null && (
+              <p className="-mt-3 text-xs text-ink-muted">
+                {customer.name} pays within {customer.paymentTermsDays === 0 ? 'the day' : `${customer.paymentTermsDays} days`} — the due date follows that.
+              </p>
+            )}
+            {credit?.overLimit && (
+              <div role="alert" className="-mt-2 rounded-lg bg-status-partial-bg px-4 py-3 text-status-partial-fg">
+                {balanceDue > 0 ? (
+                  <>
+                    This takes {customer?.name} to <Money paise={credit.afterPaise} />, which is <Money paise={credit.excessPaise} /> over their <Money paise={credit.limitPaise} /> credit limit.
+                  </>
+                ) : (
+                  <>
+                    {customer?.name} already owes <Money paise={credit.afterPaise} />, <Money paise={credit.excessPaise} /> over their <Money paise={credit.limitPaise} /> credit limit.
+                  </>
+                )}
+              </div>
+            )}
             {!customer && type === 'B2C' && (
               <Field label="Name on invoice" hint="Optional. Leave blank to print “Walk-in customer”.">
                 <Input value={buyerName} onChange={(e) => setBuyerName(e.target.value)} placeholder="Walk-in customer" />
@@ -472,6 +513,28 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
               </Field>
             </div>
           </Card>
+
+          {quote && !editId && !copyFrom && lines.length === 0 && (templates.data?.length ?? 0) > 0 && (
+            <Card className="flex flex-wrap items-center gap-3 p-4">
+              <span className="text-ink-muted">Start from a template:</span>
+              {templates.data?.map((t) => (
+                <span key={t.id} className="inline-flex items-center overflow-hidden rounded-lg border border-line">
+                  <button type="button" onClick={() => applyTemplate(t)} className="px-3 py-1.5 transition-colors hover:bg-brand-tint hover:text-brand">
+                    {t.name}
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Delete template ${t.name}`}
+                    onClick={() => void api.quoteTemplateDelete(t.id).then(() => refresh())}
+                    className="border-l border-line px-2 py-1.5 text-ink-muted transition-colors hover:bg-status-overdue-bg hover:text-status-overdue-fg"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </span>
+              ))}
+            </Card>
+          )}
+          {!quote && <ShipToCard customer={customer} shipTo={shipTo} onShipTo={setShipTo} transport={transport} onTransport={setTransport} trackingNo={trackingNo} onTrackingNo={setTrackingNo} />}
 
           {/* Items */}
           <Card className="overflow-visible">

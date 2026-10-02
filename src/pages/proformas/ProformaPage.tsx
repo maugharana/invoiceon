@@ -1,15 +1,19 @@
-import { ArrowLeft, Ban, Copy, Download, FileCheck2, Pencil, Printer } from 'lucide-react';
+import { ArrowLeft, Ban, BookmarkPlus, Copy, Download, FileCheck2, HandCoins, History, Pencil, Printer, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { useState } from 'react';
 import { formatDate } from '../../../shared/gst';
 import { InvoiceDocument } from '../../components/InvoiceDocument';
+import { Menu } from '../../components/Menu';
 import { ConfirmDialog } from '../../components/Modal';
+import { NotesPanel } from '../../components/NotesPanel';
 import { useToast } from '../../components/Toast';
-import { Button, Card, ErrorNote, Field, Figure, Input, Money, PageHeader, ProformaPill, Spinner, TypePill } from '../../components/ui';
+import { QUOTE_STAGE_LABEL } from '../../../shared/types';
+import { Button, Card, ErrorNote, Field, Figure, Input, Money, PageHeader, Pill, ProformaPill, Spinner, TypePill } from '../../components/ui';
 import { api, errorMessage } from '../../lib/api';
 import { useQuery, useRefresh } from '../../lib/data';
 import { useRecent } from '../../lib/recent';
 import { navigate, paths } from '../../lib/router';
 import { proformaAsInvoice } from '../../lib/proforma';
+import { ConvertQuoteModal, DepositModal, LostModal, RevisionsModal, SaveTemplateModal } from './QuoteModals';
 
 export function ProformaPage({ id }: { id: string }) {
   const toast = useToast();
@@ -20,6 +24,8 @@ export function ProformaPage({ id }: { id: string }) {
   const [busy, setBusy] = useState<'pdf' | 'print' | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [converting, setConverting] = useState(false);
+  const [dialog, setDialog] = useState<'deposit' | 'lost' | 'versions' | 'template' | null>(null);
+  const revisions = useQuery(() => api.proformaRevisions(id), [id]);
   const [reason, setReason] = useState('');
 
   const back = (
@@ -45,7 +51,11 @@ export function ProformaPage({ id }: { id: string }) {
     );
   }
 
-  const live = p.status === 'open' || p.status === 'expired';
+  // Open for business: it can be invoiced (all or part), have a deposit, and be accepted or lost.
+  const live = p.status === 'open' || p.status === 'expired' || p.status === 'partial';
+  // Items or prices can only change while nothing has been invoiced.
+  const editable = p.status === 'open' || p.status === 'expired';
+  const remaining = p.lines.reduce((s, l) => s + (l.qty - l.invoicedQty), 0);
 
   async function run(kind: 'pdf' | 'print', work: () => Promise<unknown>) {
     setBusy(kind);
@@ -66,12 +76,14 @@ export function ProformaPage({ id }: { id: string }) {
   const exportPdf = () => (window.invoiceon ? run('pdf', async () => ((await api.proformaExportPdf(id)).saved ? toast.success('PDF saved') : undefined)) : openPrintView());
   const print = () => (window.invoiceon ? run('print', () => api.proformaPrint(id)) : openPrintView());
 
-  // A failure (usually "not enough stock") is shown inside the dialog and leaves the quote exactly as it was.
-  async function convert() {
-    const inv = await api.proformaConvert(id);
-    refresh();
-    toast.success(`Invoice ${inv.number} issued from ${p!.number}`);
-    navigate(paths.invoice(inv.id));
+  async function setStage(stage: 'open' | 'accepted') {
+    try {
+      await api.proformaSetStage(id, stage);
+      refresh();
+      toast.success(stage === 'accepted' ? 'Marked as accepted' : 'Back to waiting');
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
   }
 
   return (
@@ -94,14 +106,23 @@ export function ProformaPage({ id }: { id: string }) {
             <Button icon={<Printer className="h-4 w-4" />} loading={busy === 'print'} disabled={busy !== null} onClick={() => void print()}>
               Print
             </Button>
-            <Button icon={<Copy className="h-4 w-4" />} onClick={() => navigate(paths.duplicateProforma(id))} title="Start a new quote with the same customer, items and prices">
-              Duplicate
-            </Button>
-            {live && (
+            {editable && (
               <Button icon={<Pencil className="h-4 w-4" />} onClick={() => navigate(paths.editProforma(id))} title="Change this quote's items, prices or dates">
                 Edit
               </Button>
             )}
+            <Menu
+              label="More"
+              items={[
+                { label: 'Duplicate', icon: <Copy className="h-4 w-4" />, onClick: () => navigate(paths.duplicateProforma(id)) },
+                { label: 'Save as a template', icon: <BookmarkPlus className="h-4 w-4" />, onClick: () => setDialog('template') },
+                { label: 'Earlier versions', icon: <History className="h-4 w-4" />, onClick: () => setDialog('versions'), disabledReason: revisions.data && revisions.data.length === 0 ? 'This quote has not been changed' : undefined },
+                ...(live && p.customerId ? [{ label: 'Take a deposit', icon: <HandCoins className="h-4 w-4" />, onClick: () => setDialog('deposit') }] : []),
+                ...(live && p.stage !== 'accepted' && p.status !== 'partial' ? [{ label: 'Mark accepted', icon: <ThumbsUp className="h-4 w-4" />, onClick: () => void setStage('accepted') }] : []),
+                ...(live && p.status !== 'partial' ? [{ label: 'Mark lost', icon: <ThumbsDown className="h-4 w-4" />, onClick: () => setDialog('lost') }] : []),
+                ...(p.status === 'lost' ? [{ label: 'Reopen', icon: <ThumbsUp className="h-4 w-4" />, onClick: () => void setStage('open') }] : []),
+              ]}
+            />
             {live && (
               <Button variant="danger" icon={<Ban className="h-4 w-4" />} onClick={() => setCancelling(true)}>
                 Cancel
@@ -109,7 +130,7 @@ export function ProformaPage({ id }: { id: string }) {
             )}
             {live && (
               <Button variant="primary" icon={<FileCheck2 className="h-4 w-4" />} onClick={() => setConverting(true)}>
-                Convert to invoice
+                {p.status === 'partial' ? 'Invoice the rest' : 'Convert to invoice'}
               </Button>
             )}
           </>
@@ -127,17 +148,38 @@ export function ProformaPage({ id }: { id: string }) {
           <Figure label="Valid until" sub={p.status === 'expired' ? 'Lapsed — you can still invoice it' : undefined}>
             <span className="num">{formatDate(p.validUntil)}</span>
           </Figure>
-          <Figure label="Invoice">
-            {p.invoiceId ? (
-              <a href={`#${paths.invoice(p.invoiceId)}`} className="num text-brand transition-colors hover:text-brand-hover">
-                {p.invoiceNumber}
-              </a>
+          <Figure label="Invoice" sub={p.status === 'partial' ? `${remaining} ${remaining === 1 ? 'piece' : 'pieces'} still to invoice` : undefined}>
+            {p.invoices.length > 0 ? (
+              <span className="flex flex-wrap gap-x-3">
+                {p.invoices.map((i) => (
+                  <a key={i.id} href={`#${paths.invoice(i.id)}`} className="num text-brand transition-colors hover:text-brand-hover">
+                    {i.number}
+                  </a>
+                ))}
+              </span>
             ) : (
               <span className="text-ink-muted">Not yet</span>
             )}
           </Figure>
         </div>
+        {(p.stage !== 'open' || p.depositPaise > 0) && (
+          <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-line pt-4">
+            {p.stage !== 'open' && (
+              <span className="flex items-center gap-2">
+                <Pill tone={p.stage === 'lost' ? 'overdue' : 'paid'}>{QUOTE_STAGE_LABEL[p.stage]}</Pill>
+                {p.lostReason && <span className="text-ink-muted">{p.lostReason}</span>}
+              </span>
+            )}
+            {p.depositPaise > 0 && (
+              <span className="text-ink-muted">
+                Deposit taken: <Money paise={p.depositPaise} />
+              </span>
+            )}
+          </div>
+        )}
       </Card>
+
+      <NotesPanel subjectType="proforma" subjectId={p.id} kinds={['followup', 'call', 'visit', 'note']} title="Follow-ups" />
 
       <div className="overflow-x-auto pb-8">
         <div className="mx-auto w-max rounded-lg border border-line shadow-overlay">
@@ -145,19 +187,11 @@ export function ProformaPage({ id }: { id: string }) {
         </div>
       </div>
 
-      {converting && (
-        <ConfirmDialog
-          title={`Turn ${p.number} into an invoice?`}
-          confirmLabel="Issue invoice"
-          onClose={() => setConverting(false)}
-          body={
-            <p>
-              An invoice for <Money paise={p.totalPaise} /> is issued today at the quoted prices, and the pieces come off your shelves. If any piece is short, nothing changes and you'll be told which. This proforma is then marked as invoiced.
-            </p>
-          }
-          onConfirm={convert}
-        />
-      )}
+      {converting && <ConvertQuoteModal proforma={p} onClose={() => setConverting(false)} />}
+      {dialog === 'deposit' && <DepositModal proforma={p} onClose={() => setDialog(null)} />}
+      {dialog === 'lost' && <LostModal proforma={p} onClose={() => setDialog(null)} />}
+      {dialog === 'versions' && <RevisionsModal proforma={p} onClose={() => setDialog(null)} />}
+      {dialog === 'template' && <SaveTemplateModal proforma={p} onClose={() => setDialog(null)} />}
       {cancelling && (
         <ConfirmDialog
           title={`Cancel ${p.number}?`}

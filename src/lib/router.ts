@@ -37,7 +37,7 @@ export type Route =
   | { name: 'print-invoices'; ids: string[] }
   | { name: 'reports'; tab: ReportTab; period: PeriodSpec; /** Stock valuation date; null means today. */ asOf: string | null };
 
-export const REPORT_TABS = ['sales', 'profit', 'margin', 'gst', 'daybook', 'stock', 'movement', 'movers', 'receivables'] as const;
+export const REPORT_TABS = ['sales', 'profit', 'margin', 'gst', 'daybook', 'stock', 'movement', 'movers', 'receivables', 'quotes'] as const;
 export type ReportTab = (typeof REPORT_TABS)[number];
 
 /** Money a customer has just paid, carried into the New invoice screen so it's recorded in the same step as the invoice. */
@@ -78,7 +78,7 @@ export function parseHash(hash: string): Route {
       if (parts[1] && parts[2] === 'edit') return { name: 'proforma-edit', id: decodeURIComponent(parts[1]) };
       if (parts[1]) return { name: 'proforma', id: decodeURIComponent(parts[1]) };
       const status = params.get('status');
-      return { name: 'proformas', status: status === 'open' || status === 'expired' || status === 'converted' || status === 'cancelled' ? status : 'all' };
+      return { name: 'proformas', status: status === 'open' || status === 'expired' || status === 'partial' || status === 'converted' || status === 'lost' || status === 'cancelled' ? status : 'all' };
     }
     case 'expenses':
       return { name: 'expenses', category: params.get('category') };

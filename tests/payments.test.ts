@@ -1,9 +1,10 @@
 import { mkdtempSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createApi } from '../electron/api';
-import { LATEST_SCHEMA_VERSION } from '../electron/db/migrations';
+import { LATEST_SCHEMA_VERSION, migrate } from '../electron/db/migrations';
 import { openDb, type Db } from '../electron/db/connection';
 import * as customers from '../electron/services/customers';
 import * as inventory from '../electron/services/inventory';
@@ -347,14 +348,22 @@ describe('dues report', () => {
 describe('upgrading an existing database', () => {
   it('adds the payment tables to a stage-2 database in place, keeping its invoices and stock', () => {
     const file = join(mkdtempSync(join(tmpdir(), 'invoiceon-')), 'upgrade.db');
-    const first = openDb(file);
-    saveSettings(first, { gstin: '09AABCK1234M1ZI' });
-    const d = inventory.createDesign(first, { code: 'MG-9', name: 'Old design', fabric: '', hsnCode: '5007', description: '', defaultPricePaise: 100000 });
-    const v = inventory.createVariant(first, d.id, { color: 'Red', size: '6 m', sellPricePaise: 100000, baseCostPaise: 0, reorderLevel: 0, openingStock: 5, bom: [] });
-    const legacy = invoices.createInvoice(first, { type: 'B2C', customerId: null, issueDate: today, dueDate: today, discountPaise: 0, notes: '', lines: [{ variantId: v.id, qty: 2, unitPricePaise: 100000 }] });
-    // Put the file back into exactly the shape stage 2 left it in.
-    first.exec('ALTER TABLE designs DROP COLUMN nickname; ALTER TABLE variants DROP COLUMN mrp_paise; DROP TABLE proforma_lines; DROP TABLE proformas; DROP TABLE expenses; DROP TABLE payment_allocations; DROP TABLE payments; ALTER TABLE invoices DROP COLUMN prices_include_gst; PRAGMA user_version = 2;');
+    // Build the file exactly as stage 2 left it: the real first two migrations, then rows written the way that version wrote them.
+    const first = new DatabaseSync(file);
+    first.exec('PRAGMA foreign_keys = ON');
+    migrate(first, 2);
+    const at = '2026-01-01T00:00:00.000Z';
+    first.exec(`
+      INSERT INTO designs (id, code, name, hsn_code, default_price_paise, created_at, updated_at) VALUES ('d1', 'MG-9', 'Old design', '5007', 100000, '${at}', '${at}');
+      INSERT INTO variants (id, design_id, sku, color, size, stock, sell_price_paise, created_at, updated_at) VALUES ('v1', 'd1', 'MG-9-RED', 'Red', '6 m', 3, 100000, '${at}', '${at}');
+      INSERT INTO invoices (id, number, fy, seq, type, seller_json, buyer_json, place_of_supply, issue_date, due_date, gst_rate_percent, intra_state, subtotal_paise, taxable_paise, total_paise, created_at, updated_at)
+        VALUES ('i1', 'MG/2025-26/0001', '2025-26', 1, 'B2C', '{}', '{}', 'Uttar Pradesh', '${today}', '${today}', 5, 1, 200000, 200000, 210000, '${at}', '${at}');
+      INSERT INTO invoice_lines (id, invoice_id, variant_id, position, design_name, color, size, sku, hsn, qty, unit_price_paise, amount_paise)
+        VALUES ('l1', 'i1', 'v1', 0, 'Old design', 'Red', '6 m', 'MG-9-RED', '5007', 2, 100000, 200000);
+    `);
     first.close();
+    const v = { id: 'v1' };
+    const legacy = { id: 'i1', number: 'MG/2025-26/0001' };
 
     const upgraded = openDb(file);
     expect((upgraded.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(LATEST_SCHEMA_VERSION);

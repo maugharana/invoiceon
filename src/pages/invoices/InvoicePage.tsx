@@ -5,6 +5,7 @@ import { invoiceMessage, mailtoLink, whatsappLink, whatsappPhone } from '../../.
 import { formatMoney } from '../../../shared/money';
 import { PAYMENT_METHOD_LABEL } from '../../../shared/types';
 import { InvoiceDocument } from '../../components/InvoiceDocument';
+import { NotesPanel } from '../../components/NotesPanel';
 import { Menu } from '../../components/Menu';
 import { ConfirmDialog } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
@@ -15,6 +16,7 @@ import { useRecent } from '../../lib/recent';
 import { useQuery, useRefresh } from '../../lib/data';
 import { navigate, paths } from '../../lib/router';
 import { RecordPaymentModal } from '../payments/RecordPaymentModal';
+import { DeliveryCard } from './DeliveryCard';
 
 export function InvoicePage({ id }: { id: string }) {
   const toast = useToast();
@@ -194,6 +196,9 @@ ${message.body}`)) ? toast.success('Message copied — paste it anywhere') : toa
           </div>
         </Card>
       )}
+
+      {!cancelled && <DeliveryCard invoice={inv} />}
+      {!cancelled && <NotesPanel subjectType="invoice" subjectId={inv.id} kinds={['promise', 'followup', 'call', 'note']} title="Follow-up and promises" />}
 
       {/* The paper itself — the same component the PDF and the printer use. */}
       <div className="overflow-x-auto pb-8">

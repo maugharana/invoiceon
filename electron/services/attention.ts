@@ -1,8 +1,11 @@
 import { addDays, formatDate } from '../../shared/gst';
+import { occasionLabel, upcomingOccasions } from '../../shared/occasions';
 import { formatMoney } from '../../shared/money';
 import type { AttentionItem } from '../../shared/types';
 import { all, type Db } from '../db/connection';
 import { listDesigns, loadVariants } from './inventory';
+import { listCustomers } from './customers';
+import { openDueNotes } from './notes';
 import { listProformas } from './proformas';
 
 /** A payment reversed within this many days still needs a look: the invoice it paid owes the money again. */
@@ -74,7 +77,41 @@ function belowCost(db: Db): AttentionItem[] {
     .sort((a, b) => a.title.localeCompare(b.title));
 }
 
+/** Follow-ups due and promises to pay that have come round (or been missed). */
+function dueNotes(db: Db, today: string): AttentionItem[] {
+  return openDueNotes(db, { onOrBefore: today }).map((n) => {
+    const late = n.dueDate !== null && n.dueDate < today;
+    const about = n.subjectLabel ? ` (${n.subjectLabel})` : '';
+    return {
+      kind: n.kind === 'promise' ? ('promise' as const) : ('follow-up' as const),
+      id: `note:${n.id}`,
+      title: n.kind === 'promise' ? `${n.customerName} promised ${money(n.amountPaise)}${late ? ' and it is overdue' : ' for today'}` : `Follow up with ${n.customerName}${about}`,
+      detail: [n.body, n.dueDate ? (late ? `was due ${formatDate(n.dueDate)}` : 'due today') : ''].filter(Boolean).join(' · '),
+      link: n.customerId ? { to: 'customer' as const, id: n.customerId } : { to: 'payments' as const },
+    };
+  });
+}
+
+/** Customers' birthdays and anniversaries in the next few days, so a message can go out before the day. */
+export const OCCASION_WARNING_DAYS = 3;
+function occasions(db: Db, today: string): AttentionItem[] {
+  const items: (AttentionItem & { days: number })[] = [];
+  for (const c of listCustomers(db)) {
+    for (const o of upcomingOccasions(c, today, OCCASION_WARNING_DAYS)) {
+      items.push({
+        kind: 'occasion',
+        id: `occasion:${c.id}:${o.kind}`,
+        title: `${c.name}'s ${occasionLabel(o.kind).toLowerCase()} is ${when(o.daysAway)}`,
+        detail: c.phone ? `A greeting goes down well · ${c.phone}` : 'A greeting goes down well',
+        link: { to: 'customer', id: c.id },
+        days: o.daysAway,
+      });
+    }
+  }
+  return items.sort((a, b) => a.days - b.days || a.title.localeCompare(b.title)).map(({ days: _days, ...item }) => item);
+}
+
 /** What the owner should look at today, most urgent first, capped so the list stays a glance rather than a chore. */
 export function attentionItems(db: Db, today: string): AttentionItem[] {
-  return [...reversedPayments(db, today), ...expiringQuotes(db, today), ...belowCost(db)].slice(0, MAX_ITEMS);
+  return [...reversedPayments(db, today), ...dueNotes(db, today), ...expiringQuotes(db, today), ...occasions(db, today), ...belowCost(db)].slice(0, MAX_ITEMS);
 }
