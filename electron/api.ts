@@ -14,6 +14,7 @@ import * as instalments from './services/instalments';
 import { dashboardNow, dashboardOverview } from './services/dashboard';
 import { festivalComparison } from './services/festival';
 import { buildListing } from '../shared/websiteText';
+import { checkLabels, labelItems, labelsRoute } from './services/labels';
 import * as bulk from './services/bulk';
 import * as creditNotes from './services/creditNotes';
 import * as catalogue from './services/catalogue';
@@ -115,6 +116,17 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
     websiteListings: async () => {
       const shop = { name: settings.getSettings(db).businessName, gstRatePercent: settings.getSettings(db).gstRatePercent };
       return inventory.listDesigns(db).map((d) => buildListing(inventory.getDesign(db, d.id), shop));
+    },
+    labelItems: async (ids) => labelItems(db, ids),
+    labelsExportPdf: async (items, layout) => {
+      if (!host) throw new UserError(DESKTOP_ONLY);
+      checkLabels(db, items, layout);
+      return host.exportDocumentPdf(labelsRoute(items, layout), 'Labels.pdf');
+    },
+    labelsPrint: async (items, layout) => {
+      if (!host) throw new UserError(DESKTOP_ONLY);
+      checkLabels(db, items, layout);
+      return host.printDocument(labelsRoute(items, layout));
     },
     designPhotos: async (designId) => photos.listPhotos(db, designId),
     designCovers: async () => photos.covers(db),

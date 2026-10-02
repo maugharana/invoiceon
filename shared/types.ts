@@ -2162,3 +2162,24 @@ export interface DesignPhotoInput {
   /** A much smaller copy for lists. */
   thumbUrl: string;
 }
+
+// ── Labels ──────────────────────────────────────────────────────────────────
+export const LABEL_LAYOUTS = {
+  'a4-24': { label: 'A4 sheet, 24 labels (70 × 37 mm)', columns: 3, rows: 8, widthMm: 70, heightMm: 37, qr: true },
+  'a4-40': { label: 'A4 sheet, 40 labels (52.5 × 29.7 mm)', columns: 4, rows: 10, widthMm: 52.5, heightMm: 29.7, qr: false },
+  roll: { label: 'Label roll, one label each (50 × 25 mm)', columns: 1, rows: 1, widthMm: 50, heightMm: 25, qr: true },
+} as const;
+export type LabelLayout = keyof typeof LABEL_LAYOUTS;
+
+/** One saree as a label shows it. */
+export interface LabelItem {
+  variantId: string;
+  sku: string;
+  designName: string;
+  nickname: string;
+  color: string;
+  size: string;
+  /** What the shopper pays: the MRP, or the selling price plus GST. */
+  pricePaise: Paise;
+  shop: string;
+}

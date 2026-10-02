@@ -15,6 +15,7 @@ import { useCsvExport } from '../../lib/exportCsv';
 import { plural } from '../../lib/format';
 import { navigate, paths } from '../../lib/router';
 import { BulkDesignModal, type BulkKind } from './BulkDesignModal';
+import { LabelsModal } from './LabelsModal';
 import { PlacesModal } from './Places';
 import { DesignFormModal } from './DesignFormModal';
 import { InventoryShell } from './InventoryTabs';
@@ -38,6 +39,8 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
   const sort = useSort<SortKey>('name', 'asc');
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [bulk, setBulk] = useState<BulkKind | null>(null);
+  /** The pieces of the ticked designs, once their labels have been asked for. */
+  const [labelling, setLabelling] = useState<{ ids: string[]; stock: Record<string, number> } | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search), 150);
@@ -305,6 +308,22 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
                 <span className="num">{picked.size}</span> selected
               </span>
               <span className="flex items-center gap-2">
+                <Button
+                  className="h-8 text-xs"
+                  onClick={() =>
+                    void (async () => {
+                      try {
+                        const details = await Promise.all([...picked].map((id) => api.designGet(id)));
+                        const variants = details.flatMap((d) => d.variants);
+                        setLabelling({ ids: variants.map((v) => v.id), stock: Object.fromEntries(variants.map((v) => [v.id, v.stock])) });
+                      } catch (err) {
+                        toast.error(errorMessage(err));
+                      }
+                    })()
+                  }
+                >
+                  Labels
+                </Button>
                 <Button className="h-8 text-xs" onClick={() => setBulk('reorder')}>
                   Set reorder level
                 </Button>
@@ -419,6 +438,7 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
         </>
       )}
 
+      {labelling && <LabelsModal variantIds={labelling.ids} stock={labelling.stock} onClose={() => setLabelling(null)} />}
       {bulk && <BulkDesignModal ids={[...picked]} kind={bulk} onClose={() => setBulk(null)} onDone={() => setPicked(new Set())} />}
       {adding && <DesignFormModal suggestedCode={suggestedCode.data} onClose={() => setAdding(false)} onSaved={(d) => navigate(paths.design(d.id))} />}
       {places && <PlacesModal onClose={() => setPlaces(false)} />}

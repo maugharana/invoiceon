@@ -146,7 +146,11 @@ export function ItemPicker({ variants, taken, onPick, onCreate, allowOutOfStock 
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
 
-  const results = useMemo(() => variants.filter((v) => matchesAll(`${v.designName} ${v.designNickname} ${v.designCode} ${v.color} ${v.size} ${v.sku}`, q)).slice(0, 50), [variants, q]);
+  // A scanner types a Saree ID and presses Enter: an exact ID is that piece and nothing else, so Enter picks it.
+  const results = useMemo(() => {
+    const scanned = q.trim() ? variants.filter((v) => v.sku.toLowerCase() === q.trim().toLowerCase()) : [];
+    return scanned.length === 1 ? scanned : variants.filter((v) => matchesAll(`${v.designName} ${v.designNickname} ${v.designCode} ${v.color} ${v.size} ${v.sku}`, q)).slice(0, 50);
+  }, [variants, q]);
 
   const pick = (v: SaleVariant) => {
     if (v.stock <= 0 && !allowOutOfStock) return;

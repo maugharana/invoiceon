@@ -69,6 +69,9 @@ const WORK_NOTE: Record<string, string> = {
 const note = (table: Record<string, string>, key: string): string => table[key.trim().toLowerCase()] ?? '';
 
 // ── Building a listing ──────────────────────────────────────────────────────
+/** What the shopper pays for one piece: the printed MRP when there is one, otherwise the selling price plus GST. */
+export const shopperPricePaise = (v: { mrpPaise: number; sellPricePaise: number }, ratePercent: number): number => (v.mrpPaise > 0 ? v.mrpPaise : Math.round(v.sellPricePaise * (1 + ratePercent / 100)));
+
 export interface ListingVariant {
   sku: string;
   colour: string;
@@ -121,7 +124,7 @@ export function buildListing(design: DesignDetail, shop: { name: string; gstRate
   const works = splitWorks(design.work);
   const priced = design.variants.map((v): ListingVariant => {
     const rate = design.gstRatePercent ?? shop.gstRatePercent;
-    return { sku: v.sku, colour: v.color, size: v.size, stock: v.stock, pricePaise: v.mrpPaise > 0 ? v.mrpPaise : Math.round(v.sellPricePaise * (1 + rate / 100)) };
+    return { sku: v.sku, colour: v.color, size: v.size, stock: v.stock, pricePaise: shopperPricePaise(v, rate) };
   });
   const colours = [...new Map(priced.map((v) => [v.colour.toLowerCase(), v.colour])).values()];
   const sizes = [...new Map(priced.map((v) => [v.size.toLowerCase(), v.size])).values()];

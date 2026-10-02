@@ -218,7 +218,16 @@ Migrations 8 to 13. Each has an upgrade test (`tests/upgrade.test.ts`) that buil
 - **Raw materials (12).** `stock_qty` is a cached balance with a ledger (`material_movements`), like finished stock; quantities are rounded to a thousandth. A purchase adds stock, makes the price just paid the material's price (history in `material_prices`), and can create the matching expense in the same transaction. A costing line's cost includes its wastage percent. The what-if simulator (`simulateMaterialPrices`) changes nothing. Places: the shop is the default; `stock_locations` holds only what is kept elsewhere, and sales and write-offs draw only on the shop's share.
 - **The shell (13).** Every API call that changes something writes one line to `audit_log` from `createApi` (a description, never the data; a log that can't be written never fails the change). Notifications are derived on every call from the books (`electron/services/notifications.ts`), nothing is stored; "read" is remembered per computer in the browser. Held bills are rows in `held_bills` and touch no stock or money.
 
-Not built, on purpose: barcodes/QR labels, e-invoice/e-way bill, users and roles, auto-update, production orders and job work (orders to a weaver for finished sarees are built, see Weaver orders). Sync/teams are planned for InvoiceOn Plus.
+Not built, on purpose: e-invoice/e-way bill, users and roles, auto-update, production orders and job work (orders to a weaver for finished sarees are built, see Weaver orders). Sync/teams are planned for InvoiceOn Plus.
+
+## Labels and barcodes
+
+Code: `electron/services/labels.ts`, `src/components/{Barcode,LabelSheet}.tsx`, `src/pages/inventory/{LabelsModal,PrintLabelsPage}.tsx`, `tests/labels.test.ts`. **Labels** on a design (or on the designs ticked in the Inventory list) prints labels to stick on sarees: the shop, the saree's name, colour and size, its price, and a **Code 128 barcode of the Saree ID** (with a QR code of it where there is room).
+
+- Three papers: A4 sheet of 24 (70 × 37 mm), A4 sheet of 40 (52.5 × 29.7 mm), and a roll of 50 × 25 mm labels, one to a page. The number of labels of each piece starts at its stock. The price is what the shopper pays: the printed MRP, or the selling price plus GST (`shopperPricePaise`, shared with the website text). The barcode comes from the small `jsbarcode` library.
+- Printing goes through the same print window as invoices (`PrintShell` with `bare`, so the paper is the label sheet's own, not the A4 and margin chosen in Preferences). When printing, set margins to None and the scale to 100% so the labels line up with the sheet; sheet sizes are standard but label stock varies, so print one page on plain paper first and hold it against a real sheet.
+- **Scanning.** A handheld scanner types the code and presses Enter. In the item box on an invoice, an exact Saree ID is that piece alone, so Enter picks it. Scanning is not wired into stock taking yet.
+- Not verified here: that a particular scanner reads a particular printer's output. Code 128 is the usual choice because nearly every scanner reads it.
 
 ## Photos
 

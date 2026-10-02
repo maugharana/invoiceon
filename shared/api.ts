@@ -10,6 +10,8 @@ import type {
   BulkSareeRow,
   CatalogueEntry,
   CreditNote,
+  LabelItem,
+  LabelLayout,
   DesignPhoto,
   DesignPhotoInput,
   CreditNoteInput,
@@ -167,6 +169,11 @@ export interface Api {
   designDuplicate(id: string): Promise<DesignDetail>;
   /** Every design as web page text and shop-import data: title, search text, description, tags and prices (see shared/websiteText.ts). */
   websiteListings(): Promise<WebsiteListing[]>;
+
+  /** What each of these pieces needs on a label. */
+  labelItems(variantIds: string[]): Promise<LabelItem[]>;
+  labelsExportPdf(items: { variantId: string; copies: number }[], layout: LabelLayout): Promise<{ saved: boolean; path?: string }>;
+  labelsPrint(items: { variantId: string; copies: number }[], layout: LabelLayout): Promise<void>;
 
   designPhotos(designId: string): Promise<DesignPhoto[]>;
   /** The cover photo of every design that has one, as a small thumbnail, by design id. */

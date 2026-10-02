@@ -12,11 +12,11 @@ import { Button } from './ui';
  *
  * Documents are drawn at A4 width; other sizes scale the whole page, and the margin scales with it.
  */
-export function PrintShell({ ready, title, noun, children }: { ready: boolean; title: string; noun: string; children: ReactNode }) {
+export function PrintShell({ ready, title, noun, bare = false, children }: { ready: boolean; title: string; noun: string; /** The content sets its own paper (label sheets): no paper size, margin or scaling from Preferences. */ bare?: boolean; children: ReactNode }) {
   const settings = useApplyPreferences();
   const inBrowser = !window.invoiceon;
   const paper = PAPER_MM[settings?.paperSize ?? 'A4'];
-  const scale = paper.w / 210;
+  const scale = bare ? 1 : paper.w / 210;
 
   useEffect(() => {
     if (!ready || !settings) return;
@@ -40,7 +40,7 @@ export function PrintShell({ ready, title, noun, children }: { ready: boolean; t
 
   return (
     <div className={inBrowser ? 'min-h-screen bg-canvas print:bg-white' : 'bg-white'}>
-      <style>{`@page { size: ${paper.w}mm ${paper.h}mm; margin: ${(12 * scale).toFixed(2)}mm; }`}</style>
+      {!bare && <style>{`@page { size: ${paper.w}mm ${paper.h}mm; margin: ${(12 * scale).toFixed(2)}mm; }`}</style>}
       {inBrowser && (
         <div className="sticky top-0 z-10 flex items-center justify-between gap-6 border-b border-line bg-surface px-6 py-3 print:hidden">
           <p className="text-ink-muted">

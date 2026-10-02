@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { PERIOD_PRESETS, type PeriodPreset, type PeriodSpec } from '../../shared/periods';
-import { PAYMENT_METHODS, type PaymentMethod, type ProformaStatus } from '../../shared/types';
+import { LABEL_LAYOUTS, PAYMENT_METHODS, type LabelLayout, type PaymentMethod, type ProformaStatus } from '../../shared/types';
 
 // A tiny hash router — hash URLs are the one kind that also work when the app is loaded from a file.
 
@@ -42,6 +42,7 @@ export type Route =
   | { name: 'credit-notes' }
   | { name: 'credit-note'; id: string }
   | { name: 'print-credit-note'; id: string }
+  | { name: 'print-labels'; items: { variantId: string; copies: number }[]; layout: LabelLayout }
   | { name: 'print-invoice'; id: string }
   | { name: 'print-proforma'; id: string }
   | { name: 'print-statement'; id: string }
@@ -110,6 +111,15 @@ export function parseHash(hash: string): Route {
     case 'print':
       if (parts[1] === 'invoice' && id) return { name: 'print-invoice', id };
       if (parts[1] === 'credit-note' && id) return { name: 'print-credit-note', id };
+      if (parts[1] === 'labels') {
+        const layout = params.get('layout') ?? '';
+        const items = (params.get('items') ?? '').split(',').flatMap((pair) => {
+          const [rawId = '', rawCopies = ''] = pair.split(':');
+          const copies = Number(rawCopies);
+          return rawId && Number.isInteger(copies) && copies > 0 && copies <= 2000 ? [{ variantId: decodeURIComponent(rawId), copies }] : [];
+        });
+        return { name: 'print-labels', items, layout: layout in LABEL_LAYOUTS ? (layout as LabelLayout) : 'a4-24' };
+      }
       if (parts[1] === 'proforma' && id) return { name: 'print-proforma', id };
       if (parts[1] === 'statement' && id) return { name: 'print-statement', id };
       if (parts[1] === 'receipt' && id) return { name: 'print-receipt', id };
@@ -178,6 +188,8 @@ export const sectionOf = (route: Route): Section => {
       return 'payments';
     case 'print-invoices':
       return 'invoices';
+    case 'print-labels':
+      return 'inventory';
     case 'expenses':
       return 'expenses';
     case 'customers':
@@ -198,6 +210,7 @@ export const paths = {
   materials: '/inventory/materials',
   addSarees: '/inventory/add',
   tidyNames: '/inventory/names',
+  printLabels: (items: { variantId: string; copies: number }[], layout: LabelLayout) => `/print/labels?items=${items.map((i) => `${encodeURIComponent(i.variantId)}:${i.copies}`).join(',')}&layout=${layout}`,
   weaverOrders: '/inventory/weaver-orders',
   newWeaverOrder: (quoteId?: string) => (quoteId ? `/inventory/weaver-orders/new?quote=${encodeURIComponent(quoteId)}` : '/inventory/weaver-orders/new'),
   weaverOrder: (id: string) => `/inventory/weaver-orders/${encodeURIComponent(id)}`,

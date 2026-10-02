@@ -15,6 +15,7 @@ import { StockTakePage } from './pages/inventory/StockTakePage';
 import { InvoicePage } from './pages/invoices/InvoicePage';
 import { InvoicesPage } from './pages/invoices/InvoicesPage';
 import { NewInvoicePage } from './pages/invoices/NewInvoicePage';
+import { PrintLabelsPage } from './pages/inventory/PrintLabelsPage';
 import { CreditNotePage } from './pages/invoices/CreditNotePage';
 import { CreditNotesPage } from './pages/invoices/CreditNotesPage';
 import { PrintCreditNotePage, PrintInvoicePage, PrintInvoicesPage } from './pages/invoices/PrintInvoicePage';
@@ -93,6 +94,7 @@ function renderRoute(route: Route) {
     case 'credit-note':
       return <CreditNotePage id={route.id} />;
     case 'print-invoice':
+    case 'print-labels':
     case 'print-credit-note':
     case 'print-proforma':
     case 'print-statement':
@@ -142,6 +144,7 @@ export default function App() {
   const route = useRoute();
   // Print/PDF export render just the paper, with none of the app around it.
   if (route.name === 'print-invoice') return <PrintInvoicePage id={route.id} />;
+  if (route.name === 'print-labels') return <PrintLabelsPage items={route.items} layout={route.layout} />;
   if (route.name === 'print-credit-note') return <PrintCreditNotePage id={route.id} />;
   if (route.name === 'print-proforma') return <PrintInvoicePage id={route.id} kind="proforma" />;
   if (route.name === 'print-statement') return <PrintStatementPage customerId={route.id} />;

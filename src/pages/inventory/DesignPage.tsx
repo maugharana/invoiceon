@@ -1,4 +1,4 @@
-import { Archive, ArrowLeft, ArrowRightLeft, Copy, Globe, History, LineChart, Package, Pencil, PackagePlus, Plus } from 'lucide-react';
+import { Archive, ArrowLeft, ArrowRightLeft, Copy, Globe, History, Tag, LineChart, Package, Pencil, PackagePlus, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { formatMoney } from '../../../shared/money';
 import type { Variant } from '../../../shared/types';
@@ -15,6 +15,7 @@ import { DesignFormModal } from './DesignFormModal';
 import { AdjustStockModal, PriceHistoryModal, StockHistoryModal } from './StockModals';
 import { TransferStockModal } from './Places';
 import { VariantFormModal } from './VariantFormModal';
+import { LabelsModal } from './LabelsModal';
 import { PhotosCard } from './PhotosCard';
 import { WebsiteTextModal } from './WebsiteTextModal';
 
@@ -22,6 +23,7 @@ type Dialog =
   | { kind: 'edit-design' }
   | { kind: 'archive-design' }
   | { kind: 'website' }
+  | { kind: 'labels' }
   | { kind: 'variant'; variant?: Variant }
   | { kind: 'adjust'; variant: Variant }
   | { kind: 'history'; variant: Variant }
@@ -101,6 +103,9 @@ export function DesignPage({ id }: { id: string }) {
             </Button>
             <Button icon={<Copy className="h-4 w-4" />} loading={copying} onClick={() => void duplicate()} title="Make a new design with the same details, variants, prices and costing, but no stock">
               Duplicate
+            </Button>
+            <Button icon={<Tag className="h-4 w-4" />} onClick={() => setDialog({ kind: 'labels' })} title="Labels with a barcode of each Saree ID, to stick on the sarees">
+              Labels
             </Button>
             <Button icon={<Globe className="h-4 w-4" />} onClick={() => setDialog({ kind: 'website' })} title="Words for this saree's page on a website">
               Website text
@@ -234,6 +239,7 @@ export function DesignPage({ id }: { id: string }) {
         />
       )}
       {dialog?.kind === 'website' && <WebsiteTextModal design={d} onClose={close} />}
+      {dialog?.kind === 'labels' && <LabelsModal variantIds={d.variants.map((v) => v.id)} stock={Object.fromEntries(d.variants.map((v) => [v.id, v.stock]))} onClose={close} />}
       {dialog?.kind === 'variant' && <VariantFormModal design={d} variant={dialog.variant} onClose={close} />}
       {dialog?.kind === 'adjust' && <AdjustStockModal variant={dialog.variant} onClose={close} />}
       {dialog?.kind === 'history' && <StockHistoryModal variant={dialog.variant} onClose={close} />}
