@@ -9,7 +9,7 @@ export const electronBuildOptions = {
   platform: 'node',
   target: 'node24', // Electron 44 embeds Node 24
   format: 'cjs',
-  external: ['electron'],
+  external: ['electron', 'electron-updater'],
   sourcemap: true,
   logLevel: 'info',
 };

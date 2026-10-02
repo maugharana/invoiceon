@@ -283,6 +283,10 @@ On an issued invoice, **Government forms** prepares the JSON file the government
 
 What this is not: the PIN guards the screen on a shared computer and names who did what. It does not encrypt the data file, so someone with the file itself can open it. Staff can still see cost prices on a design and the dashboard figures. If the only owner forgets their PIN, the data file has to be edited to reopen the book (delete the rows in the `users` table).
 
+## Updates
+
+The installed app looks for a newer version on this project's GitHub releases when it starts, downloads it quietly and offers to install it when the app is next closed (`electron-updater`, see `checkForUpdates` in `electron/main.ts`). It does nothing in development, and a failure (no internet, nothing published) is only logged. To publish a version: raise `version` in `package.json`, merge, then `git tag v<version>` and `git push origin v<version>`. The Release workflow builds the Windows installer and attaches it to a release. Two things to know: this has not been run end to end, because it needs a Windows machine and a real release, so the first update should be tried on a spare computer; and the updater can only read releases of a public repository (a private one would need a token inside the app, which is not done). Without a code signing certificate Windows will show a "unknown publisher" warning on the installer.
+
 ## Backup, restore and Google Drive
 
 Code: `electron/backup.ts` (files on this computer, checking and restoring), `electron/drive.ts` (Google), `electron/backupService.ts` (puts them together). Tests: `tests/backup-drive.test.ts`, which includes a stand-in for Google.
