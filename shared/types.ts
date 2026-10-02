@@ -42,6 +42,8 @@ export interface Settings {
   /** True when the prices you enter already include GST, so the tax is carved out of them instead of added on top. */
   pricesIncludeGst: boolean;
   invoicePrefix: string;
+  /** Credit notes are numbered CN/2026-27/0001 with this prefix. */
+  creditNotePrefix: string;
   /** If set, B2B tax invoices are numbered in their own series with this prefix (MGB/2026-27/0001). Empty: one series for all. */
   b2bPrefix: string;
   /** Days until a B2B invoice falls due. B2C is due on the day. */
@@ -605,8 +607,18 @@ export interface Payment {
   reconciledOn: string | null;
   /** The quote it is a deposit for. */
   proformaId: string | null;
+  /** For a credit: the credit note that made it. */
+  creditNoteId: string | null;
+  /** For a refund: the payment (or credit) whose held money it returned. Null when it returned a credit note's overpayment directly. */
+  refundOf: string | null;
+  /** Money from this payment already handed back. */
+  refundedPaise: Paise;
 }
-export type PaymentKind = 'receipt' | 'writeoff';
+/**
+ * receipt: money in. writeoff: a balance given up, no money. credit: a credit note put toward an invoice, or held for the customer,
+ * no money moves. refund: money handed back. Only receipts count as received; a refund is money out.
+ */
+export type PaymentKind = 'receipt' | 'writeoff' | 'credit' | 'refund';
 export type ChequeStatus = 'pending' | 'deposited' | 'cleared' | 'bounced';
 export const CHEQUE_STATUS_LABEL: Record<ChequeStatus, string> = { pending: 'To deposit', deposited: 'Deposited', cleared: 'Cleared', bounced: 'Bounced' };
 
@@ -635,7 +647,7 @@ export interface InvoicePayment {
 // ── Ledger & dues ───────────────────────────────────────────────────────────
 export interface LedgerEntry {
   date: string;
-  kind: 'invoice' | 'invoice-cancelled' | 'payment' | 'payment-voided' | 'writeoff';
+  kind: 'invoice' | 'invoice-cancelled' | 'payment' | 'payment-voided' | 'writeoff' | 'credit-note' | 'refund' | 'refund-voided';
   description: string;
   invoiceId?: string;
   debitPaise: Paise;
@@ -652,6 +664,9 @@ export interface Ledger {
   receivedPaise: Paise;
   /** Balances you chose not to chase. */
   writtenOffPaise: Paise;
+  /** Credit notes issued to this customer, and money handed back to them. */
+  creditedPaise: Paise;
+  refundedPaise: Paise;
   /** billed − received − written off. Positive = owes, negative = advance credit. */
   balancePaise: Paise;
 }
@@ -779,7 +794,19 @@ export interface InvoiceSummary {
   status: InvoiceStatus;
 }
 
+/** A credit note against an invoice, as listed on it. */
+export interface InvoiceCredit {
+  id: string;
+  number: string;
+  issueDate: string;
+  totalPaise: Paise;
+}
+
 export interface Invoice extends InvoiceSummary {
+  /** Credit notes issued against this invoice. */
+  credits: InvoiceCredit[];
+  /** Their total. The invoice's balance already allows for it. */
+  creditedPaise: Paise;
   /**
    * The seller's details as they were when the invoice was issued. Content that matters legally or to the customer (address,
    * GSTIN, terms, where to pay) is frozen here; how it's dressed is `branding`, below.
@@ -871,6 +898,127 @@ export interface SaleVariant {
   sellPricePaise: Paise;
 }
 
+// ── Credit notes ────────────────────────────────────────────────────────────
+export interface CreditNoteSummary {
+  id: string;
+  number: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  customerId: string | null;
+  buyerName: string;
+  type: InvoiceType;
+  issueDate: string;
+  reason: string;
+  totalPaise: Paise;
+}
+
+export interface CreditNoteLine {
+  id: string;
+  invoiceLineId: string;
+  variantId: string | null;
+  designName: string;
+  color: string;
+  size: string;
+  sku: string;
+  hsn: string;
+  qty: number;
+  unitPricePaise: Paise;
+  amountPaise: Paise;
+  discountPaise: Paise;
+  ratePercent: number;
+  taxablePaise: Paise;
+  taxPaise: Paise;
+  /** The pieces went back on the shelf. Not done for damaged goods. */
+  restocked: boolean;
+}
+
+export interface CreditNote extends CreditNoteSummary {
+  seller: Party & { email: string; terms: string; bank: string; footer: string; upiId: string };
+  branding: InvoiceBranding;
+  buyer: Party;
+  placeOfSupply: string;
+  gstRatePercent: number;
+  pricesIncludeGst: boolean;
+  intraState: boolean;
+  subtotalPaise: Paise;
+  lineDiscountPaise: Paise;
+  taxablePaise: Paise;
+  cgstPaise: Paise;
+  sgstPaise: Paise;
+  igstPaise: Paise;
+  roundOffPaise: Paise;
+  taxByRate: RateGroup[];
+  lines: CreditNoteLine[];
+  /** How the money was dealt with. */
+  appliedPaise: Paise;
+  heldPaise: Paise;
+  refundedPaise: Paise;
+  createdAt: string;
+}
+
+/** What one invoice line can still take back. */
+export interface ReturnableLine {
+  invoiceLineId: string;
+  variantId: string;
+  designName: string;
+  color: string;
+  size: string;
+  sku: string;
+  qty: number;
+  creditedQty: number;
+  remainingQty: number;
+  unitPricePaise: Paise;
+  ratePercent: number;
+}
+
+export interface CreditNoteInput {
+  invoiceId: string;
+  issueDate: string;
+  reason: string;
+  lines: { invoiceLineId: string; qty: number; restock: boolean }[];
+  /**
+   * Only needed when the customer has already paid more than the invoice now comes to, so money is left over:
+   * give it back ('refund') or keep it for their next purchase ('credit').
+   */
+  leftover?: 'refund' | 'credit';
+  /** How the refund was paid, when there is one. */
+  refund?: { method: PaymentMethod; accountId?: string; reference?: string };
+}
+
+/** What a credit note would come to, before it is made. */
+export interface CreditNotePreview {
+  subtotalPaise: Paise;
+  lineDiscountPaise: Paise;
+  taxablePaise: Paise;
+  taxPaise: Paise;
+  roundOffPaise: Paise;
+  totalPaise: Paise;
+  taxByRate: RateGroup[];
+  /** The part that reduces what the customer owes on the invoice. */
+  appliedPaise: Paise;
+  /** The part that is left because they had already paid: to be refunded or kept as credit. */
+  leftoverPaise: Paise;
+}
+
+export interface CreditNoteQuery {
+  search?: string;
+  invoiceId?: string;
+  customerId?: string;
+  from?: string;
+  to?: string;
+}
+
+/** A refund of money a customer is holding with you (advance or credit), with the money going out by the chosen method. */
+export interface RefundInput {
+  customerId: string;
+  amountPaise: Paise;
+  method: PaymentMethod;
+  date: string;
+  accountId?: string;
+  reference?: string;
+  note?: string;
+}
+
 export interface DashboardSummary {
   outstandingPaise: Paise;
   openInvoices: number;
@@ -894,8 +1042,11 @@ export interface SalesSeriesPoint {
 
 export interface SalesReport {
   range: { from: string; to: string };
-  /** Invoice totals (incl. GST) dated in the period, cancelled invoices excluded. */
+  /** Invoice totals (incl. GST) dated in the period, cancelled invoices excluded, less credit notes dated in the period. Everything below that is about sales is net of returns too. */
   invoicedPaise: Paise;
+  /** Credit notes dated in the period, already taken off the figures above. */
+  creditNoteCount: number;
+  creditNotePaise: Paise;
   taxablePaise: Paise;
   gstPaise: Paise;
   invoiceCount: number;
@@ -950,6 +1101,24 @@ export interface GstReport {
     totalPaise: Paise;
   }[];
   b2cByState: { placeOfSupply: string; ratePercent: number; invoices: number; taxablePaise: Paise; cgstPaise: Paise; sgstPaise: Paise; igstPaise: Paise }[];
+  /** The totals above are net: credit notes dated in the period have been taken off. This is what was taken off. */
+  credits: { count: number; taxablePaise: Paise; cgstPaise: Paise; sgstPaise: Paise; igstPaise: Paise; taxPaise: Paise; valuePaise: Paise };
+  /** One row for each rate on each credit note. The note's value sits on its first row only. */
+  creditNoteRegister: {
+    creditNoteId: string;
+    number: string;
+    date: string;
+    invoiceNumber: string;
+    customer: string;
+    gstin: string;
+    placeOfSupply: string;
+    ratePercent: number;
+    taxablePaise: Paise;
+    cgstPaise: Paise;
+    sgstPaise: Paise;
+    igstPaise: Paise;
+    totalPaise: Paise;
+  }[];
   /** Cancelled invoices dated in the period; they are left out of everything above. */
   cancelledCount: number;
 }
@@ -1571,7 +1740,7 @@ export type DayBookMode = 'all' | 'cash' | 'bank';
 
 export interface DayBookEntry {
   date: string;
-  kind: 'sale' | 'receipt' | 'expense';
+  kind: 'sale' | 'credit-note' | 'receipt' | 'refund' | 'expense';
   party: string;
   detail: string;
   method: PaymentMethod | null;
@@ -1666,7 +1835,7 @@ export interface DueNote extends Note {
 // ── Accounts: where the money is ────────────────────────────────────────────
 export interface AccountEntry {
   date: string;
-  kind: 'receipt' | 'expense' | 'transfer-in' | 'transfer-out';
+  kind: 'receipt' | 'refund' | 'expense' | 'transfer-in' | 'transfer-out';
   party: string;
   detail: string;
   inPaise: Paise;

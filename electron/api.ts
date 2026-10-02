@@ -9,6 +9,7 @@ import * as accounts from './services/accounts';
 import { auditBefore, isAudited, listAudit, recordAudit } from './services/audit';
 import * as held from './services/held';
 import { notifications } from './services/notifications';
+import * as credits from './services/credits';
 import * as customers from './services/customers';
 import * as instalments from './services/instalments';
 import { dashboardNow, dashboardOverview } from './services/dashboard';
@@ -216,6 +217,24 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
     paymentsList: async (query) => payments.listPayments(db, query ?? {}),
     paymentRecord: async (input) => payments.recordPayment(db, input),
     paymentVoid: async (id, reason) => payments.voidPayment(db, id, reason),
+    paymentRefund: async (input) => payments.refundAdvance(db, input),
+
+    creditNotesList: async (query) => credits.listCreditNotes(db, query ?? {}),
+    creditNoteGet: async (id) => credits.getCreditNote(db, id),
+    creditNoteNextNumber: async (issueDate) => credits.nextCreditNoteNumber(db, issueDate),
+    creditNoteReturnable: async (invoiceId) => credits.returnableLines(db, invoiceId),
+    creditNotePreview: async (input) => credits.previewCreditNote(db, input),
+    creditNoteCreate: async (input) => credits.createCreditNote(db, input),
+    creditNoteExportPdf: async (id) => {
+      if (!host) throw new UserError(DESKTOP_ONLY);
+      const note = credits.getCreditNote(db, id);
+      return host.exportDocumentPdf(`/print/credit-note/${encodeURIComponent(id)}`, `Credit note ${note.number.replace(/[\\/:*?"<>|]/g, '-')}.pdf`);
+    },
+    creditNotePrint: async (id) => {
+      if (!host) throw new UserError(DESKTOP_ONLY);
+      credits.getCreditNote(db, id);
+      return host.printDocument(`/print/credit-note/${encodeURIComponent(id)}`);
+    },
     invoiceApplyAdvance: async (invoiceId) => invoices.applyAdvanceToInvoice(db, invoiceId),
     paymentChequeStatus: async (id, status, reason) => payments.setChequeStatus(db, id, status, reason ?? ''),
     paymentsReconcile: async (ids, on) => payments.setReconciled(db, ids, on ?? null),

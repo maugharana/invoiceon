@@ -2,6 +2,7 @@ import { InvoiceDocument } from '../../components/InvoiceDocument';
 import { PrintShell } from '../../components/PrintShell';
 import { api } from '../../lib/api';
 import { useQuery } from '../../lib/data';
+import { creditNoteAsInvoice } from '../../lib/creditNote';
 import { proformaAsInvoice } from '../../lib/proforma';
 
 /** The bare invoice or proforma, with no app chrome. PDF export and printing open this route and capture it (see PrintShell). */
@@ -15,6 +16,19 @@ export function PrintInvoicePage({ id, kind = 'invoice' }: { id: string; kind?: 
   return (
     <PrintShell ready title={`${proforma ? 'Proforma' : 'Invoice'} ${invoice.number.replaceAll('/', '-')}`} noun={proforma ? 'proforma' : 'invoice'}>
       <InvoiceDocument invoice={invoice} variant={kind} />
+    </PrintShell>
+  );
+}
+
+/** A credit note, drawn with the invoice document and captured the same way. */
+export function PrintCreditNotePage({ id }: { id: string }) {
+  const query = useQuery(() => api.creditNoteGet(id), [id]);
+  const note = query.data;
+  if (query.error) return <p className="p-8 text-status-overdue-fg">{query.error}</p>;
+  if (!note) return null;
+  return (
+    <PrintShell ready title={`Credit note ${note.number.replaceAll('/', '-')}`} noun="credit note">
+      <InvoiceDocument invoice={creditNoteAsInvoice(note)} variant="credit-note" against={{ invoiceNumber: note.invoiceNumber, reason: note.reason }} />
     </PrintShell>
   );
 }

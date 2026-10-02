@@ -213,6 +213,18 @@ Code: `shared/gst.ts` (`computeInvoice`, `resolveRate`, `roundTotal`), migration
 - **Quotes.** A quote keeps each line's discount, note and **resolved rate**. Converting it passes that rate on as typed, so a later change to slabs or rates cannot alter what was promised. A line's discount is shared over part invoices by quantity, each part taking the difference in what the pieces invoiced so far would carry, so the parts add up to exactly the line's discount.
 - **Round-off.** `roundOff` in settings: nearest rupee (the default, and what every earlier invoice used), up, down, or none (exact paise). The difference is its own line on the invoice. Rounding is applied once, to the grand total.
 
+## Credit notes, returns and refunds
+
+Code: `electron/services/credits.ts`, `payments.ts` (credit and refund kinds), migration 15, `tests/credit-notes.test.ts`.
+
+- **A credit note is its own immutable document** with its own numbering (`CN/2026-27/0001`; the prefix is a setting). It reverses chosen quantities of one invoice's lines; the invoice itself is never edited. A credit note cannot be cancelled, and an invoice with credit notes can no longer be cancelled (a mistake is corrected by billing again).
+- **Exact to the paisa.** Each line's taxable value and tax (stored per line since migration 14; older invoices have the invoice's figures shared over the lines) are shared out by quantity, each return taking the difference between what the pieces returned so far would carry and what they carry now. Returns in any number of parts therefore add up to exactly the line. A note that takes back the last of an invoice is worth exactly what is left of it, rounding included. Otherwise the total is rounded by the shop's round-off setting.
+- **The money.** The credit is first put toward what is still owed on the invoice (a payment of kind `credit` allocated to it, so the invoice's balance and status follow; it is not money received). If the customer had already paid, what is left over must be chosen: `refund` (a payment of kind `refund`, money out, from a chosen account) or `credit` (kept as the customer's credit, a `credit` payment left unallocated, used like any advance). A walk-in sale can only be refunded.
+- **Stock.** Pieces marked "resell" go back through the stock ledger (reason `return`, referencing the note). Damaged pieces do not, and stay a cost in the profit figures.
+- **Held money and refunds.** `advanceHeld` now counts `receipt` and `credit` payments less any refund whose `refund_of` points at them. `refundAdvance` hands back advance or credit the customer is holding, oldest money first. A payment that has been refunded cannot be reversed until the refund is; a `credit` cannot be reversed at all.
+- **Books.** Sales, profit, GST and the dashboard are net of credit notes, dated by the credit note. The GST report's totals are net and `credits` says what came off; it also lists a credit-note register (one row per rate) and a CSV. HSN, B2C-by-state and designs are net too. Refunds are money out in the account book, day/cash/bank book, collected figures and the customer's ledger. The ledger shows each credit note once and each refund.
+- **Migration 15** rebuilds the `payments` table, because SQLite cannot change a CHECK in place. The migrator switches foreign keys off around a migration marked `rebuilds` and checks them before committing, as SQLite's own instructions for this say; the upgrade test builds a book with payments, allocations and a cheque and checks every row survives.
+
 ## Brand
 
 Tokens live in `tailwind.config.js` (teal `#0F6E56`, gold `#D9A94E` for one figure per screen, status pairs, ink).

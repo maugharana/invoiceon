@@ -1,6 +1,6 @@
 import { ChevronRight, Table2 } from 'lucide-react';
 import { Fragment, useState, type ReactNode } from 'react';
-import { gstB2bCsv, gstB2cCsv, gstCsv, gstHsnCsv, salesCsv, stockCsv } from '../../../shared/csv';
+import { gstB2bCsv, gstB2cCsv, gstCreditNotesCsv, gstCsv, gstHsnCsv, salesCsv, stockCsv } from '../../../shared/csv';
 import { formatDate, todayIso } from '../../../shared/gst';
 import { formatMoney } from '../../../shared/money';
 import { PERIOD_LABEL, PERIOD_PRESETS, resolvePeriod, type PeriodPreset, type PeriodSpec } from '../../../shared/periods';
@@ -98,7 +98,7 @@ function SalesTab({ period }: { period: PeriodSpec }) {
   return (
     <>
       <div className="mb-8 grid grid-cols-4 gap-6">
-        <Figure label="Invoiced" sub={`${plural(r.invoiceCount, 'invoice')} · ${formatMoney(r.taxablePaise, { fractionDigits: 0 })} before GST`} highlight>
+        <Figure label="Invoiced" sub={`${plural(r.invoiceCount, 'invoice')} · ${formatMoney(r.taxablePaise, { fractionDigits: 0 })} before GST${r.creditNoteCount > 0 ? ` · after ${formatMoney(r.creditNotePaise, { fractionDigits: 0 })} credit notes` : ''}`} highlight>
           <Money paise={r.invoicedPaise} fractionDigits={0} />
         </Figure>
         <Figure label="Collected" sub={`${plural(r.paymentCount, 'payment')} received`}>
@@ -254,6 +254,11 @@ function SalesTab({ period }: { period: PeriodSpec }) {
               </Card>
             </Section>
           </div>
+          {r.creditNoteCount > 0 && (
+            <p className="mb-1 text-xs text-ink-muted">
+              {plural(r.creditNoteCount, 'credit note')} ({formatMoney(r.creditNotePaise, { fractionDigits: 0 })}) dated in this period {r.creditNoteCount === 1 ? 'has' : 'have'} been taken off the sales, profit and GST above.
+            </p>
+          )}
           {r.cancelledCount > 0 && (
             <p className="text-xs text-ink-muted">
               {plural(r.cancelledCount, 'cancelled invoice')} ({formatMoney(r.cancelledPaise, { fractionDigits: 0 })}) dated in this period {r.cancelledCount === 1 ? 'is' : 'are'} left out of these figures.
@@ -294,7 +299,7 @@ function GstTab({ period }: { period: PeriodSpec }) {
         </Figure>
       </div>
 
-      {t.invoices === 0 ? (
+      {t.invoices === 0 && r.credits.count === 0 ? (
         <Card>
           <EmptyState icon={<Table2 className="h-6 w-6" />} title="No invoices in this period" body="GST is reported by invoice date. Try a wider period." />
         </Card>
@@ -304,6 +309,7 @@ function GstTab({ period }: { period: PeriodSpec }) {
             <p className="text-xs text-ink-muted">
               By invoice date — the day GST becomes due, not the day the customer pays.
               {r.cancelledCount > 0 && ` ${plural(r.cancelledCount, 'cancelled invoice')} left out.`}
+              {r.credits.count > 0 && ` Figures are after ${plural(r.credits.count, 'credit note')} (${formatMoney(r.credits.taxPaise, { fractionDigits: 0 })} of tax taken off).`}
             </p>
             <ExportButton label="Export all (CSV)" onClick={() => void exportCsv(`GST ${stamp}.csv`, gstCsv(r))} />
           </div>
@@ -391,6 +397,7 @@ function GstTab({ period }: { period: PeriodSpec }) {
                       <th className="th">Date</th>
                       <th className="th">Buyer</th>
                       <th className="th">GSTIN</th>
+                      <th className="th text-right">Rate</th>
                       <th className="th text-right">Taxable</th>
                       <th className="th text-right">Tax</th>
                       <th className="th text-right">Value</th>
@@ -398,7 +405,7 @@ function GstTab({ period }: { period: PeriodSpec }) {
                   </thead>
                   <tbody>
                     {r.b2bRegister.map((i) => (
-                      <tr key={i.invoiceId} tabIndex={0} onClick={() => navigate(paths.invoice(i.invoiceId))} onKeyDown={(e) => e.key === 'Enter' && navigate(paths.invoice(i.invoiceId))} className="cursor-pointer border-b border-line/70 transition-colors duration-150 last:border-0 hover:bg-canvas focus-visible:bg-canvas">
+                      <tr key={`${i.invoiceId}-${i.ratePercent}`} tabIndex={0} onClick={() => navigate(paths.invoice(i.invoiceId))} onKeyDown={(e) => e.key === 'Enter' && navigate(paths.invoice(i.invoiceId))} className="cursor-pointer border-b border-line/70 transition-colors duration-150 last:border-0 hover:bg-canvas focus-visible:bg-canvas">
                         <td className="td num whitespace-nowrap">{i.number}</td>
                         <td className="td num whitespace-nowrap text-ink-muted">{formatDate(i.date)}</td>
                         <td className="td">
@@ -406,6 +413,7 @@ function GstTab({ period }: { period: PeriodSpec }) {
                           <div className="text-xs text-ink-muted">{i.placeOfSupply}</div>
                         </td>
                         <td className="td num text-xs text-ink-muted">{i.gstin}</td>
+                        <td className="td num text-right text-ink-muted">{i.ratePercent}%</td>
                         <td className="td text-right"><Money paise={i.taxablePaise} /></td>
                         <td className="td text-right"><Money paise={i.cgstPaise + i.sgstPaise + i.igstPaise} /></td>
                         <td className="td text-right"><Money paise={i.totalPaise} /></td>
@@ -416,6 +424,41 @@ function GstTab({ period }: { period: PeriodSpec }) {
               )}
             </Card>
           </Section>
+
+          {r.creditNoteRegister.length > 0 && (
+            <Section title="Credit notes" note="Goods taken back in this period. Each one reduces the tax due on the invoice it reverses." actions={<ExportButton label="Credit notes CSV" onClick={() => void exportCsv(`GST credit notes ${stamp}.csv`, gstCreditNotesCsv(r))} />}>
+              <Card className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-line">
+                      <th className="th">Credit note</th>
+                      <th className="th">Date</th>
+                      <th className="th">Against</th>
+                      <th className="th">Buyer</th>
+                      <th className="th text-right">Rate</th>
+                      <th className="th text-right">Taxable</th>
+                      <th className="th text-right">Tax</th>
+                      <th className="th text-right">Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {r.creditNoteRegister.map((c) => (
+                      <tr key={`${c.creditNoteId}-${c.ratePercent}`} tabIndex={0} onClick={() => navigate(paths.creditNote(c.creditNoteId))} onKeyDown={(e) => e.key === 'Enter' && navigate(paths.creditNote(c.creditNoteId))} className="cursor-pointer border-b border-line/70 transition-colors duration-150 last:border-0 hover:bg-canvas focus-visible:bg-canvas">
+                        <td className="td num whitespace-nowrap">{c.number}</td>
+                        <td className="td num whitespace-nowrap text-ink-muted">{formatDate(c.date)}</td>
+                        <td className="td num text-ink-muted">{c.invoiceNumber}</td>
+                        <td className="td">{c.customer}</td>
+                        <td className="td num text-right text-ink-muted">{c.ratePercent}%</td>
+                        <td className="td text-right"><Money paise={c.taxablePaise} /></td>
+                        <td className="td text-right"><Money paise={c.cgstPaise + c.sgstPaise + c.igstPaise} /></td>
+                        <td className="td text-right"><Money paise={c.totalPaise} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </Card>
+            </Section>
+          )}
 
           <Section title="B2C by state" note="Retail sales roll up by state and rate — no need to list each bill." actions={<ExportButton label="B2C CSV" onClick={() => void exportCsv(`GST B2C ${stamp}.csv`, gstB2cCsv(r))} />}>
             <Card className="overflow-x-auto">

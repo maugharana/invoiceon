@@ -243,12 +243,12 @@ export function PageHeader({ title, subtitle, actions, back }: { title: ReactNod
   return (
     <header className="mb-8">
       {back && <div className="mb-3">{back}</div>}
-      <div className="flex items-start justify-between gap-6">
+      <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
         <div className="min-w-0">
           <h1 className="text-2xl tracking-tight">{title}</h1>
           {subtitle && <p className="mt-1 text-ink-muted">{subtitle}</p>}
         </div>
-        {actions && <div className="flex shrink-0 items-center gap-2 print:hidden">{actions}</div>}
+        {actions && <div className="flex flex-wrap items-center gap-2 print:hidden">{actions}</div>}
       </div>
     </header>
   );

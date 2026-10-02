@@ -70,6 +70,13 @@ import type {
   FestivalComparison,
   ReorderRow,
   DataInfo,
+  CreditNote,
+  CreditNoteInput,
+  CreditNotePreview,
+  CreditNoteQuery,
+  CreditNoteSummary,
+  ReturnableLine,
+  RefundInput,
   BackupResult,
   BackupSettings,
   DriveBackup,
@@ -243,6 +250,20 @@ export interface Api {
   paymentRecord(input: PaymentInput): Promise<Payment>;
   /** Reverses a payment (a mistake, or a refund). Invoices it paid become due again. */
   paymentVoid(id: string, reason: string): Promise<Payment>;
+  /** Hands back advance or credit a customer is holding. Money out. */
+  paymentRefund(input: RefundInput): Promise<Payment[]>;
+
+  // Credit notes (returns)
+  creditNotesList(query?: CreditNoteQuery): Promise<CreditNoteSummary[]>;
+  creditNoteGet(id: string): Promise<CreditNote>;
+  creditNoteNextNumber(issueDate: string): Promise<string>;
+  /** What each line of an invoice can still take back. */
+  creditNoteReturnable(invoiceId: string): Promise<ReturnableLine[]>;
+  /** What a credit note would come to and how it would be settled, without making it. */
+  creditNotePreview(input: CreditNoteInput): Promise<CreditNotePreview>;
+  creditNoteCreate(input: CreditNoteInput): Promise<CreditNote>;
+  creditNoteExportPdf(id: string): Promise<{ saved: boolean; path?: string }>;
+  creditNotePrint(id: string): Promise<void>;
   /** Puts a customer's held advance toward one of their open invoices. Returns the invoice as it stands afterwards. */
   invoiceApplyAdvance(invoiceId: string): Promise<Invoice>;
   paymentsSummary(): Promise<PaymentsSummary>;

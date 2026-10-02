@@ -8,10 +8,11 @@ import { InventoryPage } from './pages/inventory/InventoryPage';
 import { AddSareesPage } from './pages/inventory/AddSareesPage';
 import { MaterialsPage } from './pages/inventory/MaterialsPage';
 import { StockTakePage } from './pages/inventory/StockTakePage';
+import { CreditNotePage, CreditNotesPage } from './pages/invoices/CreditNotePages';
 import { InvoicePage } from './pages/invoices/InvoicePage';
 import { InvoicesPage } from './pages/invoices/InvoicesPage';
 import { NewInvoicePage } from './pages/invoices/NewInvoicePage';
-import { PrintInvoicePage, PrintInvoicesPage } from './pages/invoices/PrintInvoicePage';
+import { PrintCreditNotePage, PrintInvoicePage, PrintInvoicesPage } from './pages/invoices/PrintInvoicePage';
 import { PrintReceiptPage, PrintStatementPage } from './pages/PrintOtherPages';
 import { ExpensesPage } from './pages/expenses/ExpensesPage';
 import { NotificationsPage } from './pages/NotificationsPage';
@@ -54,6 +55,10 @@ function renderRoute(route: Route) {
       return <ReconcilePage />;
     case 'invoice':
       return <InvoicePage id={route.id} />;
+    case 'credit-notes':
+      return <CreditNotesPage />;
+    case 'credit-note':
+      return <CreditNotePage id={route.id} />;
     case 'proformas':
       return <ProformasPage initialStatus={route.status} />;
     case 'proforma-new':
@@ -76,6 +81,7 @@ function renderRoute(route: Route) {
     case 'print-proforma':
     case 'print-statement':
     case 'print-receipt':
+    case 'print-credit-note':
     case 'print-invoices':
       return null; // rendered outside the app shell, see App()
   }
@@ -88,6 +94,7 @@ const pageKey = (r: Route): string => {
     case 'invoice':
     case 'proforma':
     case 'customer':
+    case 'credit-note':
     case 'print-invoice':
     case 'print-proforma':
       return `${r.name}:${r.id}`;
@@ -117,6 +124,7 @@ export default function App() {
   if (route.name === 'print-proforma') return <PrintInvoicePage id={route.id} kind="proforma" />;
   if (route.name === 'print-statement') return <PrintStatementPage customerId={route.id} />;
   if (route.name === 'print-receipt') return <PrintReceiptPage paymentId={route.id} />;
+  if (route.name === 'print-credit-note') return <PrintCreditNotePage id={route.id} />;
   if (route.name === 'print-invoices') return <PrintInvoicesPage ids={route.ids} />;
   return (
     <AppShell active={sectionOf(route)} pageKey={pageKey(route)} hideFab={route.name === 'invoice-new' || route.name === 'proforma-new' || route.name === 'proforma-edit' || route.name === 'inventory-add' || route.name === 'stock-take'}>

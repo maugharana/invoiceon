@@ -51,6 +51,7 @@ const FIELDS: { [K in keyof Settings]: Field<K> } = {
   pricesIncludeGst: bool('prices_include_gst', false),
   invoicePrefix: text('invoice_prefix', 'INV'),
   b2bPrefix: text('b2b_prefix', ''),
+  creditNotePrefix: text('credit_note_prefix', 'CN'),
   defaultDueDays: num('default_due_days', 15),
   defaultReorderLevel: num('default_reorder_level', 2),
   monthlyTargetPaise: num('monthly_target_paise', 0),
@@ -136,6 +137,11 @@ function validate(patch: Partial<Settings>): Partial<Settings> {
     const p = requireText(patch.invoicePrefix, 'Invoice prefix', 10).toUpperCase();
     if (!/^[A-Z0-9-]+$/.test(p)) throw new UserError('Invoice prefix can only use letters, numbers and dashes.');
     v.invoicePrefix = p;
+  }
+  if (patch.creditNotePrefix !== undefined) {
+    const p = requireText(patch.creditNotePrefix, 'Credit note prefix', 10).toUpperCase();
+    if (!/^[A-Z0-9-]+$/.test(p)) throw new UserError('Credit note prefix can only use letters, numbers and dashes.');
+    v.creditNotePrefix = p;
   }
   if (patch.b2bPrefix !== undefined) {
     const p = optionalText(patch.b2bPrefix, 'B2B prefix', 10).toUpperCase();

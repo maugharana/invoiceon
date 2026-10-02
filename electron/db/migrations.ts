@@ -622,8 +622,103 @@ ALTER TABLE proformas ADD COLUMN line_discount_paise INTEGER NOT NULL DEFAULT 0 
 ALTER TABLE designs ADD COLUMN gst_rate_percent REAL;
 `;
 
+// 15: credit notes (returns) and refunds.
+//  • credit_notes / credit_note_lines: an immutable document that reverses part of an invoice, with its own numbering.
+//  • payments gets two more kinds. 'credit' is a credit note applied to an invoice (or held for the customer): no money moves.
+//    'refund' is money handed back. SQLite cannot change a CHECK in place, so the table is rebuilt; every row is copied as it was.
+//  • refund_of ties a refund to the payment whose unapplied money it returns; credit_note_id ties a credit to its note.
+const V15 = `
+CREATE TABLE payments_new (
+  id             TEXT PRIMARY KEY,
+  customer_id    TEXT REFERENCES customers (id),
+  amount_paise   INTEGER NOT NULL CHECK (amount_paise > 0),
+  method         TEXT NOT NULL CHECK (method IN ('cash','upi','bank','cheque','card','other')),
+  reference      TEXT NOT NULL DEFAULT '',
+  received_on    TEXT NOT NULL,
+  note           TEXT NOT NULL DEFAULT '',
+  voided_at      TEXT,
+  void_reason    TEXT NOT NULL DEFAULT '',
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL,
+  proforma_id    TEXT REFERENCES proformas (id),
+  kind           TEXT NOT NULL DEFAULT 'receipt' CHECK (kind IN ('receipt','writeoff','credit','refund')),
+  account_id     TEXT NOT NULL DEFAULT '',
+  cheque_date    TEXT,
+  cheque_status  TEXT CHECK (cheque_status IS NULL OR cheque_status IN ('pending','deposited','cleared','bounced')),
+  reconciled_on  TEXT,
+  credit_note_id TEXT,
+  refund_of      TEXT
+);
+INSERT INTO payments_new (id, customer_id, amount_paise, method, reference, received_on, note, voided_at, void_reason, created_at, updated_at, proforma_id, kind, account_id, cheque_date, cheque_status, reconciled_on)
+  SELECT id, customer_id, amount_paise, method, reference, received_on, note, voided_at, void_reason, created_at, updated_at, proforma_id, kind, account_id, cheque_date, cheque_status, reconciled_on FROM payments;
+DROP TABLE payments;
+ALTER TABLE payments_new RENAME TO payments;
+CREATE INDEX ix_payments_customer ON payments (customer_id);
+CREATE INDEX ix_payments_date ON payments (received_on);
+CREATE INDEX ix_payments_cheque ON payments (cheque_status, cheque_date) WHERE cheque_status IS NOT NULL;
+CREATE INDEX ix_payments_refund_of ON payments (refund_of) WHERE refund_of IS NOT NULL;
+
+CREATE TABLE credit_notes (
+  id                  TEXT PRIMARY KEY,
+  number              TEXT NOT NULL UNIQUE,
+  fy                  TEXT NOT NULL,
+  seq                 INTEGER NOT NULL,
+  invoice_id          TEXT NOT NULL REFERENCES invoices (id),
+  customer_id         TEXT REFERENCES customers (id),
+  type                TEXT NOT NULL CHECK (type IN ('B2B','B2C')),
+  seller_json         TEXT NOT NULL,
+  buyer_json          TEXT NOT NULL,
+  place_of_supply     TEXT NOT NULL,
+  issue_date          TEXT NOT NULL,
+  reason              TEXT NOT NULL DEFAULT '',
+  gst_rate_percent    REAL NOT NULL,
+  prices_include_gst  INTEGER NOT NULL DEFAULT 0,
+  intra_state         INTEGER NOT NULL DEFAULT 1,
+  subtotal_paise      INTEGER NOT NULL,
+  line_discount_paise INTEGER NOT NULL DEFAULT 0,
+  taxable_paise       INTEGER NOT NULL,
+  cgst_paise          INTEGER NOT NULL DEFAULT 0,
+  sgst_paise          INTEGER NOT NULL DEFAULT 0,
+  igst_paise          INTEGER NOT NULL DEFAULT 0,
+  round_off_paise     INTEGER NOT NULL DEFAULT 0,
+  total_paise         INTEGER NOT NULL CHECK (total_paise >= 0),
+  created_at          TEXT NOT NULL,
+  updated_at          TEXT NOT NULL,
+  UNIQUE (fy, seq)
+);
+CREATE INDEX ix_credit_notes_invoice ON credit_notes (invoice_id);
+CREATE INDEX ix_credit_notes_customer ON credit_notes (customer_id);
+CREATE INDEX ix_credit_notes_date ON credit_notes (issue_date);
+
+CREATE TABLE credit_note_lines (
+  id                  TEXT PRIMARY KEY,
+  credit_note_id      TEXT NOT NULL REFERENCES credit_notes (id),
+  invoice_line_id     TEXT NOT NULL REFERENCES invoice_lines (id),
+  variant_id          TEXT REFERENCES variants (id),
+  position            INTEGER NOT NULL,
+  design_name         TEXT NOT NULL,
+  color               TEXT NOT NULL DEFAULT '',
+  size                TEXT NOT NULL DEFAULT '',
+  sku                 TEXT NOT NULL DEFAULT '',
+  hsn                 TEXT NOT NULL DEFAULT '',
+  qty                 INTEGER NOT NULL CHECK (qty > 0),
+  unit_price_paise    INTEGER NOT NULL,
+  amount_paise        INTEGER NOT NULL,
+  line_discount_paise INTEGER NOT NULL DEFAULT 0,
+  gst_rate_percent    REAL NOT NULL,
+  taxable_paise       INTEGER NOT NULL,
+  tax_paise           INTEGER NOT NULL,
+  restocked           INTEGER NOT NULL DEFAULT 1,
+  unit_cost_paise     INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX ix_credit_lines_note ON credit_note_lines (credit_note_id);
+CREATE INDEX ix_credit_lines_invoice_line ON credit_note_lines (invoice_line_id);
+`;
+
 // Append new migrations to the end; never edit one that has shipped.
-const MIGRATIONS: { version: number; sql: string }[] = [
+// `rebuilds` marks a migration that replaces a table other tables point at (SQLite's documented way of changing a CHECK). Foreign keys
+// are switched off around it, and checked before it is committed, as SQLite's own instructions for that say.
+const MIGRATIONS: { version: number; sql: string; rebuilds?: boolean }[] = [
   { version: 1, sql: V1 },
   { version: 2, sql: V2 },
   { version: 3, sql: V3 },
@@ -638,6 +733,7 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 12, sql: V12 },
   { version: 13, sql: V13 },
   { version: 14, sql: V14 },
+  { version: 15, sql: V15, rebuilds: true },
 ];
 
 /** Brings a database up to date. `upTo` stops early at a version, which only the tests use, to build an older database to upgrade. */
@@ -645,14 +741,20 @@ export function migrate(db: DatabaseSync, upTo: number = Number.POSITIVE_INFINIT
   const row = db.prepare('PRAGMA user_version').get() as { user_version: number };
   for (const m of MIGRATIONS) {
     if (m.version <= row.user_version || m.version > upTo) continue;
+    const keysWereOn = (db.prepare('PRAGMA foreign_keys').get() as { foreign_keys: number }).foreign_keys === 1;
+    // The switch only works outside a transaction.
+    if (m.rebuilds && keysWereOn) db.exec('PRAGMA foreign_keys = OFF');
     db.exec('BEGIN IMMEDIATE');
     try {
       db.exec(m.sql);
+      if (m.rebuilds && db.prepare('PRAGMA foreign_key_check').all().length > 0) throw new Error('the rebuilt table no longer matches the rows that refer to it');
       db.exec(`PRAGMA user_version = ${m.version}`);
       db.exec('COMMIT');
     } catch (err) {
       db.exec('ROLLBACK');
       throw new Error(`Database migration ${m.version} failed: ${(err as Error).message}`);
+    } finally {
+      if (m.rebuilds && keysWereOn) db.exec('PRAGMA foreign_keys = ON');
     }
   }
 }

@@ -36,13 +36,15 @@ interface CustomerRow {
 // by a cancellation, on payments that haven't been voided (see payments.ts).
 //   outstanding = billed − paid on those invoices
 //   advance     = everything they've paid − the part of it that's sitting on invoices
+// A refund of money they were holding (refund_of is set) comes off what they hold. A refund that pays back a credit note's overpayment
+// (refund_of empty) was never held, so it changes nothing here: the credit note's own credit was only ever applied to the invoice.
 const SELECT = `
   SELECT c.*,
     (SELECT COUNT(*) FROM invoices i WHERE i.customer_id = c.id AND i.status = 'issued') AS invoice_count,
     (SELECT COALESCE(SUM(i.total_paise), 0) FROM invoices i WHERE i.customer_id = c.id AND i.status = 'issued') AS billed,
     (SELECT COALESCE(SUM(a.amount_paise), 0) FROM payment_allocations a JOIN payments p ON p.id = a.payment_id JOIN invoices i ON i.id = a.invoice_id
        WHERE i.customer_id = c.id AND i.status = 'issued' AND a.released_at IS NULL AND p.voided_at IS NULL) AS paid_on_invoices,
-    (SELECT COALESCE(SUM(p.amount_paise), 0) FROM payments p WHERE p.customer_id = c.id AND p.voided_at IS NULL) AS received
+    (SELECT COALESCE(SUM(CASE WHEN p.kind = 'refund' THEN CASE WHEN p.refund_of IS NULL THEN 0 ELSE -p.amount_paise END ELSE p.amount_paise END), 0) FROM payments p WHERE p.customer_id = c.id AND p.voided_at IS NULL) AS received
   FROM customers c WHERE c.deleted_at IS NULL`;
 
 function parseList<T>(json: string): T[] {
