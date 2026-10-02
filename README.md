@@ -191,6 +191,17 @@ Migrations 8 to 13. Each has an upgrade test (`tests/upgrade.test.ts`) that buil
 
 Not built, on purpose: photos, barcodes/QR labels, credit notes and returns, per-line discounts, multi-rate GST, e-invoice/e-way bill, users and roles, auto-update, production orders and job work. Sync/teams are planned for InvoiceOn Plus.
 
+## Backup, restore and Google Drive
+
+Code: `electron/backup.ts` (files on this computer, checking and restoring), `electron/drive.ts` (Google), `electron/backupService.ts` (puts them together). Tests: `tests/backup-drive.test.ts`, which includes a stand-in for Google.
+
+- **Where copies go.** Daily and "Back up now" copies land in `backups/` in the data folder. Two more destinations are optional: an extra folder (pen drive, other disk) and Google Drive. A failure at one destination is noted on the screen and never stops the others or the app.
+- **Settings are kept outside the book** (`backup-settings.json`, `google-drive.json` in the data folder), so restoring an old book never changes where this computer sends backups or which Google account it uses.
+- **Google.** The owner makes a Google Cloud "Desktop app" client (steps are shown in Settings > Backup & Restore) and pastes the ID and secret. Sign-in is the standard desktop flow: the browser opens, Google sends a one-time code back to a port on 127.0.0.1, checked against a PKCE challenge and a random `state`. Only the narrow `drive.file` permission is asked for, so InvoiceOn sees just the "InvoiceOn backups" folder it made. The secret and sign-in token are encrypted with the Windows account (Electron `safeStorage`). A Google app left in "Testing" signs out every 7 days; publishing it ("In production") avoids that.
+- **Online retention.** Automatic uploads are named `invoiceon-YYYY-MM-DD.db`, one per day, and the oldest beyond the chosen number are removed. Files made by hand are never removed by the app.
+- **Restore never swaps a live book.** A restore checks the file (opens read-only, integrity check, the right tables, not from a newer version), writes a "before restore" copy of the current book, stages the file as `restore-pending.db`, and restarts. On the next start, before the book opens, the file is swapped in; if that fails the old book is kept. Old journal files are removed so they can't be paired with the new book.
+- **What a backup holds.** The whole book. Backups are not encrypted: anyone with the file can read it, so keep the pen drive and the Google account safe.
+
 ## Brand
 
 Tokens live in `tailwind.config.js` (teal `#0F6E56`, gold `#D9A94E` for one figure per screen, status pairs, ink).

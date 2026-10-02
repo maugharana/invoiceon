@@ -117,6 +117,7 @@ function Palette({ onClose }: { onClose: () => void }) {
       ['Invoice settings', paths.settingsSection('invoice'), SettingsIcon, 'pdf logo colour prefix'],
       ['Data management', paths.settingsSection('data'), SettingsIcon, 'backup restore'],
       ['Activity log', paths.settingsSection('activity'), SettingsIcon, 'audit history changes who'],
+      ['Backup and restore', paths.settingsSection('backup'), SettingsIcon, 'backup restore google drive cloud online copy pen drive'],
     ];
     const rec = records;
     const recent: Command[] = loadRecent().map((r) => ({ id: `recent-${r.kind}-${r.id}`, group: 'Recent', label: r.title, hint: r.hint, icon: RECENT_ICON[r.kind], run: go(RECENT_PATH[r.kind](r.id)) }));

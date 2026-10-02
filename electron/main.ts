@@ -1,9 +1,11 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createApi, invoke, type Host } from './api';
-import { backupDaily } from './backup';
+import { applyPendingRestore } from './backup';
+import { driveContext, runAutoBackup } from './backupService';
 import { openDb } from './db/connection';
+import { plainVault, type Vault } from './drive';
 import { UserError } from './services/common';
 
 const DEV_URL = process.env.VITE_DEV_SERVER_URL;
@@ -43,8 +45,37 @@ async function chooseSavePath(parent: BrowserWindow | null, title: string, fileN
   return chosen.canceled || !chosen.filePath ? null : chosen.filePath;
 }
 
+/** Secrets (the Google client secret and sign-in) are encrypted with the Windows account when it can, otherwise only hidden. */
+const vault: Vault = {
+  encrypt: (plain) => (safeStorage.isEncryptionAvailable() ? `enc:${safeStorage.encryptString(plain).toString('base64')}` : plainVault.encrypt(plain)),
+  decrypt: (stored) => (stored.startsWith('enc:') ? safeStorage.decryptString(Buffer.from(stored.slice(4), 'base64')) : plainVault.decrypt(stored)),
+};
+
 function createHost(getParent: () => BrowserWindow | null): Host {
   return {
+    vault,
+    async pickSavePath(title, fileName) {
+      return chooseSavePath(getParent(), title, fileName, { name: 'InvoiceOn backup', extensions: ['db'] });
+    },
+    async pickFile(title) {
+      const testFile = process.env.INVOICEON_PICK_FILE;
+      if (testFile) return testFile;
+      const parent = getParent();
+      const options = { title, properties: ['openFile' as const], filters: [{ name: 'InvoiceOn backup', extensions: ['db'] }] };
+      const chosen = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
+      return chosen.canceled || !chosen.filePaths[0] ? null : chosen.filePaths[0];
+    },
+    async pickFolder(title) {
+      const parent = getParent();
+      const options = { title, properties: ['openDirectory' as const, 'createDirectory' as const] };
+      const chosen = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
+      return chosen.canceled || !chosen.filePaths[0] ? null : chosen.filePaths[0];
+    },
+    async restartApp() {
+      // Quitting (rather than exiting) lets the book close properly first; the short wait lets this call answer the screen.
+      app.relaunch();
+      setTimeout(() => app.quit(), 400);
+    },
     async exportDocumentPdf(route, fileName) {
       const filePath = await chooseSavePath(getParent(), 'Save as PDF', fileName, { name: 'PDF', extensions: ['pdf'] });
       if (!filePath) return { saved: false };
@@ -108,8 +139,15 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     const dataDir = app.getPath('userData');
+    // A restore that was prepared last time is swapped in now, before the book is opened.
+    applyPendingRestore(dataDir);
     const db = openDb(join(dataDir, 'invoiceon.db'));
-    backupDaily(db, join(dataDir, 'backups'));
+    // The daily copy here, then (as set up) in the extra folder and Google Drive. A failure is noted on the Data screen, never in the way.
+    const autoBackup = () => void runAutoBackup(db, driveContext(dataDir, vault)).catch((err) => console.error('[backup] failed', err));
+    autoBackup();
+    // The app can stay open for days, so look again every hour; it only acts when a new day has begun.
+    const hourly = setInterval(autoBackup, 60 * 60 * 1000);
+    app.on('before-quit', () => clearInterval(hourly));
     const api = createApi(db, createHost(() => win), dataDir);
 
     ipcMain.handle('api', (_event, method: string, args: unknown[]) => invoke(api, method, Array.isArray(args) ? args : []));

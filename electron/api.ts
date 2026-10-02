@@ -1,8 +1,8 @@
-import { existsSync, statSync } from 'node:fs';
 import { addDays, todayIso } from '../shared/gst';
-import { join } from 'node:path';
 import type { Api, Envelope } from '../shared/api';
-import { backupNow, listBackups } from './backup';
+import { discardPendingRestore, saveBackupSettings, snapshotTo } from './backup';
+import * as backupService from './backupService';
+import * as drive from './drive';
 import type { Db } from './db/connection';
 import { UserError } from './services/common';
 import * as accounts from './services/accounts';
@@ -39,6 +39,15 @@ export interface Host {
   saveTextFile(fileName: string, content: string): Promise<{ saved: boolean; path?: string }>;
   /** Saves a ZIP (given as base64) to a place the person chooses. */
   saveZipFile(fileName: string, base64: string): Promise<{ saved: boolean; path?: string }>;
+  /** Asks where to save a backup file; null if cancelled. */
+  pickSavePath?(title: string, fileName: string): Promise<string | null>;
+  /** Asks for a backup file to open; null if cancelled. */
+  pickFile?(title: string): Promise<string | null>;
+  pickFolder?(title: string): Promise<string | null>;
+  /** Closes the app and opens it again, so a prepared restore can be applied. */
+  restartApp?(): Promise<void>;
+  /** Encrypts secrets with the operating system, when it can. */
+  vault?: drive.Vault;
 }
 
 const DESKTOP_ONLY = 'This works in the InvoiceOn desktop app only.';
@@ -56,8 +65,8 @@ function checkInvoiceIds(db: Db, ids: string[]): string[] {
  * Binds the data layer to one open database. This is the only place that knows which service backs which call. Every call that
  * changes something also leaves a line in the activity log, written here so no screen has to remember to.
  */
-export function createApi(db: Db, host?: Host, dataDir?: string): Api {
-  const api = buildApi(db, host, dataDir);
+export function createApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backupService.DriveOverrides): Api {
+  const api = buildApi(db, host, dataDir, driveOverrides);
   const logged = {} as Record<string, unknown>;
   for (const [name, fn] of Object.entries(api)) {
     if (!isAudited(name) || typeof fn !== 'function') {
@@ -74,7 +83,12 @@ export function createApi(db: Db, host?: Host, dataDir?: string): Api {
   return logged as unknown as Api;
 }
 
-function buildApi(db: Db, host?: Host, dataDir?: string): Api {
+function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backupService.DriveOverrides): Api {
+  /** Backups and Google Drive need to know where the data folder is; the browser-only bridge passes one too. */
+  const need = (): drive.DriveContext => {
+    if (!dataDir) throw new UserError(DESKTOP_ONLY);
+    return backupService.driveContext(dataDir, host?.vault, driveOverrides);
+  };
   return {
     notificationsList: async () => notifications(db),
     auditList: async (query) => listAudit(db, query ?? {}),
@@ -295,16 +309,55 @@ function buildApi(db: Db, host?: Host, dataDir?: string): Api {
 
     sampleDataLoad: async () => loadSampleData(db),
 
-    dataInfo: async () => {
-      if (!dataDir) throw new UserError(DESKTOP_ONLY);
-      // Recent writes sit in the -wal file until SQLite folds them in, so the data's real size is both files.
-      const size = ['invoiceon.db', 'invoiceon.db-wal'].reduce((sum, f) => sum + (existsSync(join(dataDir, f)) ? statSync(join(dataDir, f)).size : 0), 0);
-      return { folder: dataDir, databaseBytes: size, backups: listBackups(join(dataDir, 'backups')) };
+    // Recent writes sit in the -wal file until SQLite folds them in, so the data's real size is both files.
+    dataInfo: async () => backupService.dataInfo(need()),
+    backupNow: async () => backupService.backupEverywhere(db, need()),
+    backupSettingsSave: async (input) => {
+      need();
+      return saveBackupSettings(dataDir!, input);
     },
-    backupNow: async () => {
-      if (!dataDir) throw new UserError(DESKTOP_ONLY);
-      return backupNow(db, join(dataDir, 'backups'));
+    backupSaveCopy: async () => {
+      need();
+      if (!host?.pickSavePath) throw new UserError(DESKTOP_ONLY);
+      const stamp = new Date().toISOString().slice(0, 10);
+      const file = await host.pickSavePath('Save a copy of your book', `InvoiceOn backup ${stamp}.db`);
+      if (!file) return { saved: false };
+      try {
+        snapshotTo(db, file);
+      } catch (err) {
+        if (err instanceof UserError) throw err;
+        throw new UserError(`Couldn't save the copy: ${(err as Error).message}`);
+      }
+      return { saved: true, path: file };
     },
+    backupPickFolder: async () => {
+      if (!host?.pickFolder) throw new UserError(DESKTOP_ONLY);
+      return host.pickFolder('Choose a folder for extra backups');
+    },
+    backupRestore: async (source) => backupService.restore(db, need(), host, source),
+    backupRestoreCancel: async () => {
+      need();
+      discardPendingRestore(dataDir!);
+    },
+    driveSaveCredentials: async (input) => {
+      const ctx = need();
+      drive.saveCredentials(ctx, input);
+      return backupService.driveState(ctx);
+    },
+    driveConnectStart: async () => drive.startSignIn(need()),
+    driveConnectWait: async () => {
+      const ctx = need();
+      await drive.waitForSignIn(ctx);
+      return backupService.driveState(ctx);
+    },
+    driveDisconnect: async (forget) => {
+      const ctx = need();
+      if (forget) await drive.forgetAll(ctx);
+      else await drive.signOut(ctx);
+      return backupService.driveState(ctx);
+    },
+    driveBackups: async () => backupService.driveBackups(need()),
+    driveDeleteBackup: async (id) => drive.deleteDriveBackup(need(), String(id)),
   };
 }
 

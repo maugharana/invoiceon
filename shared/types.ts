@@ -90,12 +90,74 @@ export interface Settings {
   msgDue: string;
 }
 
+/** A backup file on this computer. `manual` is true for anything the automatic clean-up never deletes. */
+export interface BackupFileInfo {
+  name: string;
+  bytes: number;
+  modifiedAt: string;
+  manual: boolean;
+  kind: 'daily' | 'manual' | 'before-restore';
+}
+
+/** Where else backups go, and how many online ones to keep. Stored beside the book, not in it. */
+export interface BackupSettings {
+  /** A second folder (a pen drive, another disk). Empty = none. */
+  extraFolder: string;
+  /** Copy each automatic daily backup to that folder too. */
+  extraAuto: boolean;
+  /** Upload each automatic daily backup to Google Drive when signed in. */
+  driveAuto: boolean;
+  /** How many automatic online backups to keep; older ones are removed from Drive. */
+  keepDrive: number;
+}
+
+/** What happened the last time a copy was sent somewhere. */
+export interface BackupNote {
+  at: string;
+  ok: boolean;
+  message: string;
+}
+
+export interface DriveStatus {
+  /** A Google Cloud client ID and secret have been entered. */
+  configured: boolean;
+  /** Signed in and allowed to upload. */
+  connected: boolean;
+  /** The Google account's email, once signed in. */
+  account: string;
+  clientId: string;
+  last: BackupNote | null;
+}
+
+/** A backup file held in Google Drive. */
+export interface DriveBackup {
+  id: string;
+  name: string;
+  bytes: number;
+  createdAt: string;
+  manual: boolean;
+}
+
 /** What Data management shows: where the data lives and the backups that exist. */
 export interface DataInfo {
   folder: string;
   databaseBytes: number;
-  backups: { name: string; bytes: number; modifiedAt: string; manual: boolean }[];
+  backups: BackupFileInfo[];
+  settings: BackupSettings;
+  extraLast: BackupNote | null;
+  drive: DriveStatus;
+  /** A restore has been prepared and will happen when InvoiceOn next starts. */
+  restorePending: boolean;
 }
+
+/** What "Back up now" did: each place the copy went, and each place it could not. */
+export interface BackupResult {
+  name: string;
+  done: string[];
+  problems: string[];
+}
+
+export type RestoreSource = { from: 'list'; name: string } | { from: 'file' } | { from: 'drive'; id: string };
 
 /** How an invoice is dressed. Applied when it is shown or printed, so a new logo or colour restyles every invoice, old ones included. */
 export interface InvoiceBranding {

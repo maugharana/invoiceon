@@ -70,6 +70,11 @@ import type {
   FestivalComparison,
   ReorderRow,
   DataInfo,
+  BackupResult,
+  BackupSettings,
+  DriveBackup,
+  DriveStatus,
+  RestoreSource,
   Expense,
   ExpenseInput,
   ExpenseQuery,
@@ -353,8 +358,26 @@ export interface Api {
 
   /** Where the data lives and which backups exist. */
   dataInfo(): Promise<DataInfo>;
-  /** Writes a snapshot of the whole database next to the automatic daily ones. */
-  backupNow(): Promise<{ name: string }>;
+  /** Writes a snapshot of the whole database next to the automatic daily ones, and sends it to the extra folder and Google Drive when those are set up. */
+  backupNow(): Promise<BackupResult>;
+  backupSettingsSave(input: BackupSettings): Promise<BackupSettings>;
+  /** Asks where to save, and writes a copy of the book there. */
+  backupSaveCopy(): Promise<{ saved: boolean; path?: string }>;
+  /** Asks the person to pick a folder (desktop only). Null if they cancel. */
+  backupPickFolder(): Promise<string | null>;
+  /** Prepares a restore and restarts the app to apply it. A copy of the current book is kept first. */
+  backupRestore(source: RestoreSource): Promise<{ started: boolean; safetyCopy?: string }>;
+  /** Cancels a restore that was prepared but not yet applied. */
+  backupRestoreCancel(): Promise<void>;
+  driveSaveCredentials(input: { clientId: string; clientSecret: string }): Promise<DriveStatus>;
+  /** Starts signing in to Google and returns the address to open in the browser. */
+  driveConnectStart(): Promise<{ authUrl: string }>;
+  /** Waits until that sign-in finishes. */
+  driveConnectWait(): Promise<DriveStatus>;
+  /** Signs out. With forget, the saved client ID and secret go too. */
+  driveDisconnect(forget?: boolean): Promise<DriveStatus>;
+  driveBackups(): Promise<DriveBackup[]>;
+  driveDeleteBackup(id: string): Promise<void>;
 }
 
 export type ApiMethod = keyof Api;

@@ -4,7 +4,7 @@ import { useToast } from '../../components/Toast';
 import { Button, ErrorNote, Spinner } from '../../components/ui';
 import { api, errorMessage } from '../../lib/api';
 import { useQuery, useRefresh } from '../../lib/data';
-import { formatDateTime, plural } from '../../lib/format';
+import { navigate, paths } from '../../lib/router';
 
 const formatBytes = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 
@@ -12,7 +12,7 @@ export function DataManagementSection() {
   const toast = useToast();
   const refresh = useRefresh();
   const info = useQuery(() => api.dataInfo());
-  const [busy, setBusy] = useState<'backup' | 'sample' | 'export' | null>(null);
+  const [busy, setBusy] = useState<'sample' | 'export' | null>(null);
 
   async function exportAll() {
     setBusy('export');
@@ -26,19 +26,6 @@ export function DataManagementSection() {
         Object.assign(document.createElement('a'), { href: url, download: out.fileName }).click();
         URL.revokeObjectURL(url);
       }
-    } catch (err) {
-      toast.error(errorMessage(err));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function backup() {
-    setBusy('backup');
-    try {
-      const { name } = await api.backupNow();
-      refresh();
-      toast.success(`Backed up as ${name}`);
     } catch (err) {
       toast.error(errorMessage(err));
     } finally {
@@ -61,7 +48,7 @@ export function DataManagementSection() {
 
   if (info.error) return <ErrorNote>{info.error}</ErrorNote>;
   if (!info.data) return <Spinner />;
-  const { folder, databaseBytes, backups } = info.data;
+  const { folder, databaseBytes } = info.data;
 
   return (
     <div className="space-y-8">
@@ -81,34 +68,14 @@ export function DataManagementSection() {
         </Button>
       </div>
 
-      <div>
-        <div className="mb-3 flex items-center justify-between gap-4">
-          <div>
-            <h3 className="text-base">Backups</h3>
-            <p className="text-ink-muted">A copy is made automatically once a day; the last 14 are kept. Copies you make yourself are never deleted.</p>
-          </div>
-          <Button icon={<DatabaseBackup className="h-4 w-4" />} loading={busy === 'backup'} onClick={backup}>
-            Back up now
-          </Button>
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h3 className="text-base">Backups</h3>
+          <p className="text-ink-muted">Automatic daily copies, a second folder, Google Drive, and restoring all live under Backup &amp; Restore.</p>
         </div>
-        {backups.length === 0 ? (
-          <p className="rounded-lg border border-line px-4 py-3 text-ink-muted">No backups yet. The first automatic one is made the next time the app opens.</p>
-        ) : (
-          <div className="overflow-hidden rounded-lg border border-line">
-            <ul className="max-h-64 divide-y divide-line/70 overflow-y-auto">
-              {backups.map((b) => (
-                <li key={b.name} className="flex items-center gap-4 px-4 py-2.5">
-                  <span className="num min-w-0 flex-1 truncate">{b.name}</span>
-                  <span className="text-xs text-ink-muted">{b.manual ? 'Made by you' : 'Automatic'}</span>
-                  <span className="text-xs text-ink-muted">{formatDateTime(b.modifiedAt)}</span>
-                  <span className="num w-16 text-right text-xs text-ink-muted">{formatBytes(b.bytes)}</span>
-                </li>
-              ))}
-            </ul>
-            <div className="border-t border-line bg-canvas px-4 py-2 text-xs text-ink-muted">{plural(backups.length, 'backup')} in the backups folder inside the data folder above</div>
-          </div>
-        )}
-        <p className="mt-2 text-xs text-ink-muted">To restore, close InvoiceOn and replace <span className="num">invoiceon.db</span> in the data folder with a backup, renamed to <span className="num">invoiceon.db</span>.</p>
+        <Button icon={<DatabaseBackup className="h-4 w-4" />} onClick={() => navigate(paths.settingsSection('backup'))}>
+          Open Backup &amp; Restore
+        </Button>
       </div>
 
       <div>
