@@ -9,7 +9,7 @@ const TABS = [
   { id: 'weaver', label: 'Weaver orders', href: paths.weaverOrders },
 ] as const;
 
-/** Shared header for the top-level inventory screens. */
+/** Shared header for the two top-level inventory screens. */
 export function InventoryShell({ tab, actions, children }: { tab: 'designs' | 'materials' | 'production' | 'weaver'; actions?: ReactNode; children: ReactNode }) {
   return (
     <>

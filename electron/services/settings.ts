@@ -51,6 +51,7 @@ const FIELDS: { [K in keyof Settings]: Field<K> } = {
   pricesIncludeGst: bool('prices_include_gst', false),
   invoicePrefix: text('invoice_prefix', 'INV'),
   b2bPrefix: text('b2b_prefix', ''),
+  creditNotePrefix: text('credit_note_prefix', 'CN'),
   loyaltySpendPaise: num('loyalty_spend_paise', 0),
   loyaltyPointValuePaise: num('loyalty_point_value_paise', 100),
   defaultDueDays: num('default_due_days', 15),
@@ -141,6 +142,11 @@ function validate(patch: Partial<Settings>): Partial<Settings> {
   }
   if (patch.loyaltySpendPaise !== undefined) v.loyaltySpendPaise = requireInt(patch.loyaltySpendPaise, 'Spend for a point', { max: 100_000_000 });
   if (patch.loyaltyPointValuePaise !== undefined) v.loyaltyPointValuePaise = requireInt(patch.loyaltyPointValuePaise, 'Value of a point', { min: 1, max: 1_000_000 });
+  if (patch.creditNotePrefix !== undefined) {
+    const p = requireText(patch.creditNotePrefix, 'Credit note prefix', 10).toUpperCase();
+    if (!/^[A-Z0-9-]+$/.test(p)) throw new UserError('Credit note prefix can only use letters, numbers and dashes.');
+    v.creditNotePrefix = p;
+  }
   if (patch.b2bPrefix !== undefined) {
     const p = optionalText(patch.b2bPrefix, 'B2B prefix', 10).toUpperCase();
     if (p && !/^[A-Z0-9-]+$/.test(p)) throw new UserError('B2B prefix can only use letters, numbers and dashes.');

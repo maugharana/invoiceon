@@ -1,258 +1,234 @@
-import { useEffect, useMemo, useState } from 'react';
-import { formatDate, todayIso } from '../../../shared/gst';
+import { useEffect, useState } from 'react';
+import { todayIso } from '../../../shared/gst';
 import { formatMoney } from '../../../shared/money';
-import { CREDIT_NOTE_REASONS, PAYMENT_METHODS, PAYMENT_METHOD_LABEL, type Customer, type CreditNotePreview, type Invoice, type PaymentMethod } from '../../../shared/types';
+import { PAYMENT_METHODS, PAYMENT_METHOD_LABEL, type CreditNote, type CreditNoteInput, type CreditNotePreview, type Invoice, type PaymentMethod } from '../../../shared/types';
 import { Modal } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
-import { Button, ErrorNote, Field, Input, Money, Select } from '../../components/ui';
+import { Button, ErrorNote, Field, Input, Money, Select, Spinner } from '../../components/ui';
 import { api, errorMessage } from '../../lib/api';
 import { useQuery, useRefresh } from '../../lib/data';
-import { toNumber } from '../../lib/format';
-import { navigate, paths } from '../../lib/router';
 
-/** Takes goods back from an issued invoice. It shows what the credit comes to as items are chosen, and how the money settles. */
-export function CreditNoteModal({ invoice: inv, customer, onClose }: { invoice: Invoice; customer: Customer | null | undefined; onClose: () => void }) {
+interface Pick {
+  qty: number;
+  restock: boolean;
+}
+
+/** Taking some of an invoice back. Shows what the credit note will come to, and what happens to the money, before anything is made. */
+export function CreditNoteModal({ invoice, onClose, onDone }: { invoice: Invoice; onClose: () => void; onDone: (note: CreditNote) => void }) {
   const toast = useToast();
   const refresh = useRefresh();
+  const returnable = useQuery(() => api.creditNoteReturnable(invoice.id), [invoice.id]);
   const settings = useQuery(() => api.getSettings());
-  const accounts = settings.data?.paymentAccounts ?? [];
-  const [qty, setQty] = useState<Record<string, string>>({});
-  const [restock, setRestock] = useState<Record<string, boolean>>({});
-  const [issueDate, setIssueDate] = useState(todayIso());
-  const [reason, setReason] = useState<string>(CREDIT_NOTE_REASONS[0]);
-  const [note, setNote] = useState('');
-  const [settlement, setSettlement] = useState<'refund' | 'credit'>(inv.customerId ? 'credit' : 'refund');
+  const [picks, setPicks] = useState<Record<string, Pick>>({});
+  const [reason, setReason] = useState('');
+  const [date, setDate] = useState(todayIso());
+  const [leftover, setLeftover] = useState<'refund' | 'credit'>(invoice.customerId ? 'credit' : 'refund');
   const [method, setMethod] = useState<PaymentMethod>('cash');
   const [accountId, setAccountId] = useState('');
-  const [reference, setReference] = useState('');
   const [preview, setPreview] = useState<CreditNotePreview | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const asked = useMemo(() => Object.entries(qty).map(([invoiceLineId, q]) => ({ invoiceLineId, qty: toNumber(q) || 0, restock: restock[invoiceLineId] ?? true })).filter((l) => l.qty > 0), [qty, restock]);
+  const chosen = Object.entries(picks).filter(([, p]) => p.qty > 0);
+  const input = (): CreditNoteInput => ({
+    invoiceId: invoice.id,
+    issueDate: date,
+    reason,
+    lines: chosen.map(([invoiceLineId, p]) => ({ invoiceLineId, qty: p.qty, restock: p.restock })),
+    leftover: preview && preview.leftoverPaise > 0 ? leftover : undefined,
+    refund: preview && preview.leftoverPaise > 0 && leftover === 'refund' ? { method, accountId: accountId || undefined } : undefined,
+  });
 
-  // The figures come from the same code that will save the note, so what is shown is what is written.
+  // The figures are worked out by the same code that will make the note, so what is shown is what will be issued.
+  const key = JSON.stringify([chosen, date]);
   useEffect(() => {
-    let cancelled = false;
-    const t = setTimeout(() => {
-      api
-        .creditNotePreview({ invoiceId: inv.id, lines: asked })
-        .then((p) => {
-          if (!cancelled) {
-            setPreview(p);
-            setError(null);
-          }
-        })
-        .catch((err) => !cancelled && setError(errorMessage(err)));
-    }, 120);
+    if (chosen.length === 0) {
+      setPreview(null);
+      setProblem(null);
+      return;
+    }
+    let live = true;
+    api
+      .creditNotePreview({ invoiceId: invoice.id, issueDate: date, reason: '-', lines: chosen.map(([invoiceLineId, p]) => ({ invoiceLineId, qty: p.qty, restock: p.restock })) })
+      .then((p) => live && (setPreview(p), setProblem(null)))
+      .catch((err) => live && (setPreview(null), setProblem(errorMessage(err))));
     return () => {
-      cancelled = true;
-      clearTimeout(t);
+      live = false;
     };
-  }, [inv.id, asked]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
 
-  const total = preview?.totalPaise ?? 0;
-  const excess = preview?.excessPaise ?? 0;
-  const refunding = excess > 0 && (settlement === 'refund' || !inv.customerId);
-  const creditable = (preview?.lines ?? []).filter((l) => l.creditableQty > 0);
-
-  async function save() {
+  async function submit() {
     setSaving(true);
-    setError(null);
     try {
-      const made = await api.creditNoteCreate({
-        invoiceId: inv.id,
-        issueDate,
-        reason,
-        note,
-        lines: asked,
-        settlement,
-        ...(refunding ? { refund: { method, accountId: accountId || undefined, reference } } : {}),
-      });
+      const note = await api.creditNoteCreate(input());
       refresh();
-      toast.success(`${made.number} issued`);
-      onClose();
-      navigate(paths.creditNote(made.id));
+      toast.success(`Credit note ${note.number} issued`);
+      onDone(note);
     } catch (err) {
-      setError(errorMessage(err));
+      setProblem(errorMessage(err));
       setSaving(false);
     }
   }
 
+  const accounts = settings.data?.paymentAccounts ?? [];
+  const setPick = (lineId: string, patch: Partial<Pick>) => setPicks((p) => ({ ...p, [lineId]: { ...(p[lineId] ?? { qty: 0, restock: true }), ...patch } }));
+  const canIssue = !!preview && reason.trim().length > 0 && !saving;
+
   return (
     <Modal
-      title={`Take goods back from ${inv.number}`}
+      title={`Take items back — ${invoice.number}`}
       size="lg"
       onClose={onClose}
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" loading={saving} disabled={total <= 0 || !preview} onClick={() => void save()}>
-            {total > 0 ? `Issue credit note · ${formatMoney(total)}` : 'Issue credit note'}
+          <Button variant="primary" disabled={!canIssue} loading={saving} onClick={() => void submit()}>
+            Issue credit note
           </Button>
         </>
       }
     >
-      <div className="space-y-5">
-        <p className="text-ink-muted">Enter how many of each item came back. A credit note with its own number and tax is made, and the pieces you choose go back into stock.</p>
+      {!returnable.data ? (
+        <Spinner />
+      ) : (
+        <div className="space-y-5">
+          <p className="text-ink-muted">Choose what {invoice.buyerName} is bringing back. A credit note reverses the sale of those pieces, and the GST on them, to the paisa. The invoice itself stays as it was.</p>
 
-        <div className="overflow-hidden rounded-lg border border-line">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-line">
-                <th className="th">Item</th>
-                <th className="th text-right">Sold</th>
-                <th className="th w-36 text-right">Taking back</th>
-                <th className="th w-24">Back on shelf</th>
-                <th className="th text-right">Credit</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(preview?.lines ?? []).map((l) => (
-                <tr key={l.invoiceLineId} className="border-b border-line/70 last:border-0">
-                  <td className="td">
-                    <div>{l.designName}</div>
-                    <div className="text-xs text-ink-muted">
-                      {l.color} · {l.size}
-                      {l.creditedQty > 0 && <> · {l.creditedQty} already credited</>}
-                    </div>
-                  </td>
-                  <td className="td num text-right">{l.soldQty}</td>
-                  <td className="td text-right">
-                    {l.creditableQty > 0 ? (
-                      <span className="flex items-center justify-end gap-2">
-                        <button type="button" onClick={() => setQty((q) => ({ ...q, [l.invoiceLineId]: String(l.creditableQty) }))} className="text-xs text-brand hover:underline">
-                          All {l.creditableQty}
-                        </button>
-                        <Input value={qty[l.invoiceLineId] ?? ''} inputMode="numeric" placeholder="0" aria-label={`Quantity taken back, ${l.designName} ${l.color}`} onChange={(e) => setQty((q) => ({ ...q, [l.invoiceLineId]: e.target.value.replace(/\D/g, '').slice(0, 5) }))} className="num h-8 w-16 text-right" />
-                      </span>
-                    ) : (
-                      <span className="text-xs text-ink-muted">Fully credited</span>
-                    )}
-                  </td>
-                  <td className="td">
-                    {l.creditableQty > 0 && (
-                      <input type="checkbox" checked={restock[l.invoiceLineId] ?? true} onChange={(e) => setRestock((r) => ({ ...r, [l.invoiceLineId]: e.target.checked }))} aria-label={`Put ${l.designName} ${l.color} back on the shelf`} className="h-4 w-4 accent-[#0F6E56]" />
-                    )}
-                  </td>
-                  <td className="td text-right">{l.qty > 0 ? <Money paise={l.taxablePaise + l.taxPaise} /> : <span className="text-ink-muted/50">–</span>}</td>
+          <div className="overflow-hidden rounded-lg border border-line">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-line bg-canvas text-left text-xs text-ink-muted">
+                  <th className="px-3 py-2 font-medium">Item</th>
+                  <th className="w-24 px-3 py-2 text-right font-medium">Bought</th>
+                  <th className="w-28 px-3 py-2 text-right font-medium">Bringing back</th>
+                  <th className="w-24 px-3 py-2 font-medium">Back on shelf</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {creditable.length > 0 && <p className="-mt-3 text-xs text-ink-muted">Untick “Back on shelf” for damaged pieces, so they don't go back into stock.</p>}
-
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Why">
-            <Select value={reason} onChange={(e) => setReason(e.target.value)}>
-              {CREDIT_NOTE_REASONS.map((r) => (
-                <option key={r} value={r}>
-                  {r}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Date" hint={`Not before the invoice (${formatDate(inv.issueDate)})`}>
-            <Input type="date" value={issueDate} min={inv.issueDate} max={todayIso()} onChange={(e) => setIssueDate(e.target.value)} className="num" />
-          </Field>
-          <Field label="Note" className="col-span-2" hint="Optional. Printed on the credit note.">
-            <Input value={note} onChange={(e) => setNote(e.target.value)} maxLength={300} />
-          </Field>
-        </div>
-
-        {total > 0 && preview && (
-          <div className="rounded-lg bg-canvas px-4 py-3">
-            <dl className="space-y-1.5">
-              <div className="flex justify-between">
-                <dt className="text-ink-muted">Taxable value and GST</dt>
-                <dd>
-                  <Money paise={preview.taxablePaise} /> + <Money paise={preview.taxPaise} />
-                </dd>
-              </div>
-              {preview.roundOffPaise !== 0 && (
-                <div className="flex justify-between text-ink-muted">
-                  <dt>Round off</dt>
-                  <dd>
-                    {preview.roundOffPaise < 0 ? '− ' : '+ '}
-                    <Money paise={Math.abs(preview.roundOffPaise)} />
-                  </dd>
-                </div>
-              )}
-              <div className="flex justify-between font-medium">
-                <dt>Credit</dt>
-                <dd>
-                  <Money paise={total} />
-                </dd>
-              </div>
-              {preview.appliedToInvoicePaise > 0 && (
-                <div className="flex justify-between text-ink-muted">
-                  <dt>Reduces what {inv.buyerName} owes on {inv.number}</dt>
-                  <dd>
-                    <Money paise={preview.appliedToInvoicePaise} />
-                  </dd>
-                </div>
-              )}
-              {excess > 0 && (
-                <div className="flex justify-between">
-                  <dt>They had already paid, so this is due back to them</dt>
-                  <dd>
-                    <Money paise={excess} />
-                  </dd>
-                </div>
-              )}
-            </dl>
+              </thead>
+              <tbody>
+                {returnable.data.map((l) => {
+                  const p = picks[l.invoiceLineId];
+                  return (
+                    <tr key={l.invoiceLineId} className="border-b border-line/70 last:border-0">
+                      <td className="px-3 py-2">
+                        <div>{l.designName}</div>
+                        <div className="text-xs text-ink-muted">
+                          {l.color} · {l.size} · <span className="num">{formatMoney(l.unitPricePaise)}</span>
+                        </div>
+                      </td>
+                      <td className="num px-3 py-2 text-right">
+                        {l.qty}
+                        {l.creditedQty > 0 && <div className="text-xs text-ink-muted">{l.creditedQty} already back</div>}
+                      </td>
+                      <td className="px-3 py-2">
+                        {l.remainingQty > 0 ? (
+                          <Input
+                            type="number"
+                            min={0}
+                            max={l.remainingQty}
+                            step={1}
+                            value={p?.qty ?? 0}
+                            aria-label={`Quantity to take back, ${l.color} ${l.size}`}
+                            onChange={(e) => setPick(l.invoiceLineId, { qty: Math.max(0, Math.min(l.remainingQty, Math.floor(Number(e.target.value) || 0))) })}
+                            className="num h-8 text-right"
+                          />
+                        ) : (
+                          <span className="block text-right text-xs text-ink-muted">All back</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        {l.remainingQty > 0 && (
+                          <label className="flex items-center gap-2 text-xs text-ink-muted" title="Untick for damaged pieces that cannot be sold again">
+                            <input type="checkbox" checked={p?.restock ?? true} onChange={(e) => setPick(l.invoiceLineId, { restock: e.target.checked })} className="h-4 w-4 accent-[#0F6E56]" />
+                            Resell
+                          </label>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
-        )}
 
-        {excess > 0 && (
-          <div className="space-y-3 rounded-lg border border-line p-4">
-            <div className="text-sm font-medium">What to do with the {formatMoney(excess)}</div>
-            <div role="radiogroup" aria-label="Settlement" className="flex flex-wrap gap-4">
-              <label className={`flex items-center gap-2 ${inv.customerId ? '' : 'opacity-50'}`}>
-                <input type="radio" name="settlement" checked={settlement === 'credit' && !!inv.customerId} disabled={!inv.customerId} onChange={() => setSettlement('credit')} className="accent-[#0F6E56]" />
-                Keep it as credit for their next invoice
-              </label>
-              <label className="flex items-center gap-2">
-                <input type="radio" name="settlement" checked={settlement === 'refund' || !inv.customerId} onChange={() => setSettlement('refund')} className="accent-[#0F6E56]" />
-                Refund it now
-              </label>
-            </div>
-            {!inv.customerId && <p className="text-xs text-ink-muted">This customer isn't saved, so there is nowhere to keep credit. It is refunded.</p>}
-            {refunding && (
-              <div className="grid grid-cols-3 gap-3">
-                <Field label="Refunded by">
-                  <Select value={method} onChange={(e) => setMethod(e.target.value as PaymentMethod)}>
-                    {PAYMENT_METHODS.map((m) => (
-                      <option key={m} value={m}>
-                        {PAYMENT_METHOD_LABEL[m]}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-                {accounts.length > 0 && (
-                  <Field label="Paid from">
-                    <Select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-                      <option value="">Not linked</option>
-                      {accounts.map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {a.name}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
+          <div className="grid grid-cols-[1fr_10rem] gap-4">
+            <Field label="Reason" hint="Printed on the credit note, e.g. wrong colour, small defect.">
+              <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why is it coming back?" maxLength={200} />
+            </Field>
+            <Field label="Date">
+              <Input type="date" value={date} min={invoice.issueDate} max={todayIso()} onChange={(e) => setDate(e.target.value)} />
+            </Field>
+          </div>
+
+          {problem && <ErrorNote>{problem}</ErrorNote>}
+
+          {preview && (
+            <div className="space-y-3 rounded-lg bg-canvas p-4">
+              <dl className="space-y-1.5">
+                <div className="flex justify-between"><dt className="text-ink-muted">Value of the pieces</dt><dd><Money paise={preview.taxablePaise} /></dd></div>
+                {preview.taxByRate.map((g) => (
+                  <div key={g.ratePercent} className="flex justify-between"><dt className="text-ink-muted">GST taken back @ {g.ratePercent}%</dt><dd><Money paise={g.taxPaise} /></dd></div>
+                ))}
+                {preview.roundOffPaise !== 0 && <div className="flex justify-between text-ink-muted"><dt>Round off</dt><dd className="num">{preview.roundOffPaise < 0 ? '−' : '+'}{formatMoney(Math.abs(preview.roundOffPaise))}</dd></div>}
+                <div className="flex justify-between border-t border-line pt-2"><dt>Credit note total</dt><dd className="text-base"><Money paise={preview.totalPaise} /></dd></div>
+              </dl>
+
+              <div className="border-t border-line pt-3">
+                {preview.appliedPaise > 0 && (
+                  <p>
+                    <Money paise={preview.appliedPaise} /> is taken off what {invoice.buyerName} still owes on this invoice.
+                  </p>
                 )}
-                <Field label="Reference">
-                  <Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Optional" />
-                </Field>
+                {preview.leftoverPaise > 0 && (
+                  <div className="mt-2 space-y-3">
+                    <p>
+                      {invoice.buyerName} has already paid, so <Money paise={preview.leftoverPaise} /> is left over. What should happen to it?
+                    </p>
+                    <div className="space-y-2">
+                      <label className="flex cursor-pointer items-start gap-3">
+                        <input type="radio" name="leftover" checked={leftover === 'credit'} disabled={!invoice.customerId} onChange={() => setLeftover('credit')} className="mt-1 h-4 w-4 accent-[#0F6E56]" />
+                        <span className={invoice.customerId ? '' : 'text-ink-muted'}>
+                          Keep it as credit for their next purchase
+                          {!invoice.customerId && <span className="block text-xs">Not possible for a walk-in sale: there is no customer to keep it for.</span>}
+                        </span>
+                      </label>
+                      <label className="flex cursor-pointer items-start gap-3">
+                        <input type="radio" name="leftover" checked={leftover === 'refund'} onChange={() => setLeftover('refund')} className="mt-1 h-4 w-4 accent-[#0F6E56]" />
+                        <span>Give the money back now</span>
+                      </label>
+                    </div>
+                    {leftover === 'refund' && (
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field label="Paid back by">
+                          <Select value={method} onChange={(e) => setMethod(e.target.value as PaymentMethod)}>
+                            {PAYMENT_METHODS.map((m) => (
+                              <option key={m} value={m}>
+                                {PAYMENT_METHOD_LABEL[m]}
+                              </option>
+                            ))}
+                          </Select>
+                        </Field>
+                        {accounts.length > 0 && (
+                          <Field label="Taken from">
+                            <Select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+                              <option value="">Not linked to an account</option>
+                              {accounts.map((a) => (
+                                <option key={a.id} value={a.id}>
+                                  {a.name}
+                                </option>
+                              ))}
+                            </Select>
+                          </Field>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-            )}
-            {customer && customer.advancePaise > 0 && settlement === 'credit' && <p className="text-xs text-ink-muted">{customer.name} already holds {formatMoney(customer.advancePaise)} in advance. This is added to it.</p>}
-          </div>
-        )}
-
-        {error && <ErrorNote>{error}</ErrorNote>}
-      </div>
+            </div>
+          )}
+        </div>
+      )}
     </Modal>
   );
 }

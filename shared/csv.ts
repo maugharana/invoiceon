@@ -1,6 +1,6 @@
+import type { WebsiteListing } from './websiteText';
 import { INVOICE_STATUS_LABEL } from './gst';
 import { STOCK_STATUS_LABEL } from './stock';
-import type { WebsiteListing } from './websiteText';
 import type { AccountBook, Customer, DayBook, DesignSummary, PurchasesReport, QuotesReport, DuesReport, Expense, ExpensesBreakdown, MarginReport, MoversReport, ProfitAndLoss, StockMovementReport, StockMovementRow, GstReport, InvoiceSummary, Payment, ProformaSummary, SalesReport, StockReport } from './types';
 import { MARGIN_BY_LABEL, PAYMENT_METHOD_LABEL, PROFORMA_STATUS_LABEL } from './types';
 
@@ -26,11 +26,9 @@ export function salesCsv(r: SalesReport): string {
     ['Taxable value', rs(r.taxablePaise)],
     ['GST', rs(r.gstPaise)],
     ['Invoices', r.invoiceCount],
-    ['Credit notes (goods taken back)', rs(r.creditedPaise)],
-    ['Net of credit notes', rs(r.netInvoicedPaise)],
     ['Pieces sold', r.piecesSold],
     ['Collected (payments received)', rs(r.collectedPaise)],
-    ['Gross profit (taxable value less cost, after goods taken back)', rs(r.grossProfitPaise)],
+    ['Gross profit (taxable value less cost)', rs(r.grossProfitPaise)],
     ['Still unpaid on these invoices', rs(r.stillUnpaidPaise)],
     [],
     [r.granularity === 'day' ? 'Date' : 'Month', 'Invoiced', 'Collected', 'Invoices'],
@@ -53,14 +51,14 @@ const b2bRows = (r: GstReport): Row[] => [
   ...r.b2bRegister.map((i): Row => [i.gstin, i.customer, i.number, i.date, i.placeOfSupply, i.ratePercent, rs(i.taxablePaise), rs(i.cgstPaise), rs(i.sgstPaise), rs(i.igstPaise), rs(i.totalPaise)]),
 ];
 
+const creditNoteRows = (r: GstReport): Row[] => [
+  ['GSTIN of buyer', 'Buyer name', 'Credit note number', 'Credit note date', 'Against invoice', 'Place of supply', 'GST rate %', 'Taxable value', 'CGST', 'SGST', 'IGST', 'Credit note value'],
+  ...r.creditNoteRegister.map((c): Row => [c.gstin, c.customer, c.number, c.date, c.invoiceNumber, c.placeOfSupply, c.ratePercent, rs(c.taxablePaise), rs(c.cgstPaise), rs(c.sgstPaise), rs(c.igstPaise), rs(c.totalPaise)]),
+];
+
 const b2cRows = (r: GstReport): Row[] => [
   ['Place of supply', 'GST rate %', 'Invoices', 'Taxable value', 'CGST', 'SGST', 'IGST'],
   ...r.b2cByState.map((s): Row => [s.placeOfSupply, s.ratePercent, s.invoices, rs(s.taxablePaise), rs(s.cgstPaise), rs(s.sgstPaise), rs(s.igstPaise)]),
-];
-
-const creditRows = (r: GstReport): Row[] => [
-  ['Credit note', 'Date', 'Invoice', 'Invoice date', 'GSTIN of buyer', 'Buyer name', 'Type', 'Place of supply', 'GST rate %', 'Taxable value', 'CGST', 'SGST', 'IGST', 'Note value'],
-  ...r.creditRegister.map((c): Row => [c.number, c.date, c.invoiceNumber, c.invoiceDate, c.gstin, c.customer, c.type, c.placeOfSupply, c.ratePercent, rs(c.taxablePaise), rs(c.cgstPaise), rs(c.sgstPaise), rs(c.igstPaise), rs(c.totalPaise)]),
 ];
 
 const hsnRows = (r: GstReport): Row[] => [
@@ -70,11 +68,11 @@ const hsnRows = (r: GstReport): Row[] => [
 
 /** B2B invoice register, in the shape GSTR-1 asks for (invoice-wise, with the buyer's GSTIN). */
 export const gstB2bCsv = (r: GstReport): string => toCsv(b2bRows(r));
+/** Credit notes issued in the period, with the invoice each one reverses (the credit/debit note register of a GST return). */
+export const gstCreditNotesCsv = (r: GstReport): string => toCsv(creditNoteRows(r));
 /** B2C (retail) supplies rolled up by state and rate, as GSTR-1 wants them. */
 export const gstB2cCsv = (r: GstReport): string => toCsv(b2cRows(r));
 export const gstHsnCsv = (r: GstReport): string => toCsv(hsnRows(r));
-/** Credit notes (GSTR-1's credit and debit note table): the register of goods taken back, with the buyer's GSTIN where there is one. */
-export const gstCreditCsv = (r: GstReport): string => toCsv(creditRows(r));
 
 /** One file with the totals and all three GST views stacked under headings. */
 export const gstCsv = (r: GstReport): string =>
@@ -85,8 +83,7 @@ export const gstCsv = (r: GstReport): string =>
     ['SGST', rs(r.totals.sgstPaise)],
     ['IGST', rs(r.totals.igstPaise)],
     ['Total tax', rs(r.totals.taxPaise)],
-    ['Less credit notes: tax', rs(r.creditNotes.taxPaise)],
-    ['Tax due after credit notes', rs(r.netTotals.taxPaise)],
+    ['Credit notes taken off (tax)', rs(r.credits.taxPaise)],
     [],
     ['B2B invoices'],
     ...b2bRows(r),
@@ -94,11 +91,8 @@ export const gstCsv = (r: GstReport): string =>
     ['B2C summary'],
     ...b2cRows(r),
     [],
-    ['HSN summary (as invoiced, before credit notes)'],
+    ['HSN summary'],
     ...hsnRows(r),
-    [],
-    ['Credit notes'],
-    ...creditRows(r),
   ]);
 
 export function stockCsv(r: StockReport): string {
@@ -214,7 +208,7 @@ export function purchasesCsv(r: PurchasesReport): string {
 }
 
 export function accountBookCsv(b: AccountBook): string {
-  const kind = { receipt: 'Received', expense: 'Paid', 'transfer-in': 'Moved in', 'transfer-out': 'Moved out' } as const;
+  const kind = { receipt: 'Received', refund: 'Refunded', expense: 'Paid', 'transfer-in': 'Moved in', 'transfer-out': 'Moved out' } as const;
   const rows: Row[] = [['Account book', `${b.range.from} to ${b.range.to}`]];
   for (const a of b.accounts) {
     rows.push([], [a.name, 'Opening', rs(a.openingPaise)], ['Date', 'Type', 'Party', 'Details', 'Money in', 'Money out', 'Balance']);
@@ -273,7 +267,7 @@ export function moversCsv(r: MoversReport): string {
 
 export function dayBookCsv(b: DayBook): string {
   const title = { all: 'Day book', cash: 'Cash book', bank: 'Bank book' }[b.mode];
-  const kind = { sale: 'Sale', receipt: 'Received', expense: 'Paid' } as const;
+  const kind = { sale: 'Sale', 'credit-note': 'Credit note', receipt: 'Received', refund: 'Refunded', expense: 'Paid' } as const;
   const book = b.mode !== 'all';
   return toCsv([
     [title, `${b.range.from} to ${b.range.to}`],

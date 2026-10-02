@@ -208,7 +208,7 @@ export function PaymentsPage() {
                         )}
                       </td>
                       <td className="td">
-                        {p.kind === 'writeoff' ? 'Written off' : PAYMENT_METHOD_LABEL[p.method]}
+                        {p.kind === 'writeoff' ? 'Written off' : p.kind === 'credit' ? 'Credit note' : p.kind === 'refund' ? `Refund · ${PAYMENT_METHOD_LABEL[p.method]}` : PAYMENT_METHOD_LABEL[p.method]}
                         {p.reference && <div className="num text-xs text-ink-muted">{p.reference}</div>}
                         <div className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-ink-muted">
                           {p.accountId && accountName(p.accountId) && <span>{accountName(p.accountId)}</span>}
@@ -232,14 +232,17 @@ export function PaymentsPage() {
                         )}
                       </td>
                       <td className="td text-right">
+                        {p.kind === 'refund' && !p.voided && <span className="mr-0.5 text-status-overdue-fg">−</span>}
                         <Money paise={p.amountPaise} className={p.voided ? 'line-through' : ''} />
                       </td>
                       <td className="td">
                         <div className="flex justify-end gap-0.5">
-                          <IconButton label={`Receipt for ${p.customerName}, ${formatDate(p.receivedOn)}`} onClick={() => void docs.savePdf(paths.printReceipt(p.id), () => api.paymentReceiptExportPdf(p.id))}>
-                            <FileText className="h-4 w-4" />
-                          </IconButton>
-                          {!p.voided && (
+                          {(p.kind === 'receipt' || p.kind === 'writeoff') && (
+                            <IconButton label={`Receipt for ${p.customerName}, ${formatDate(p.receivedOn)}`} onClick={() => void docs.savePdf(paths.printReceipt(p.id), () => api.paymentReceiptExportPdf(p.id))}>
+                              <FileText className="h-4 w-4" />
+                            </IconButton>
+                          )}
+                          {!p.voided && p.kind !== 'credit' && (
                             <IconButton label={`Reverse payment from ${p.customerName}`} onClick={() => setVoiding(p)}>
                               <Undo2 className="h-4 w-4" />
                             </IconButton>

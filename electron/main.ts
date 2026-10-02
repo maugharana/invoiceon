@@ -95,8 +95,8 @@ function createHost(getParent: () => BrowserWindow | null, newWindow: () => void
       newWindow();
     },
     async saveTextFile(fileName, content) {
-      const json = /\.json$/i.test(fileName);
-      const filePath = await chooseSavePath(getParent(), json ? 'Save file' : 'Save report', fileName, json ? { name: 'JSON file', extensions: ['json'] } : { name: 'CSV (opens in Excel)', extensions: ['csv'] });
+      const json = fileName.toLowerCase().endsWith('.json');
+      const filePath = await chooseSavePath(getParent(), json ? 'Save GST return file' : 'Save report', fileName, json ? { name: 'JSON (for the GST portal)', extensions: ['json'] } : { name: 'CSV (opens in Excel)', extensions: ['csv'] });
       if (!filePath) return { saved: false };
       try {
         await writeFile(filePath, content, 'utf8');

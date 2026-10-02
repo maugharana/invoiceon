@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createApi } from '../electron/api';
 import { openDb, type Db } from '../electron/db/connection';
-import * as credits from '../electron/services/creditNotes';
+import * as credits from '../electron/services/credits';
 import * as customers from '../electron/services/customers';
 import { gstr1 } from '../electron/services/gstr';
 import * as inventory from '../electron/services/inventory';
@@ -67,8 +67,8 @@ describe('the GSTR-1 file', () => {
   it('takes credit notes to retail buyers off the retail totals, and lists those to businesses on their own', () => {
     const retail = sell({ lines: [{ variantId: cotton, qty: 3, unitPricePaise: rupees(800) }] });
     const trade = sell({ type: 'B2B', customerId: biz, lines: [{ variantId: silk, qty: 2, unitPricePaise: rupees(3000) }] });
-    const r = credits.createCreditNote(db, { invoiceId: retail.id, issueDate: today, reason: 'Returned', lines: [{ invoiceLineId: invoices.getInvoice(db, retail.id).lines[0]!.id, qty: 1, restock: true }], settlement: 'refund', refund: { method: 'cash' } });
-    const t = credits.createCreditNote(db, { invoiceId: trade.id, issueDate: today, reason: 'Returned', lines: [{ invoiceLineId: invoices.getInvoice(db, trade.id).lines[0]!.id, qty: 1, restock: true }], settlement: 'refund', refund: { method: 'cash' } });
+    const r = credits.createCreditNote(db, { invoiceId: retail.id, issueDate: today, reason: 'Returned', lines: [{ invoiceLineId: invoices.getInvoice(db, retail.id).lines[0]!.id, qty: 1, restock: true }], leftover: 'refund', refund: { method: 'cash' } });
+    const t = credits.createCreditNote(db, { invoiceId: trade.id, issueDate: today, reason: 'Returned', lines: [{ invoiceLineId: invoices.getInvoice(db, trade.id).lines[0]!.id, qty: 1, restock: true }], leftover: 'refund', refund: { method: 'cash' } });
     const file = JSON.parse(gstr1(db, month).json);
     expect(file.b2cs).toEqual([{ sply_ty: 'INTRA', rt: 5, typ: 'OE', pos: '09', txval: 1600, iamt: 0, camt: 40, samt: 40, csamt: 0 }]);
     expect(file.cdnr).toEqual([
@@ -85,13 +85,13 @@ describe('the GSTR-1 file', () => {
     const b = sell({});
     sell({});
     invoices.cancelInvoice(db, b.id, 'wrong');
-    credits.createCreditNote(db, { invoiceId: a.id, issueDate: today, reason: 'Returned', lines: [{ invoiceLineId: invoices.getInvoice(db, a.id).lines[0]!.id, qty: 1, restock: true }], settlement: 'refund', refund: { method: 'cash' } });
+    credits.createCreditNote(db, { invoiceId: a.id, issueDate: today, reason: 'Returned', lines: [{ invoiceLineId: invoices.getInvoice(db, a.id).lines[0]!.id, qty: 1, restock: true }], leftover: 'refund', refund: { method: 'cash' } });
     const out = gstr1(db, month);
     const file = JSON.parse(out.json);
     const report = gstReport(db, month);
     const sum = (key: string) => file.hsn.data.reduce((s: number, h: Record<string, number>) => s + h[key]!, 0);
-    expect(Math.round(sum('txval') * 100)).toBe(report.netTotals.taxablePaise);
-    expect(Math.round((sum('camt') + sum('samt') + sum('iamt')) * 100)).toBe(report.netTotals.taxPaise);
+    expect(Math.round(sum('txval') * 100)).toBe(report.totals.taxablePaise);
+    expect(Math.round((sum('camt') + sum('samt') + sum('iamt')) * 100)).toBe(report.totals.taxPaise);
     expect(file.hsn.data.map((h: { hsn_sc: string; qty: number; uqc: string }) => [h.hsn_sc, h.qty, h.uqc])).toEqual([['5208', 3, 'PCS'], ['5007', 1, 'PCS']]);
     expect(file.doc_issue.doc_det).toEqual([
       { doc_num: 1, docs: [{ num: 1, from: a.number, to: expect.stringMatching(/\/0003$/), totnum: 3, cancel: 1, net_issue: 2 }] },

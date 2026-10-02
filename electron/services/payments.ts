@@ -1,7 +1,7 @@
 import { isIsoDate, todayIso } from '../../shared/gst';
 import { formatMoney } from '../../shared/money';
 import { matchesAll } from '../../shared/search';
-import { CHEQUE_STATUS_LABEL, PAYMENT_METHODS, type ChequeStatus, type InvoicePayment, type Payment, type PaymentAllocation, type PaymentInput, type PaymentKind, type PaymentMethod, type PaymentQuery } from '../../shared/types';
+import { CHEQUE_STATUS_LABEL, PAYMENT_METHODS, type ChequeStatus, type InvoicePayment, type Payment, type PaymentAllocation, type PaymentInput, type PaymentKind, type PaymentMethod, type PaymentQuery, type RefundInput } from '../../shared/types';
 import { all, get, run, tx, type Db } from '../db/connection';
 import { UserError, newId, nowIso, optionalText, requireInt } from './common';
 import { getSettings } from './settings';
@@ -11,23 +11,16 @@ const MAX_PAISE = 100_000_000_00;
 // A payment's *applied* part is the sum of its live allocations (not released, payment not voided).
 // Its *advance* is what's left. That leftover is the only place "advance" exists — there is no separate balance to drift.
 const LIVE_ALLOCATION = 'a.released_at IS NULL AND p.voided_at IS NULL';
-/** Likewise a credit note's application to an invoice is live until released or the credit note is cancelled. */
-const CREDIT_APPLICATION = "a.released_at IS NULL AND n.status = 'issued'";
 
 // ── Invoice-side lookups (used by the invoice service, which imports this file) ─
 /** Amount received against every invoice, in one query. */
 export function loadPaid(db: Db): Map<string, number> {
   const rows = all<{ invoice_id: string; s: number }>(db, `SELECT a.invoice_id, SUM(a.amount_paise) AS s FROM payment_allocations a JOIN payments p ON p.id = a.payment_id WHERE ${LIVE_ALLOCATION} GROUP BY a.invoice_id`);
-  const paid = new Map(rows.map((r) => [r.invoice_id, r.s]));
-  // Credit notes settle an invoice just as a payment does, though no money arrives.
-  for (const c of all<{ invoice_id: string; s: number }>(db, `SELECT a.invoice_id, SUM(a.amount_paise) AS s FROM credit_note_applications a JOIN credit_notes n ON n.id = a.credit_note_id WHERE ${CREDIT_APPLICATION} GROUP BY a.invoice_id`)) paid.set(c.invoice_id, (paid.get(c.invoice_id) ?? 0) + c.s);
-  return paid;
+  return new Map(rows.map((r) => [r.invoice_id, r.s]));
 }
 
 export function paidFor(db: Db, invoiceId: string): number {
-  const payments = get<{ s: number }>(db, `SELECT COALESCE(SUM(a.amount_paise), 0) AS s FROM payment_allocations a JOIN payments p ON p.id = a.payment_id WHERE a.invoice_id = ? AND ${LIVE_ALLOCATION}`, invoiceId)?.s ?? 0;
-  const credits = get<{ s: number }>(db, `SELECT COALESCE(SUM(a.amount_paise), 0) AS s FROM credit_note_applications a JOIN credit_notes n ON n.id = a.credit_note_id WHERE a.invoice_id = ? AND ${CREDIT_APPLICATION}`, invoiceId)?.s ?? 0;
-  return payments + credits;
+  return get<{ s: number }>(db, `SELECT COALESCE(SUM(a.amount_paise), 0) AS s FROM payment_allocations a JOIN payments p ON p.id = a.payment_id WHERE a.invoice_id = ? AND ${LIVE_ALLOCATION}`, invoiceId)?.s ?? 0;
 }
 
 export function paymentsOnInvoice(db: Db, invoiceId: string): InvoicePayment[] {
@@ -53,29 +46,22 @@ interface Unapplied {
   unapplied: number;
 }
 
-/** A customer's payments that still have money not on any invoice, oldest first. */
+/**
+ * A customer's payments (and credits from credit notes) that still have money not on any invoice, oldest first. What has been
+ * handed back as a refund is no longer theirs to use.
+ */
 function unappliedPayments(db: Db, customerId: string): Unapplied[] {
   return all<Unapplied>(
     db,
-    `SELECT p.id, p.amount_paise - COALESCE((SELECT SUM(a.amount_paise) FROM payment_allocations a WHERE a.payment_id = p.id AND a.released_at IS NULL), 0) AS unapplied
-     FROM payments p WHERE p.customer_id = ? AND p.voided_at IS NULL AND p.kind = 'receipt' ORDER BY p.received_on, p.created_at, p.rowid`,
+    `SELECT p.id, p.amount_paise
+        - COALESCE((SELECT SUM(a.amount_paise) FROM payment_allocations a WHERE a.payment_id = p.id AND a.released_at IS NULL), 0)
+        - COALESCE((SELECT SUM(r.amount_paise) FROM payments r WHERE r.refund_of = p.id AND r.voided_at IS NULL), 0) AS unapplied
+     FROM payments p WHERE p.customer_id = ? AND p.voided_at IS NULL AND p.kind IN ('receipt', 'credit') ORDER BY p.received_on, p.created_at, p.rowid`,
     customerId,
   ).filter((r) => r.unapplied > 0);
 }
 
-/** Credit kept for the customer on their credit notes: not yet put on an invoice and not handed back. Oldest first. */
-function storeCredits(db: Db, customerId: string): { id: string; held: number }[] {
-  return all<{ id: string; held: number }>(
-    db,
-    `SELECT n.id, n.total_paise
-       - COALESCE((SELECT SUM(a.amount_paise) FROM credit_note_applications a WHERE a.credit_note_id = n.id AND a.released_at IS NULL), 0)
-       - COALESCE((SELECT SUM(f.amount_paise) FROM credit_note_refunds f WHERE f.credit_note_id = n.id), 0) AS held
-     FROM credit_notes n WHERE n.customer_id = ? AND n.status = 'issued' ORDER BY n.issue_date, n.created_at, n.rowid`,
-    customerId,
-  ).filter((r) => r.held > 0);
-}
-
-export const advanceHeld = (db: Db, customerId: string): number => unappliedPayments(db, customerId).reduce((s, r) => s + r.unapplied, 0) + storeCredits(db, customerId).reduce((s, r) => s + r.held, 0);
+export const advanceHeld = (db: Db, customerId: string): number => unappliedPayments(db, customerId).reduce((s, r) => s + r.unapplied, 0);
 
 function addAllocation(db: Db, paymentId: string, invoiceId: string, amount: number): void {
   run(db, 'INSERT INTO payment_allocations (id, payment_id, invoice_id, amount_paise, created_at) VALUES (?, ?, ?, ?, ?)', newId(), paymentId, invoiceId, amount, nowIso());
@@ -93,14 +79,6 @@ export function applyAdvance(db: Db, customerId: string, invoiceId: string, max:
       remaining -= take;
       applied += take;
     }
-    // Then credit kept from credit notes.
-    for (const c of storeCredits(db, customerId)) {
-      if (remaining <= 0) break;
-      const take = Math.min(c.held, remaining);
-      run(db, 'INSERT INTO credit_note_applications (id, credit_note_id, invoice_id, amount_paise, created_at) VALUES (?, ?, ?, ?, ?)', newId(), c.id, invoiceId, take, nowIso());
-      remaining -= take;
-      applied += take;
-    }
     return applied;
   });
 }
@@ -108,8 +86,12 @@ export function applyAdvance(db: Db, customerId: string, invoiceId: string, max:
 // ── Recording ───────────────────────────────────────────────────────────────
 export interface PaymentDraft extends Omit<PaymentInput, 'method'> {
   method: PaymentMethod;
-  /** A write-off settles a balance without money arriving. Only the write-off function sets this. */
+  /** Anything but a plain receipt is set by the function that knows what it is (write-off, credit note, refund). */
   kind?: PaymentKind;
+  /** For a credit: the credit note it came from. */
+  creditNoteId?: string | null;
+  /** For a refund: the payment whose held money is being returned. */
+  refundOf?: string | null;
 }
 
 /** Validates and writes a payment and its allocations. Callers wrap it in their own transaction when it belongs to a bigger step. */
@@ -137,6 +119,7 @@ export function recordPaymentTx(db: Db, input: PaymentDraft): string {
   if (input.customerId && !get(db, 'SELECT 1 AS x FROM customers WHERE id = ? AND deleted_at IS NULL', input.customerId)) throw new UserError('That customer no longer exists.');
 
   const allocations = input.allocations ?? [];
+  if (kind === 'refund' && allocations.length > 0) throw new UserError('A refund is not applied to invoices.');
   const seen = new Set<string>();
   let allocated = 0;
   for (const al of allocations) {
@@ -150,7 +133,7 @@ export function recordPaymentTx(db: Db, input: PaymentDraft): string {
     allocated += al.amountPaise;
   }
   if (allocated > amount) throw new UserError('More is applied to invoices than was received.');
-  if (allocated < amount && !input.customerId) throw new UserError('A payment with no customer must be applied in full to an invoice. Choose a customer to keep the rest as advance.');
+  if (allocated < amount && !input.customerId && kind !== 'refund') throw new UserError('A payment with no customer must be applied in full to an invoice. Choose a customer to keep the rest as advance.');
 
   // A deposit is tied to one quote of the same customer that can still be invoiced.
   let proformaId: string | null = null;
@@ -166,8 +149,8 @@ export function recordPaymentTx(db: Db, input: PaymentDraft): string {
   const now = nowIso();
   run(
     db,
-    'INSERT INTO payments (id, customer_id, amount_paise, method, reference, received_on, note, proforma_id, kind, account_id, cheque_date, cheque_status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    id, input.customerId ?? null, amount, input.method, reference, input.receivedOn, note, proformaId, kind, accountId, chequeDate, chequeStatus, now, now,
+    'INSERT INTO payments (id, customer_id, amount_paise, method, reference, received_on, note, proforma_id, kind, account_id, cheque_date, cheque_status, credit_note_id, refund_of, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    id, input.customerId ?? null, amount, input.method, reference, input.receivedOn, note, proformaId, kind, accountId, chequeDate, chequeStatus, input.creditNoteId ?? null, input.refundOf ?? null, now, now,
   );
   for (const al of allocations) addAllocation(db, id, al.invoiceId, al.amountPaise);
   return id;
@@ -197,6 +180,8 @@ interface PaymentRow {
   cheque_status: ChequeStatus | null;
   reconciled_on: string | null;
   proforma_id: string | null;
+  credit_note_id: string | null;
+  refund_of: string | null;
 }
 
 const SELECT = `SELECT p.*, c.name AS customer_name FROM payments p LEFT JOIN customers c ON c.id = p.customer_id`;
@@ -209,6 +194,9 @@ function toPayment(db: Db, r: PaymentRow): Payment {
   ).map((a): PaymentAllocation => ({ invoiceId: a.invoice_id, invoiceNumber: a.number, amountPaise: a.amount_paise }));
   const voided = r.voided_at !== null;
   const applied = voided ? 0 : allocations.reduce((s, a) => s + a.amountPaise, 0);
+  const refunded = voided ? 0 : (get<{ s: number }>(db, 'SELECT COALESCE(SUM(amount_paise), 0) AS s FROM payments WHERE refund_of = ? AND voided_at IS NULL', r.id)?.s ?? 0);
+  // Only receipts and credits can hold money for the customer; a refund, like a write-off, never leaves an advance behind.
+  const holds = r.kind === 'receipt' || r.kind === 'credit';
   return {
     id: r.id,
     customerId: r.customer_id,
@@ -220,7 +208,7 @@ function toPayment(db: Db, r: PaymentRow): Payment {
     note: r.note,
     allocations: voided ? [] : allocations,
     appliedPaise: applied,
-    advancePaise: voided ? 0 : r.amount_paise - applied,
+    advancePaise: voided || !holds ? 0 : r.amount_paise - applied - refunded,
     voided,
     voidReason: r.void_reason,
     createdAt: r.created_at,
@@ -230,6 +218,9 @@ function toPayment(db: Db, r: PaymentRow): Payment {
     chequeStatus: r.cheque_status,
     reconciledOn: r.reconciled_on,
     proformaId: r.proforma_id,
+    creditNoteId: r.credit_note_id,
+    refundOf: r.refund_of,
+    refundedPaise: refunded,
   };
 }
 
@@ -261,7 +252,7 @@ export function listPayments(db: Db, query: PaymentQuery = {}): Payment[] {
     .filter((p) => {
       switch (query.status) {
         case 'advance':
-          return !p.voided && p.kind === 'receipt' && p.advancePaise > 0;
+          return !p.voided && (p.kind === 'receipt' || p.kind === 'credit') && p.advancePaise > 0;
         case 'voided':
           return p.voided;
         case 'writeoff':
@@ -281,6 +272,8 @@ export function listPayments(db: Db, query: PaymentQuery = {}): Payment[] {
 export function voidPayment(db: Db, id: string, reason: string): Payment {
   const payment = getPayment(db, id);
   if (payment.voided) throw new UserError('This payment is already reversed.');
+  if (payment.kind === 'credit') throw new UserError('This is a credit note applied to an invoice. A credit note cannot be undone; if it was a mistake, bill the customer again with a new invoice.');
+  if (payment.refundedPaise > 0) throw new UserError('Part of this was handed back as a refund. Reverse the refund first.');
   const why = optionalText(reason, 'Reason', 200);
   run(db, 'UPDATE payments SET voided_at = ?, void_reason = ?, updated_at = ? WHERE id = ?', nowIso(), why, nowIso(), id);
   return getPayment(db, id);
@@ -338,6 +331,45 @@ export function setReconciled(db: Db, ids: string[], on: string | null): number 
     }
   });
   return list.length;
+}
+
+// ── Refunds ─────────────────────────────────────────────────────────────────
+/**
+ * Hands back money a customer is holding with you (an advance, or credit left by a credit note). It is money out: it comes off
+ * their held balance, off the account it was paid from, and out of the day's cash. The oldest held money goes first.
+ */
+export function refundAdvance(db: Db, input: RefundInput): Payment[] {
+  const amount = requireInt(input.amountPaise, 'Amount', { min: 1, max: MAX_PAISE });
+  if (!get(db, 'SELECT 1 AS x FROM customers WHERE id = ? AND deleted_at IS NULL', input.customerId)) throw new UserError('That customer no longer exists.');
+  const held = advanceHeld(db, input.customerId);
+  if (held <= 0) throw new UserError('This customer is not holding any advance or credit.');
+  if (amount > held) throw new UserError(`This customer is holding ${formatMoney(held)}, so ${formatMoney(amount)} can't be refunded.`);
+  const note = optionalText(input.note ?? '', 'Note', 150);
+  const ids = tx(db, () => {
+    let left = amount;
+    const made: string[] = [];
+    for (const p of unappliedPayments(db, input.customerId)) {
+      if (left <= 0) break;
+      const take = Math.min(p.unapplied, left);
+      made.push(
+        recordPaymentTx(db, {
+          customerId: input.customerId,
+          amountPaise: take,
+          method: input.method,
+          reference: input.reference ?? '',
+          receivedOn: input.date,
+          note: note ? `Refund — ${note}` : 'Refund',
+          allocations: [],
+          accountId: input.accountId,
+          kind: 'refund',
+          refundOf: p.id,
+        }),
+      );
+      left -= take;
+    }
+    return made;
+  });
+  return ids.map((id) => getPayment(db, id));
 }
 
 // ── Write-offs ──────────────────────────────────────────────────────────────

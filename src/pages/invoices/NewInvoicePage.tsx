@@ -146,12 +146,7 @@ export function ItemPicker({ variants, taken, onPick, onCreate, allowOutOfStock 
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
 
-  // A scanner types a Saree ID and presses Enter: an exact ID is that piece and nothing else, so Enter picks it.
-  const results = useMemo(() => {
-    const code = q.trim().toLowerCase();
-    const scanned = code ? variants.filter((v) => v.sku.toLowerCase() === code || (v.barcode !== '' && v.barcode.toLowerCase() === code)) : [];
-    return scanned.length === 1 ? scanned : variants.filter((v) => matchesAll(`${v.designName} ${v.designNickname} ${v.designCode} ${v.color} ${v.size} ${v.sku} ${v.barcode}`, q)).slice(0, 50);
-  }, [variants, q]);
+  const results = useMemo(() => variants.filter((v) => matchesAll(`${v.designName} ${v.designNickname} ${v.designCode} ${v.color} ${v.size} ${v.sku} ${v.barcode}`, q)).slice(0, 50), [variants, q]);
 
   const pick = (v: SaleVariant) => {
     if (v.stock <= 0 && !allowOutOfStock) return;
@@ -193,7 +188,10 @@ export function ItemPicker({ variants, taken, onPick, onCreate, allowOutOfStock 
             setActive((a) => Math.max(a - 1, 0));
           } else if (e.key === 'Enter') {
             e.preventDefault();
-            const v = results[active];
+            // A scanner types the whole code and presses Enter: an exact barcode or SKU wins over the highlighted row.
+            const code = q.trim().toLowerCase();
+            const scanned = code ? variants.find((x) => x.sku.toLowerCase() === code || (x.barcode !== '' && x.barcode.toLowerCase() === code)) : undefined;
+            const v = scanned ?? results[active];
             if (v) pick(v);
             else if (active === results.length) create();
           } else if (e.key === 'Escape') setOpen(false);
@@ -873,6 +871,20 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
         </aside>
       </div>
 
+      {addingItem !== null && (
+        <QuickAddItemModal
+          initialName={addingItem}
+          quote={quote}
+          onClose={() => setAddingItem(null)}
+          onAdded={(v) => {
+            setJustAdded((a) => [...a, v]);
+            addVariant(v);
+            setAddingItem(null);
+            refresh();
+            toast.success(`${v.designName} (${v.color}) is now in your inventory.`);
+          }}
+        />
+      )}
       {holding && (
         <HoldModal
           suggestion={customer?.name ?? (buyerName.trim() || `Bill at ${new Date().toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}`)}
@@ -900,20 +912,6 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
             setShowHeld(false);
             applyDraft(d);
             toast.success(`Picked up “${bill.name}”`);
-          }}
-        />
-      )}
-      {addingItem !== null && (
-        <QuickAddItemModal
-          initialName={addingItem}
-          quote={quote}
-          onClose={() => setAddingItem(null)}
-          onAdded={(v) => {
-            setJustAdded((a) => [...a, v]);
-            addVariant(v);
-            setAddingItem(null);
-            refresh();
-            toast.success(`${v.designName} (${v.color}) is now in your inventory.`);
           }}
         />
       )}

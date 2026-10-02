@@ -1,24 +1,26 @@
 import { addDays, todayIso } from '../shared/gst';
 import type { Api, Envelope } from '../shared/api';
-import type { AppUser, SessionState } from '../shared/types';
 import { discardPendingRestore, saveBackupSettings, snapshotTo } from './backup';
 import * as backupService from './backupService';
 import * as drive from './drive';
 import type { Db } from './db/connection';
 import { UserError } from './services/common';
 import * as accounts from './services/accounts';
-import { auditBefore, isAudited, listAudit, recordAudit } from './services/audit';
+import { auditBefore, isAudited, listAudit, recordAudit, recordNote } from './services/audit';
+import * as users from './services/users';
+import { BEFORE_SIGN_IN, roleCan } from '../shared/roles';
+import type { AuthUser } from '../shared/types';
 import * as held from './services/held';
 import { notifications } from './services/notifications';
+import * as credits from './services/credits';
 import * as customers from './services/customers';
 import * as instalments from './services/instalments';
 import { dashboardNow, dashboardOverview } from './services/dashboard';
 import { festivalComparison } from './services/festival';
 import { buildListing } from '../shared/websiteText';
-import { checkLabels, labelItems, labelsRoute } from './services/labels';
 import * as bulk from './services/bulk';
-import * as creditNotes from './services/creditNotes';
 import * as catalogue from './services/catalogue';
+import * as weaverOrders from './services/weaverOrders';
 import { exportEverything } from './services/exportAll';
 import * as moreReports from './services/moreReports';
 import { reorderList } from './services/deadstock';
@@ -30,17 +32,15 @@ import * as materials from './services/materials';
 import * as notes from './services/notes';
 import * as payments from './services/payments';
 import * as photos from './services/photos';
+import { gstr1 } from './services/gstr';
+import * as loyalty from './services/loyalty';
+import * as production from './services/production';
 import * as proformas from './services/proformas';
 import * as purchases from './services/purchases';
 import * as receivables from './services/receivables';
 import * as reports from './services/reports';
 import { loadSampleData } from './services/seed';
 import * as settings from './services/settings';
-import * as users from './services/users';
-import * as weaverOrders from './services/weaverOrders';
-import { gstr1 } from './services/gstr';
-import * as loyalty from './services/loyalty';
-import * as production from './services/production';
 
 /** Things only the desktop shell can do. Absent in browser dev mode, where those calls explain themselves. */
 export interface Host {
@@ -78,54 +78,107 @@ function checkInvoiceIds(db: Db, ids: string[]): string[] {
  * Binds the data layer to one open database. This is the only place that knows which service backs which call. Every call that
  * changes something also leaves a line in the activity log, written here so no screen has to remember to.
  */
+type AuthKeys = 'authStatus' | 'authUsers' | 'authSignIn' | 'authSignOut' | 'authSetup' | 'authChangePin' | 'authRecover' | 'authDisable' | 'userList' | 'userCreate' | 'userUpdate' | 'userResetPin';
+
 export function createApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backupService.DriveOverrides): Api {
-  const api = buildApi(db, host, dataDir, driveOverrides);
-  const logged = {} as Record<string, unknown>;
-  // Who is signed in. Lives only as long as the program is open, so closing it signs everyone out.
-  let current: AppUser | null = null;
-  const state = (): SessionState => {
-    const enabled = users.authEnabled(db);
-    const still = enabled && current ? users.getUser(db, current.id) : null;
-    if (!still || !still.active) current = null;
-    else current = still;
-    return { enabled, current, people: enabled ? users.listUsers(db).filter((u) => u.active).map((u) => ({ id: u.id, name: u.name })) : [] };
+  // Who is signed in. Held here, in the one process that owns the book, so a screen cannot claim to be someone else.
+  let session: AuthUser | null = null;
+  /** The signed-in person as they are right now (a changed role or a removal counts at once), or null. */
+  const who = (): AuthUser | null => {
+    if (!session) return null;
+    session = users.currentUser(db, session.id);
+    return session;
   };
-  /** Stops a call that the signed in person may not make. Without people set up, everything is allowed. */
-  const allowed = (name: string): void => {
-    if (users.OPEN_CALLS.has(name) || !users.authEnabled(db)) return;
-    state();
-    if (!current) throw new UserError('Sign in to continue.');
-    if (current.role !== 'owner' && users.OWNER_ONLY.has(name)) throw new UserError('Only an owner can do that. Ask an owner to sign in.');
+  const owner = (): AuthUser => {
+    const u = who();
+    if (!u || u.role !== 'owner') throw new UserError('Only the owner can do this.');
+    return u;
   };
-  const sessionCalls: Pick<Api, 'sessionState' | 'sessionLogin' | 'sessionLogout'> = {
-    sessionState: async () => state(),
-    sessionLogin: async (userId, pin) => {
-      current = users.checkLogin(db, userId, pin);
-      return state();
+
+  const auth: Pick<Api, AuthKeys> = {
+    authStatus: async () => ({ required: users.authRequired(db), user: who() }),
+    authUsers: async () => users.signInChoices(db),
+    authSignIn: async (input) => {
+      session = users.signIn(db, String(input?.userId ?? ''), String(input?.pin ?? ''));
+      recordNote(db, 'Signed in', session.name);
+      return session;
     },
-    sessionLogout: async () => {
-      current = null;
-      return state();
+    authSignOut: async () => {
+      if (session) recordNote(db, 'Signed out', session.name);
+      session = null;
+    },
+    authSetup: async (input) => {
+      const made = users.setup(db, input);
+      session = made.user;
+      recordNote(db, 'Turned on sign-in', made.user.name);
+      return made;
+    },
+    authChangePin: async (input) => {
+      const u = who();
+      if (!u) throw new UserError('Sign in first.');
+      users.changeOwnPin(db, u.id, input?.oldPin, input?.newPin);
+      recordNote(db, 'Changed their PIN', u.name);
+    },
+    authRecover: async (input) => {
+      const made = users.recover(db, input?.code, input?.newPin);
+      session = made.user;
+      recordNote(db, 'Reset the owner PIN with the recovery code', made.user.name);
+      return made;
+    },
+    authDisable: async (input) => {
+      const u = owner();
+      users.disable(db, u.id, input?.pin);
+      recordNote(db, 'Turned off sign-in', u.name);
+      session = null;
+    },
+    userList: async () => {
+      owner();
+      return users.listUsers(db);
+    },
+    userCreate: async (input) => {
+      const o = owner();
+      const made = users.createUser(db, input);
+      recordNote(db, `Added ${made.name} (${made.role})`, o.name);
+      return made;
+    },
+    userUpdate: async (id, patch) => {
+      const o = owner();
+      const changed = users.updateUser(db, id, patch);
+      recordNote(db, `Changed ${changed.name}`, o.name);
+      return changed;
+    },
+    userResetPin: async (id, pin) => {
+      const o = owner();
+      users.resetPin(db, id, pin);
+      recordNote(db, 'Reset someone\'s PIN', o.name);
     },
   };
-  for (const [name, fn] of Object.entries({ ...api, ...sessionCalls })) {
+
+  const api = { ...buildApi(db, host, dataDir, driveOverrides), ...auth } as Api;
+  const guarded = {} as Record<string, unknown>;
+  for (const [name, fn] of Object.entries(api)) {
     if (typeof fn !== 'function') {
-      logged[name] = fn;
+      guarded[name] = fn;
       continue;
     }
-    logged[name] = async (...args: unknown[]) => {
-      allowed(name);
-      if (!isAudited(name)) return (fn as (...a: unknown[]) => Promise<unknown>)(...args);
-      const before = auditBefore(db, name);
+    const audited = isAudited(name);
+    guarded[name] = async (...args: unknown[]) => {
+      // Once the shop uses sign-in, nothing but signing in works until someone has, and then only what their role allows.
+      if (users.authRequired(db) && !(BEFORE_SIGN_IN as readonly string[]).includes(name) && !auth[name as AuthKeys]) {
+        const u = who();
+        if (!u) throw new UserError('Sign in to continue.');
+        if (!roleCan(u.role, name)) throw new UserError("Your sign-in doesn't allow this. Ask the owner.");
+      }
+      const before = audited ? auditBefore(db, name) : undefined;
       const result = await (fn as (...a: unknown[]) => Promise<unknown>)(...args);
-      recordAudit(db, name, args, result, before, current?.name ?? '');
+      if (audited) recordAudit(db, name, args, result, before, session?.name ?? '');
       return result;
     };
   }
-  return logged as unknown as Api;
+  return guarded as unknown as Api;
 }
 
-function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backupService.DriveOverrides): Omit<Api, 'sessionState' | 'sessionLogin' | 'sessionLogout'> {
+function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backupService.DriveOverrides): Omit<Api, AuthKeys> {
   /** Backups and Google Drive need to know where the data folder is; the browser-only bridge passes one too. */
   const need = (): drive.DriveContext => {
     if (!dataDir) throw new UserError(DESKTOP_ONLY);
@@ -138,12 +191,31 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
     heldHold: async (input) => held.holdBill(db, input),
     heldDiscard: async (id) => held.discardHeld(db, id),
 
-    // The session calls are bound in createApi, which holds who is signed in.
-    usersList: async () => users.listUsers(db),
-    userCreate: async (input) => users.createUser(db, input),
-    userUpdate: async (id, patch) => users.updateUser(db, id, patch ?? {}),
-    userSetPin: async (id, pin) => users.setPin(db, id, pin),
-    userRemove: async (id) => users.removeUser(db, id),
+    websiteListings: async () => {
+      const shop = { name: settings.getSettings(db).businessName, gstRatePercent: settings.getSettings(db).gstRatePercent };
+      return inventory.listDesigns(db).map((d) => buildListing(inventory.getDesign(db, d.id), shop));
+    },
+    inventoryQuickAdd: async (row) => {
+      const id = inventory.quickAddSaree(db, row);
+      const made = invoices.variantsForSale(db).find((v) => v.variantId === id);
+      if (!made) throw new UserError('The item was added but could not be loaded. Reopen the invoice screen.');
+      return made;
+    },
+    catalogueOptions: async () => inventory.catalogueOptions(db),
+    catalogueEntries: async () => catalogue.catalogueEntries(db),
+    catalogueRename: async (input) => catalogue.renameChoice(db, input),
+    catalogueDelete: async (input) => catalogue.deleteChoice(db, input),
+    designsTidy: async (rows) => catalogue.tidyDesigns(db, rows),
+
+    weaverOrdersList: async (query) => weaverOrders.listWeaverOrders(db, query ?? {}),
+    weaverOrderGet: async (id) => weaverOrders.getWeaverOrder(db, id),
+    weaverOrderCreate: async (input) => weaverOrders.createWeaverOrder(db, input),
+    weaverOrderUpdate: async (id, input) => weaverOrders.updateWeaverOrder(db, id, input),
+    weaverOrderReceive: async (id, input) => weaverOrders.receiveWeaverOrder(db, id, input),
+    weaverOrderPay: async (id, input) => weaverOrders.payWeaverOrder(db, id, input),
+    weaverPaymentVoid: async (id) => weaverOrders.voidWeaverPayment(db, id),
+    weaverOrderCancel: async (id, reason) => weaverOrders.cancelWeaverOrder(db, id, reason),
+    weaverOrderDraft: async (proformaId) => weaverOrders.draftFromQuote(db, proformaId),
 
     getSettings: async () => settings.getSettings(db),
     saveSettings: async (patch) => settings.saveSettings(db, patch),
@@ -156,26 +228,6 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
     designCreate: async (input) => inventory.createDesign(db, input),
     designUpdate: async (id, input) => inventory.updateDesign(db, id, input),
     variantPriceHistory: async (variantId) => inventory.variantPriceHistory(db, variantId),
-    websiteListings: async () => {
-      const shop = { name: settings.getSettings(db).businessName, gstRatePercent: settings.getSettings(db).gstRatePercent };
-      return inventory.listDesigns(db).map((d) => buildListing(inventory.getDesign(db, d.id), shop));
-    },
-    labelItems: async (ids) => labelItems(db, ids),
-    labelsExportPdf: async (items, layout) => {
-      if (!host) throw new UserError(DESKTOP_ONLY);
-      checkLabels(db, items, layout);
-      return host.exportDocumentPdf(labelsRoute(items, layout), 'Labels.pdf');
-    },
-    labelsPrint: async (items, layout) => {
-      if (!host) throw new UserError(DESKTOP_ONLY);
-      checkLabels(db, items, layout);
-      return host.printDocument(labelsRoute(items, layout));
-    },
-    designPhotos: async (designId) => photos.listPhotos(db, designId),
-    designCovers: async () => photos.covers(db),
-    designPhotoAdd: async (designId, input) => photos.addPhoto(db, designId, input),
-    designPhotoRemove: async (photoId) => photos.removePhoto(db, photoId),
-    designPhotoCover: async (photoId) => photos.setCover(db, photoId),
     designDuplicate: async (id) => inventory.duplicateDesign(db, id),
     designRestore: async (id) => inventory.restoreDesign(db, id),
     designsBulk: async (action) => bulk.bulkChangeDesigns(db, action),
@@ -189,17 +241,6 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
     designArchive: async (id) => inventory.archiveDesign(db, id),
 
     inventoryBulkAdd: async (rows) => inventory.bulkAddSarees(db, rows),
-    catalogueOptions: async () => inventory.catalogueOptions(db),
-    catalogueEntries: async () => catalogue.catalogueEntries(db),
-    catalogueRename: async (input) => catalogue.renameChoice(db, input),
-    catalogueDelete: async (input) => catalogue.deleteChoice(db, input),
-    designsTidy: async (rows) => catalogue.tidyDesigns(db, rows),
-    inventoryQuickAdd: async (row) => {
-      const id = inventory.quickAddSaree(db, row);
-      const made = invoices.variantsForSale(db).find((v) => v.variantId === id);
-      if (!made) throw new UserError('The item was added but could not be loaded. Reopen the invoice screen.');
-      return made;
-    },
     variantCreate: async (designId, input) => inventory.createVariant(db, designId, input),
     variantUpdate: async (id, input) => inventory.updateVariant(db, id, input),
     variantRestore: async (id) => inventory.restoreVariant(db, id),
@@ -245,23 +286,13 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
 
     variantsForSale: async () => invoices.variantsForSale(db),
     variantByCode: async (code) => invoices.variantByCode(db, code),
-
-    creditNotesList: async (query) => creditNotes.listCreditNotes(db, query ?? {}),
-    creditNoteGet: async (id) => creditNotes.getCreditNote(db, id),
-    creditNotePreview: async (input) => creditNotes.previewCreditNote(db, input),
-    creditNoteCreate: async (input) => creditNotes.createCreditNote(db, input),
-    creditNoteRefund: async (id, input) => creditNotes.refundCreditNote(db, id, input),
-    creditNoteCancel: async (id, reason) => creditNotes.cancelCreditNote(db, id, reason),
-
-    weaverOrdersList: async (query) => weaverOrders.listWeaverOrders(db, query ?? {}),
-    weaverOrderGet: async (id) => weaverOrders.getWeaverOrder(db, id),
-    weaverOrderCreate: async (input) => weaverOrders.createWeaverOrder(db, input),
-    weaverOrderUpdate: async (id, input) => weaverOrders.updateWeaverOrder(db, id, input),
-    weaverOrderReceive: async (id, input) => weaverOrders.receiveWeaverOrder(db, id, input),
-    weaverOrderPay: async (id, input) => weaverOrders.payWeaverOrder(db, id, input),
-    weaverPaymentVoid: async (id) => weaverOrders.voidWeaverPayment(db, id),
-    weaverOrderCancel: async (id, reason) => weaverOrders.cancelWeaverOrder(db, id, reason),
-    weaverOrderDraft: async (proformaId) => weaverOrders.draftFromQuote(db, proformaId),
+    labelsPrint: async (items) => {
+      if (!host) throw new UserError(DESKTOP_ONLY);
+      const list = (Array.isArray(items) ? items : []).filter((i) => i && Number.isInteger(i.copies) && i.copies > 0).slice(0, 300);
+      if (list.length === 0) throw new UserError('Choose at least one label to print.');
+      for (const i of list) inventory.getVariant(db, i.variantId);
+      return host.printDocument(`/print/labels?items=${list.map((i) => encodeURIComponent(`${i.variantId}:${Math.min(200, i.copies)}`)).join(',')}`);
+    },
 
     invoicesList: async (query) => invoices.listInvoices(db, query ?? {}),
     invoiceGet: async (id) => invoices.getInvoice(db, id),
@@ -300,6 +331,16 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
       const list = checkInvoiceIds(db, ids);
       return host.printDocument(`/print/invoices?ids=${list.map(encodeURIComponent).join(',')}`);
     },
+    invoiceSlipPrint: async (id) => {
+      if (!host) throw new UserError(DESKTOP_ONLY);
+      invoices.getInvoice(db, id);
+      return host.printDocument(`/print/slip/${encodeURIComponent(id)}`);
+    },
+    appNewWindow: async () => {
+      if (!host?.openWindow) throw new UserError(DESKTOP_ONLY);
+      return host.openWindow();
+    },
+    reportGstr1: async (range) => gstr1(db, range),
     invoiceExportPdf: async (id) => {
       if (!host) throw new UserError(DESKTOP_ONLY);
       const inv = invoices.getInvoice(db, id);
@@ -311,20 +352,49 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
       return host.printDocument(`/print/invoice/${encodeURIComponent(id)}`);
     },
 
+    paymentsList: async (query) => payments.listPayments(db, query ?? {}),
+    paymentRecord: async (input) => payments.recordPayment(db, input),
+    paymentVoid: async (id, reason) => payments.voidPayment(db, id, reason),
+    paymentRefund: async (input) => payments.refundAdvance(db, input),
+
+    loyaltyHistory: async (customerId) => loyalty.history(db, customerId),
+    loyaltyAdjust: async (input) => loyalty.adjust(db, input),
+    wishlistGet: async (customerId) => loyalty.wishlist(db, customerId),
+    wishlistAdd: async (input) => loyalty.addWish(db, input),
+    wishlistRemove: async (id) => loyalty.removeWish(db, id),
+
+    productionList: async (query) => production.listOrders(db, query ?? {}),
+    productionGet: async (id) => production.getOrder(db, id),
+    productionCreate: async (input) => production.createOrder(db, input),
+    productionUpdate: async (id, input) => production.updateOrder(db, id, input),
+    productionIssueMaterials: async (id) => production.issueMaterials(db, id),
+    productionReceive: async (id, input) => production.receivePieces(db, id, input),
+    productionCloseShort: async (id) => production.closeShort(db, id),
+    productionCancel: async (id) => production.cancelOrder(db, id),
+
+    photosList: async (type, id) => photos.listPhotos(db, type, id),
+    photoGet: async (id) => photos.getPhotoImage(db, id),
+    photoAdd: async (input) => photos.addPhoto(db, input),
+    photoDelete: async (id) => photos.deletePhoto(db, id),
+    photoSetCover: async (id) => photos.setCover(db, id),
+    photoCovers: async (type, ids) => photos.coverThumbs(db, type, Array.isArray(ids) ? ids.map(String) : []),
+
+    creditNotesList: async (query) => credits.listCreditNotes(db, query ?? {}),
+    creditNoteGet: async (id) => credits.getCreditNote(db, id),
+    creditNoteNextNumber: async (issueDate) => credits.nextCreditNoteNumber(db, issueDate),
+    creditNoteReturnable: async (invoiceId) => credits.returnableLines(db, invoiceId),
+    creditNotePreview: async (input) => credits.previewCreditNote(db, input),
+    creditNoteCreate: async (input) => credits.createCreditNote(db, input),
     creditNoteExportPdf: async (id) => {
       if (!host) throw new UserError(DESKTOP_ONLY);
-      const note = creditNotes.getCreditNote(db, id);
+      const note = credits.getCreditNote(db, id);
       return host.exportDocumentPdf(`/print/credit-note/${encodeURIComponent(id)}`, `Credit note ${note.number.replace(/[\\/:*?"<>|]/g, '-')}.pdf`);
     },
     creditNotePrint: async (id) => {
       if (!host) throw new UserError(DESKTOP_ONLY);
-      creditNotes.getCreditNote(db, id);
+      credits.getCreditNote(db, id);
       return host.printDocument(`/print/credit-note/${encodeURIComponent(id)}`);
     },
-
-    paymentsList: async (query) => payments.listPayments(db, query ?? {}),
-    paymentRecord: async (input) => payments.recordPayment(db, input),
-    paymentVoid: async (id, reason) => payments.voidPayment(db, id, reason),
     invoiceApplyAdvance: async (invoiceId) => invoices.applyAdvanceToInvoice(db, invoiceId),
     paymentChequeStatus: async (id, status, reason) => payments.setChequeStatus(db, id, status, reason ?? ''),
     paymentsReconcile: async (ids, on) => payments.setReconciled(db, ids, on ?? null),
@@ -348,31 +418,6 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
 
     reportSales: async (range) => reports.salesReport(db, range),
     reportGst: async (range) => reports.gstReport(db, range),
-    reportGstr1: async (range) => gstr1(db, range),
-    invoiceSlipPrint: async (id) => {
-      if (!host) throw new UserError(DESKTOP_ONLY);
-      invoices.getInvoice(db, id);
-      return host.printDocument(`/print/slip/${encodeURIComponent(id)}`);
-    },
-    appNewWindow: async () => {
-      if (!host?.openWindow) throw new UserError(DESKTOP_ONLY);
-      return host.openWindow();
-    },
-
-    loyaltyHistory: async (customerId) => loyalty.history(db, customerId),
-    loyaltyAdjust: async (input) => loyalty.adjust(db, input),
-    wishlistGet: async (customerId) => loyalty.wishlist(db, customerId),
-    wishlistAdd: async (input) => loyalty.addWish(db, input),
-    wishlistRemove: async (id) => loyalty.removeWish(db, id),
-
-    productionList: async (query) => production.listOrders(db, query ?? {}),
-    productionGet: async (id) => production.getOrder(db, id),
-    productionCreate: async (input) => production.createOrder(db, input),
-    productionUpdate: async (id, input) => production.updateOrder(db, id, input),
-    productionIssueMaterials: async (id) => production.issueMaterials(db, id),
-    productionReceive: async (id, input) => production.receivePieces(db, id, input),
-    productionCloseShort: async (id) => production.closeShort(db, id),
-    productionCancel: async (id) => production.cancelOrder(db, id),
     reportProfitLoss: async (range) => moreReports.profitAndLoss(db, range),
     reportQuotes: async (range) => moreReports.quotesReport(db, range),
     reportMargin: async (range, by) => moreReports.marginReport(db, range, by),

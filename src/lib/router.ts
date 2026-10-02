@@ -1,25 +1,25 @@
 import { useEffect, useState } from 'react';
 import { PERIOD_PRESETS, type PeriodPreset, type PeriodSpec } from '../../shared/periods';
-import { LABEL_LAYOUTS, PAYMENT_METHODS, type LabelLayout, type PaymentMethod, type ProformaStatus } from '../../shared/types';
+import { PAYMENT_METHODS, type PaymentMethod, type ProformaStatus } from '../../shared/types';
 
 // A tiny hash router — hash URLs are the one kind that also work when the app is loaded from a file.
 
 export type Section = 'dashboard' | 'inventory' | 'invoices' | 'proformas' | 'customers' | 'payments' | 'expenses' | 'reports' | 'settings';
 
-export const SETTINGS_SECTIONS = ['business', 'tax', 'invoice', 'proforma', 'expenses', 'accounts', 'instructions', 'notifications', 'messages', 'data', 'backup', 'catalogue', 'people', 'preferences', 'activity', 'plus'] as const;
+export const SETTINGS_SECTIONS = ['business', 'tax', 'invoice', 'proforma', 'expenses', 'accounts', 'instructions', 'notifications', 'messages', 'data', 'backup', 'catalogue', 'users', 'preferences', 'activity', 'plus'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 export type Route =
   | { name: 'dashboard' }
   | { name: 'inventory'; status: 'all' | 'low' | 'out' }
   | { name: 'materials' }
-  | { name: 'inventory-add' }
-  | { name: 'inventory-names' }
   | { name: 'production' }
+  | { name: 'inventory-names' }
   | { name: 'weaver-orders' }
   | { name: 'weaver-order-new'; /** The customer quote the order is for. */ quoteId: string | null }
   | { name: 'weaver-order-edit'; id: string }
   | { name: 'weaver-order'; id: string }
+  | { name: 'inventory-add' }
   | { name: 'stock-take' }
   | { name: 'design'; id: string }
   | { name: 'invoices'; status: 'all' | 'open' | 'overdue' | 'cancelled' }
@@ -31,6 +31,9 @@ export type Route =
   | { name: 'accounts' }
   | { name: 'reconcile' }
   | { name: 'invoice'; id: string }
+  | { name: 'quick-bill' }
+  | { name: 'credit-notes' }
+  | { name: 'credit-note'; id: string }
   | { name: 'proformas'; status: 'all' | ProformaStatus }
   | { name: 'proforma-new'; customerId: string | null; /** An earlier quote to start from (Duplicate). */ copyFrom: string | null }
   | { name: 'proforma-edit'; id: string }
@@ -40,16 +43,13 @@ export type Route =
   | { name: 'customer'; id: string }
   | { name: 'settings'; section: SettingsSection }
   /** Bare invoice document with no app chrome — what PDF export and printing render. */
-  | { name: 'credit-notes' }
-  | { name: 'credit-note'; id: string }
-  | { name: 'print-credit-note'; id: string }
-  | { name: 'print-slip'; id: string }
-  | { name: 'quick-bill' }
-  | { name: 'print-labels'; items: { variantId: string; copies: number }[]; layout: LabelLayout }
   | { name: 'print-invoice'; id: string }
   | { name: 'print-proforma'; id: string }
   | { name: 'print-statement'; id: string }
   | { name: 'print-receipt'; id: string }
+  | { name: 'print-credit-note'; id: string }
+  | { name: 'print-slip'; id: string }
+  | { name: 'print-labels'; items: { variantId: string; copies: number }[] }
   | { name: 'print-invoices'; ids: string[] }
   | { name: 'reports'; tab: ReportTab; period: PeriodSpec; /** Stock valuation date; null means today. */ asOf: string | null };
 
@@ -72,28 +72,29 @@ export function parseHash(hash: string): Route {
   switch (parts[0]) {
     case 'inventory': {
       if (parts[1] === 'materials') return { name: 'materials' };
-      if (parts[1] === 'add') return { name: 'inventory-add' };
-      if (parts[1] === 'names') return { name: 'inventory-names' };
       if (parts[1] === 'production') return { name: 'production' };
+      if (parts[1] === 'names') return { name: 'inventory-names' };
       if (parts[1] === 'weaver-orders') {
         if (parts[2] === 'new') return { name: 'weaver-order-new', quoteId: params.get('quote') };
-        if (parts[2] && parts[3] === 'edit') return { name: 'weaver-order-edit', id };
-        if (parts[2]) return { name: 'weaver-order', id };
+        if (parts[2] && parts[3] === 'edit') return { name: 'weaver-order-edit', id: decodeURIComponent(parts[2]) };
+        if (parts[2]) return { name: 'weaver-order', id: decodeURIComponent(parts[2]) };
         return { name: 'weaver-orders' };
       }
+      if (parts[1] === 'add') return { name: 'inventory-add' };
       if (parts[1] === 'stock-take') return { name: 'stock-take' };
       if (parts[1] === 'designs' && id) return { name: 'design', id };
       const status = params.get('status');
       return { name: 'inventory', status: status === 'low' || status === 'out' ? status : 'all' };
     }
     case 'invoices': {
-      if (parts[1] === 'quick') return { name: 'quick-bill' };
       if (parts[1] === 'new') {
         const amount = Number(params.get('advance'));
         const method = params.get('method') as PaymentMethod;
         const advance: AdvancePreset | null = Number.isInteger(amount) && amount > 0 ? { amountPaise: amount, method: (PAYMENT_METHODS as readonly string[]).includes(method) ? method : 'cash', reference: params.get('ref') ?? '' } : null;
         return { name: 'invoice-new', customerId: params.get('customer'), advance, copyFrom: params.get('copy') };
       }
+      if (parts[1] === 'quick') return { name: 'quick-bill' };
+      if (parts[1] === 'credit-notes') return parts[2] ? { name: 'credit-note', id } : { name: 'credit-notes' };
       if (parts[1]) return { name: 'invoice', id: decodeURIComponent(parts[1]) };
       const status = params.get('status');
       return { name: 'invoices', status: status === 'open' || status === 'overdue' || status === 'cancelled' ? status : 'all' };
@@ -105,8 +106,6 @@ export function parseHash(hash: string): Route {
       const status = params.get('status');
       return { name: 'proformas', status: status === 'open' || status === 'expired' || status === 'partial' || status === 'converted' || status === 'lost' || status === 'cancelled' ? status : 'all' };
     }
-    case 'credit-notes':
-      return parts[1] ? { name: 'credit-note', id: decodeURIComponent(parts[1]) } : { name: 'credit-notes' };
     case 'expenses':
       return { name: 'expenses', category: params.get('category') };
     case 'customers':
@@ -115,20 +114,20 @@ export function parseHash(hash: string): Route {
       return { name: 'settings', section: (SETTINGS_SECTIONS as readonly string[]).includes(parts[1] ?? '') ? (parts[1] as SettingsSection) : 'business' };
     case 'print':
       if (parts[1] === 'invoice' && id) return { name: 'print-invoice', id };
-      if (parts[1] === 'credit-note' && id) return { name: 'print-credit-note', id };
-      if (parts[1] === 'slip' && id) return { name: 'print-slip', id };
-      if (parts[1] === 'labels') {
-        const layout = params.get('layout') ?? '';
-        const items = (params.get('items') ?? '').split(',').flatMap((pair) => {
-          const [rawId = '', rawCopies = ''] = pair.split(':');
-          const copies = Number(rawCopies);
-          return rawId && Number.isInteger(copies) && copies > 0 && copies <= 2000 ? [{ variantId: decodeURIComponent(rawId), copies }] : [];
-        });
-        return { name: 'print-labels', items, layout: layout in LABEL_LAYOUTS ? (layout as LabelLayout) : 'a4-24' };
-      }
       if (parts[1] === 'proforma' && id) return { name: 'print-proforma', id };
       if (parts[1] === 'statement' && id) return { name: 'print-statement', id };
       if (parts[1] === 'receipt' && id) return { name: 'print-receipt', id };
+      if (parts[1] === 'credit-note' && id) return { name: 'print-credit-note', id };
+      if (parts[1] === 'slip' && id) return { name: 'print-slip', id };
+      if (parts[1] === 'labels') {
+        const items = (params.get('items') ?? '')
+          .split(',')
+          .map((s) => s.split(':'))
+          .map(([v, c]) => ({ variantId: decodeURIComponent(v ?? ''), copies: Math.min(200, Math.max(0, Math.floor(Number(c)) || 0)) }))
+          .filter((i) => i.variantId && i.copies > 0)
+          .slice(0, 300);
+        return { name: 'print-labels', items };
+      }
       if (parts[1] === 'invoices') return { name: 'print-invoices', ids: (params.get('ids') ?? '').split(',').map(decodeURIComponent).filter(Boolean) };
       return { name: 'dashboard' };
     case 'notifications':
@@ -165,13 +164,13 @@ export const sectionOf = (route: Route): Section => {
       return 'dashboard';
     case 'inventory':
     case 'materials':
-    case 'inventory-add':
-    case 'inventory-names':
     case 'production':
+    case 'inventory-names':
     case 'weaver-orders':
     case 'weaver-order-new':
     case 'weaver-order-edit':
     case 'weaver-order':
+    case 'inventory-add':
     case 'stock-take':
     case 'design':
       return 'inventory';
@@ -182,6 +181,7 @@ export const sectionOf = (route: Route): Section => {
     case 'credit-notes':
     case 'credit-note':
     case 'print-credit-note':
+    case 'print-labels':
     case 'print-slip':
     case 'print-invoice':
       return 'invoices';
@@ -197,8 +197,6 @@ export const sectionOf = (route: Route): Section => {
       return 'payments';
     case 'print-invoices':
       return 'invoices';
-    case 'print-labels':
-      return 'inventory';
     case 'expenses':
       return 'expenses';
     case 'customers':
@@ -217,20 +215,15 @@ export const paths = {
   dashboard: '/dashboard',
   inventory: (status?: 'low' | 'out') => (status ? `/inventory?status=${status}` : '/inventory'),
   materials: '/inventory/materials',
-  addSarees: '/inventory/add',
-  tidyNames: '/inventory/names',
-  printLabels: (items: { variantId: string; copies: number }[], layout: LabelLayout) => `/print/labels?items=${items.map((i) => `${encodeURIComponent(i.variantId)}:${i.copies}`).join(',')}&layout=${layout}`,
   production: '/inventory/production',
-  quickBill: '/invoices/quick',
-  printSlip: (id: string) => `/print/slip/${encodeURIComponent(id)}`,
+  tidyNames: '/inventory/names',
   weaverOrders: '/inventory/weaver-orders',
   newWeaverOrder: (quoteId?: string) => (quoteId ? `/inventory/weaver-orders/new?quote=${encodeURIComponent(quoteId)}` : '/inventory/weaver-orders/new'),
   weaverOrder: (id: string) => `/inventory/weaver-orders/${encodeURIComponent(id)}`,
   editWeaverOrder: (id: string) => `/inventory/weaver-orders/${encodeURIComponent(id)}/edit`,
+  addSarees: '/inventory/add',
   stockTake: '/inventory/stock-take',
   design: (id: string) => `/inventory/designs/${encodeURIComponent(id)}`,
-  creditNotes: '/credit-notes',
-  creditNote: (id: string) => `/credit-notes/${encodeURIComponent(id)}`,
   invoices: (status?: 'open' | 'overdue' | 'cancelled') => (status ? `/invoices?status=${status}` : '/invoices'),
   newInvoice: (customerId?: string, advance?: AdvancePreset) => {
     const q = new URLSearchParams();
@@ -268,6 +261,12 @@ export const paths = {
     return `/reports/${tab}${q.size ? `?${q}` : ''}`;
   },
   invoice: (id: string) => `/invoices/${encodeURIComponent(id)}`,
+  quickBill: '/invoices/quick',
+  printLabels: (pairs: string[]) => `/print/labels?items=${pairs.map(encodeURIComponent).join(',')}`,
+  creditNotes: '/invoices/credit-notes',
+  creditNote: (id: string) => `/invoices/credit-notes/${encodeURIComponent(id)}`,
+  printSlip: (id: string) => `/print/slip/${encodeURIComponent(id)}`,
+  printCreditNote: (id: string) => `/print/credit-note/${encodeURIComponent(id)}`,
   printStatement: (customerId: string) => `/print/statement/${encodeURIComponent(customerId)}`,
   printReceipt: (paymentId: string) => `/print/receipt/${encodeURIComponent(paymentId)}`,
   printInvoices: (ids: string[]) => `/print/invoices?ids=${ids.map(encodeURIComponent).join(',')}`,

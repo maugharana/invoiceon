@@ -1,281 +1,366 @@
+import { DatabaseSync } from 'node:sqlite';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { createApi } from '../electron/api';
 import { openDb, type Db } from '../electron/db/connection';
-import * as creditNotes from '../electron/services/creditNotes';
+import { LATEST_SCHEMA_VERSION, migrate } from '../electron/db/migrations';
+import { accountBook } from '../electron/services/accounts';
+import * as credits from '../electron/services/credits';
 import * as customers from '../electron/services/customers';
-import * as expenses from '../electron/services/expenses';
+import { dayBook } from '../electron/services/moreReports';
 import * as inventory from '../electron/services/inventory';
 import * as invoices from '../electron/services/invoices';
 import * as payments from '../electron/services/payments';
-import * as receivables from '../electron/services/receivables';
-import * as reports from '../electron/services/reports';
+import { customerLedger } from '../electron/services/receivables';
+import { gstReport, salesReport } from '../electron/services/reports';
 import { saveSettings } from '../electron/services/settings';
-import { gstCreditCsv, gstCsv, salesCsv } from '../shared/csv';
-import { addDays, financialYear, todayIso } from '../shared/gst';
-import type { CreditNoteInput, InvoiceInput } from '../shared/types';
+import { todayIso } from '../shared/gst';
+import type { CreditNoteInput, InvoiceInput, LineInput } from '../shared/types';
 
 const rupees = (n: number) => n * 100;
 const today = todayIso();
 let db: Db;
-let red: string;
-let blue: string;
+let cottonId: string;
+let silkId: string;
+let customerId: string;
+
+const stock = (variantId: string) => inventory.getVariant(db, variantId).stock;
 
 beforeEach(() => {
   db = openDb(':memory:');
-  saveSettings(db, { gstin: '09AABCK1234M1ZI' });
-  const d = inventory.createDesign(db, { code: 'MG-001', name: 'Butidar', fabric: '', hsnCode: '5007', description: '', defaultPricePaise: rupees(1000) });
-  const mk = (color: string) => inventory.createVariant(db, d.id, { color, size: '6.3 m', sellPricePaise: rupees(1000), baseCostPaise: rupees(400), reorderLevel: 0, openingStock: 20, bom: [] }).id;
-  red = mk('Red');
-  blue = mk('Blue');
+  saveSettings(db, { gstin: '09AABCK1234M1ZI', invoicePrefix: 'MG', state: 'Uttar Pradesh', paymentAccounts: [{ id: 'cash', name: 'Cash drawer', kind: 'cash', details: '', openingPaise: 0 }] });
+  const d1 = inventory.createDesign(db, { code: 'MG-001', name: 'Cotton', fabric: '', hsnCode: '5208', description: '', defaultPricePaise: rupees(800) });
+  cottonId = inventory.createVariant(db, d1.id, { color: 'Red', size: '6 m', sellPricePaise: rupees(800), baseCostPaise: rupees(300), reorderLevel: 0, openingStock: 20, bom: [] }).id;
+  const d2 = inventory.createDesign(db, { code: 'MG-002', name: 'Banarasi', fabric: '', hsnCode: '5007', description: '', defaultPricePaise: rupees(3000), gstRatePercent: 18 });
+  silkId = inventory.createVariant(db, d2.id, { color: 'Gold', size: '6 m', sellPricePaise: rupees(3000), baseCostPaise: rupees(1500), reorderLevel: 0, openingStock: 20, bom: [] }).id;
+  customerId = customers.createCustomer(db, { name: 'Meena', type: 'B2C', phone: '', email: '', gstin: '', address: '', city: 'Mau', state: 'Uttar Pradesh', pincode: '', notes: '' }).id;
 });
 
-const customer = (name = 'Sunita') => customers.createCustomer(db, { name, type: 'B2C', phone: '', email: '', gstin: '', address: '', city: 'Mau', state: 'Uttar Pradesh', pincode: '', notes: '' });
-/** 3 red + 1 blue at ₹1,000 each + 5% GST = ₹4,200. */
-const invoice = (customerId: string | null, over: Partial<InvoiceInput> = {}) =>
-  invoices.createInvoice(db, { type: 'B2C', customerId, issueDate: today, dueDate: addDays(today, 10), discountPaise: 0, notes: '', lines: [{ variantId: red, qty: 3, unitPricePaise: rupees(1000) }, { variantId: blue, qty: 1, unitPricePaise: rupees(1000) }], ...over });
-const pay = (customerId: string | null, amount: number, invoiceId?: string) =>
-  payments.recordPayment(db, { customerId, amountPaise: rupees(amount), method: 'upi', reference: '', receivedOn: today, note: '', allocations: invoiceId ? [{ invoiceId, amountPaise: rupees(amount) }] : [] });
-const stock = (id: string) => inventory.getVariant(db, id).stock;
-const credit = (invoiceId: string, lines: CreditNoteInput['lines'], over: Partial<CreditNoteInput> = {}) =>
-  creditNotes.createCreditNote(db, { invoiceId, issueDate: today, reason: 'Returned by the customer', lines, settlement: 'credit', ...over });
-const lineId = (inv: ReturnType<typeof invoice>, variantId: string) => inv.lines.find((l) => l.variantId === variantId)!.id;
-
-describe('previewing a credit', () => {
-  it('shows what is left on each line, and what a credit for some of it would come to', () => {
-    const inv = invoice(null);
-    const none = creditNotes.previewCreditNote(db, { invoiceId: inv.id, lines: [] });
-    expect(none.lines.map((l) => [l.color, l.soldQty, l.creditableQty, l.unitGrossPaise])).toEqual([['Red', 3, 3, rupees(1050)], ['Blue', 1, 1, rupees(1050)]]);
-    expect(none.totalPaise).toBe(0);
-    const two = creditNotes.previewCreditNote(db, { invoiceId: inv.id, lines: [{ invoiceLineId: lineId(inv, red), qty: 2, restock: true }] });
-    expect(two).toMatchObject({ taxablePaise: rupees(2000), taxPaise: rupees(100), totalPaise: rupees(2100), owedOnInvoicePaise: rupees(4200), appliedToInvoicePaise: rupees(2100), excessPaise: 0, fullReturn: false });
+const sell = (lines: LineInput[], over: Partial<InvoiceInput> = {}) =>
+  invoices.createInvoice(db, { type: 'B2C', customerId, issueDate: today, dueDate: today, discountPaise: 0, notes: '', lines, ...over });
+const pay = (invoiceId: string, amountPaise: number, cust: string | null = customerId) =>
+  payments.recordPayment(db, { customerId: cust, amountPaise, method: 'cash', reference: '', receivedOn: today, note: '', allocations: [{ invoiceId, amountPaise }], accountId: 'cash' });
+const lineOf = (invoiceId: string, variantId: string) => invoices.getInvoice(db, invoiceId).lines.find((l) => l.variantId === variantId)!;
+const note = (invoiceId: string, picks: { variantId: string; qty: number; restock?: boolean }[], over: Partial<CreditNoteInput> = {}) =>
+  credits.createCreditNote(db, {
+    invoiceId,
+    issueDate: today,
+    reason: 'Returned by customer',
+    lines: picks.map((p) => ({ invoiceLineId: lineOf(invoiceId, p.variantId).id, qty: p.qty, restock: p.restock ?? true })),
+    ...over,
   });
 
-  it('refuses more than is left on a line, and an invoice that is cancelled', () => {
-    const inv = invoice(null);
-    expect(() => creditNotes.previewCreditNote(db, { invoiceId: inv.id, lines: [{ invoiceLineId: lineId(inv, red), qty: 4, restock: true }] })).toThrow(/only 3 of 3 can still be taken back/);
-    invoices.cancelInvoice(db, inv.id, 'x');
-    expect(() => creditNotes.previewCreditNote(db, { invoiceId: inv.id, lines: [] })).toThrow(/is cancelled/);
-  });
-});
+describe('taking part of an unpaid invoice back', () => {
+  it('reduces what is owed, puts the pieces back on the shelf, and numbers the note', () => {
+    const inv = sell([{ variantId: cottonId, qty: 4, unitPricePaise: rupees(800) }]); // 3200 + 5% = 3360
+    expect(inv.totalPaise).toBe(rupees(3360));
+    expect(stock(cottonId)).toBe(16);
 
-describe('a credit note on an unpaid invoice', () => {
-  it('takes the credit off what is owed, puts the pieces back, and has its own number and tax', () => {
-    const c = customer();
-    const inv = invoice(c.id);
-    const cn = credit(inv.id, [{ invoiceLineId: lineId(inv, red), qty: 2, restock: true }]);
-    expect(cn.number).toBe(`CN/${financialYear(today)}/0001`);
-    expect(cn).toMatchObject({ status: 'issued', totalPaise: rupees(2100), taxablePaise: rupees(2000), cgstPaise: rupees(50), sgstPaise: rupees(50), igstPaise: 0, invoiceNumber: inv.number, heldPaise: 0 });
-    expect(cn.lines[0]).toMatchObject({ qty: 2, restocked: true, taxablePaise: rupees(2000), taxPaise: rupees(100), ratePercent: 5 });
-    expect(stock(red)).toBe(20 - 3 + 2);
-    expect(inventory.listMovements(db, red)[0]).toMatchObject({ reason: 'return', delta: 2, note: `Credit note ${cn.number}` });
+    const cn = note(inv.id, [{ variantId: cottonId, qty: 1 }]);
+    expect(cn.number).toMatch(/^CN\/.*\/0001$/);
+    expect(cn).toMatchObject({ totalPaise: rupees(840), taxablePaise: rupees(800), appliedPaise: rupees(840), heldPaise: 0, refundedPaise: 0, reason: 'Returned by customer' });
+    expect(cn.lines[0]).toMatchObject({ qty: 1, amountPaise: rupees(800), ratePercent: 5, restocked: true });
+    expect(stock(cottonId)).toBe(17);
+
     const after = invoices.getInvoice(db, inv.id);
-    expect(after).toMatchObject({ paidPaise: rupees(2100), creditedPaise: rupees(2100), status: 'partial' });
-    expect(after.creditNotes.map((n) => n.number)).toEqual([cn.number]);
-    expect(customers.getCustomer(db, c.id)).toMatchObject({ outstandingPaise: rupees(2100), advancePaise: 0, creditedPaise: rupees(2100) });
-  });
-
-  it('settles the invoice when everything is taken back, round-off and all, so it nets to nothing', () => {
-    const c = customer();
-    const inv = invoice(c.id, { lines: [{ variantId: red, qty: 3, unitPricePaise: 33333 }] }); // an awkward amount that needs rounding
-    const cn = credit(inv.id, [{ invoiceLineId: inv.lines[0]!.id, qty: 3, restock: true }]);
-    expect(cn.totalPaise).toBe(inv.totalPaise);
-    expect(cn.taxablePaise).toBe(inv.taxablePaise);
-    expect(invoices.getInvoice(db, inv.id)).toMatchObject({ paidPaise: inv.totalPaise, status: 'paid' });
-    expect(customers.getCustomer(db, c.id).outstandingPaise).toBe(0);
-  });
-
-  it('shares tax out so part credits of one line add up to the whole, to the paisa', () => {
-    const inv = invoice(null, { lines: [{ variantId: red, qty: 3, unitPricePaise: 33333 }] });
-    const l = inv.lines[0]!.id;
-    const a = credit(inv.id, [{ invoiceLineId: l, qty: 1, restock: true }]);
-    const b = credit(inv.id, [{ invoiceLineId: l, qty: 1, restock: true }]);
-    const c = credit(inv.id, [{ invoiceLineId: l, qty: 1, restock: true }]);
-    expect(a.taxablePaise + b.taxablePaise + c.taxablePaise).toBe(inv.taxablePaise);
-    // CGST and SGST are each half of a note's tax, so an odd paisa can fall on either side; the tax as a whole always adds up.
-    const taxOf = (n: typeof a) => n.cgstPaise + n.sgstPaise + n.igstPaise;
-    expect(taxOf(a) + taxOf(b) + taxOf(c)).toBe(inv.cgstPaise + inv.sgstPaise + inv.igstPaise);
-    expect(a.totalPaise + b.totalPaise + c.totalPaise).toBe(inv.totalPaise);
-    expect([a.number, b.number, c.number].map((n) => n.slice(-4))).toEqual(['0001', '0002', '0003']);
+    expect(after.paidPaise).toBe(rupees(840)); // the credit counts toward the invoice
+    expect(after.creditedPaise).toBe(rupees(840));
+    expect(after.credits.map((c) => c.number)).toEqual([cn.number]);
+    expect(after.totalPaise - after.paidPaise).toBe(rupees(2520)); // 3 pieces still owed
+    expect(credits.nextCreditNoteNumber(db, today)).toMatch(/\/0002$/);
   });
 
   it('does not put damaged pieces back on the shelf', () => {
-    const inv = invoice(null);
-    credit(inv.id, [{ invoiceLineId: lineId(inv, red), qty: 1, restock: false }], { reason: 'Damaged or defective' });
-    expect(stock(red)).toBe(20 - 3);
+    const inv = sell([{ variantId: cottonId, qty: 2, unitPricePaise: rupees(800) }]);
+    note(inv.id, [{ variantId: cottonId, qty: 1, restock: false }]);
+    expect(stock(cottonId)).toBe(18);
   });
 
-  it('keeps the other tax rates right on a mixed invoice', () => {
-    const inv = invoice(null, { lines: [{ variantId: red, qty: 1, unitPricePaise: rupees(1000), ratePercent: 12 }, { variantId: blue, qty: 1, unitPricePaise: rupees(1000), ratePercent: 5 }] });
-    const cn = credit(inv.id, [{ invoiceLineId: lineId(inv, red), qty: 1, restock: true }]);
-    expect(cn).toMatchObject({ taxablePaise: rupees(1000), cgstPaise: rupees(60), sgstPaise: rupees(60), totalPaise: rupees(1120) });
-    expect(cn.taxByRate).toEqual([expect.objectContaining({ ratePercent: 12, taxablePaise: rupees(1000), taxPaise: rupees(120) })]);
-  });
-});
-
-describe('a credit note on an invoice already paid', () => {
-  it('holds the excess as credit for the next invoice, and puts it there automatically', () => {
-    const c = customer();
-    const inv = invoice(c.id);
-    pay(c.id, 4200, inv.id);
-    const cn = credit(inv.id, [{ invoiceLineId: lineId(inv, red), qty: 2, restock: true }]);
-    expect(cn).toMatchObject({ totalPaise: rupees(2100), heldPaise: rupees(2100), applications: [] });
-    expect(customers.getCustomer(db, c.id)).toMatchObject({ outstandingPaise: 0, advancePaise: rupees(2100) });
-    // The next invoice takes the credit.
-    const next = invoices.createInvoice(db, { type: 'B2C', customerId: c.id, issueDate: today, dueDate: null, discountPaise: 0, notes: '', lines: [{ variantId: blue, qty: 1, unitPricePaise: rupees(1000) }], applyAdvancePaise: rupees(1050) });
-    expect(next).toMatchObject({ paidPaise: rupees(1050), status: 'paid' });
-    expect(creditNotes.getCreditNote(db, cn.id)).toMatchObject({ heldPaise: rupees(1050), applications: [{ invoiceNumber: next.number, amountPaise: rupees(1050) }] });
-    expect(customers.getCustomer(db, c.id).advancePaise).toBe(rupees(1050));
-  });
-
-  it('can hand the excess back now, which is also an expense', () => {
-    const c = customer();
-    const inv = invoice(c.id);
-    pay(c.id, 4200, inv.id);
-    const cn = credit(inv.id, [{ invoiceLineId: lineId(inv, red), qty: 2, restock: true }], { settlement: 'refund', refund: { method: 'upi', reference: 'UTR9' } });
-    expect(cn).toMatchObject({ heldPaise: 0, refunds: [{ amountPaise: rupees(2100), method: 'upi' }] });
-    expect(expenses.listExpenses(db, { category: 'Customer refunds' })[0]).toMatchObject({ amountPaise: rupees(2100), vendor: 'Sunita', reference: 'UTR9', status: 'paid', note: `Credit note ${cn.number}` });
-    expect(customers.getCustomer(db, c.id)).toMatchObject({ outstandingPaise: 0, advancePaise: 0 });
-  });
-
-  it('asks how to pay a refund, and always refunds a customer who is not saved', () => {
-    const c = customer();
-    const inv = invoice(c.id);
-    pay(c.id, 4200, inv.id);
-    expect(() => credit(inv.id, [{ invoiceLineId: lineId(inv, red), qty: 1, restock: true }], { settlement: 'refund' })).toThrow(/how the refund is paid/);
-    const walkIn = invoice(null);
-    payments.recordPayment(db, { customerId: null, amountPaise: rupees(4200), method: 'cash', reference: '', receivedOn: today, note: '', allocations: [{ invoiceId: walkIn.id, amountPaise: rupees(4200) }] });
-    const cn = credit(walkIn.id, [{ invoiceLineId: lineId(walkIn, red), qty: 1, restock: true }], { settlement: 'credit', refund: { method: 'cash' } });
-    expect(cn.refunds).toHaveLength(1);
-  });
-
-  it('refunds credit that was being kept, part or all of it', () => {
-    const c = customer();
-    const inv = invoice(c.id);
-    pay(c.id, 4200, inv.id);
-    const cn = credit(inv.id, [{ invoiceLineId: lineId(inv, red), qty: 2, restock: true }]);
-    const part = creditNotes.refundCreditNote(db, cn.id, { method: 'cash', amountPaise: rupees(500) });
-    expect(part).toMatchObject({ heldPaise: rupees(1600), refunds: [{ amountPaise: rupees(500) }] });
-    expect(() => creditNotes.refundCreditNote(db, cn.id, { method: 'cash', amountPaise: rupees(2000) })).toThrow(/Only .* is being kept/);
-    expect(creditNotes.refundCreditNote(db, cn.id, { method: 'cash' }).heldPaise).toBe(0);
-    expect(() => creditNotes.refundCreditNote(db, cn.id, { method: 'cash' })).toThrow(/Nothing is being kept/);
+  it('the credit note is never paid out as money, and the money paid for the rest stays untouched', () => {
+    const inv = sell([{ variantId: cottonId, qty: 4, unitPricePaise: rupees(800) }]);
+    pay(inv.id, rupees(1000));
+    note(inv.id, [{ variantId: cottonId, qty: 1 }]);
+    const after = invoices.getInvoice(db, inv.id);
+    expect(after.paidPaise).toBe(rupees(1840));
+    expect(payments.listPayments(db).filter((p) => p.kind === 'receipt').map((p) => p.amountPaise)).toEqual([rupees(1000)]);
   });
 });
 
-describe('the customer statement', () => {
-  it('still balances: billed less credit notes, payments and write-offs, plus refunds, is outstanding less advance', () => {
-    const c = customer();
-    const a = invoice(c.id);
-    const b = invoice(c.id);
-    pay(c.id, 4200, a.id);
-    credit(a.id, [{ invoiceLineId: lineId(a, red), qty: 2, restock: true }]);
-    const cn2 = credit(b.id, [{ invoiceLineId: lineId(b, blue), qty: 1, restock: true }]);
-    creditNotes.refundCreditNote(db, creditNotes.listCreditNotes(db, { invoiceId: a.id })[0]!.id, { method: 'cash', amountPaise: rupees(300) });
-    const ledger = receivables.customerLedger(db, c.id);
-    const cust = customers.getCustomer(db, c.id);
-    expect(ledger.balancePaise).toBe(cust.outstandingPaise - cust.advancePaise);
-    expect(ledger.entries.at(-1)!.balancePaise).toBe(ledger.balancePaise);
-    expect(ledger).toMatchObject({ creditedPaise: rupees(2100) + cn2.totalPaise, refundedPaise: rupees(300) });
-    expect(ledger.entries.map((e) => e.kind)).toEqual(expect.arrayContaining(['credit-note', 'refund']));
+describe('when the customer has already paid', () => {
+  it('asks what to do with the money, and refunds it out of the chosen account', () => {
+    const inv = sell([{ variantId: cottonId, qty: 2, unitPricePaise: rupees(800) }]); // 1680
+    pay(inv.id, inv.totalPaise);
+    expect(credits.previewCreditNote(db, { invoiceId: inv.id, issueDate: today, reason: 'x', lines: [{ invoiceLineId: lineOf(inv.id, cottonId).id, qty: 1, restock: true }] })).toMatchObject({ totalPaise: rupees(840), appliedPaise: 0, leftoverPaise: rupees(840) });
+    expect(() => note(inv.id, [{ variantId: cottonId, qty: 1 }])).toThrow(/refund the money or keep it as credit/);
+    expect(() => note(inv.id, [{ variantId: cottonId, qty: 1 }], { leftover: 'refund' })).toThrow(/how the refund is being paid/);
+    expect(credits.listCreditNotes(db)).toEqual([]); // the failed attempts left nothing behind
+    expect(stock(cottonId)).toBe(18);
+
+    const cn = note(inv.id, [{ variantId: cottonId, qty: 1 }], { leftover: 'refund', refund: { method: 'cash', accountId: 'cash' } });
+    expect(cn).toMatchObject({ refundedPaise: rupees(840), heldPaise: 0, appliedPaise: 0 });
+    const refund = payments.listPayments(db).find((p) => p.kind === 'refund')!;
+    expect(refund).toMatchObject({ amountPaise: rupees(840), method: 'cash', accountId: 'cash', creditNoteId: cn.id });
+
+    // money out of the cash drawer, and out of the day's cash
+    const cash = accountBook(db, { from: today, to: today }).accounts.find((a) => a.accountId === 'cash')!;
+    expect([cash.inPaise, cash.outPaise, cash.closingPaise]).toEqual([inv.totalPaise, rupees(840), inv.totalPaise - rupees(840)]);
+    const book = dayBook(db, { from: today, to: today }, 'cash');
+    expect(book.entries.map((e) => e.kind)).toEqual(['receipt', 'refund']);
+    expect(book.closingPaise).toBe(inv.totalPaise - rupees(840));
+    // the customer neither owes nor is owed anything
+    expect(customerLedger(db, customerId).balancePaise).toBe(0);
+    expect(customers.getCustomer(db, customerId).advancePaise).toBe(0);
+  });
+
+  it('can instead keep the money as credit for the next purchase', () => {
+    const inv = sell([{ variantId: cottonId, qty: 2, unitPricePaise: rupees(800) }]);
+    pay(inv.id, inv.totalPaise);
+    const cn = note(inv.id, [{ variantId: cottonId, qty: 1 }], { leftover: 'credit' });
+    expect(cn).toMatchObject({ heldPaise: rupees(840), refundedPaise: 0 });
+    expect(customers.getCustomer(db, customerId).advancePaise).toBe(rupees(840));
+    expect(customerLedger(db, customerId).balancePaise).toBe(-rupees(840)); // the shop owes the customer
+
+    // The credit pays for their next invoice like any advance.
+    const next = sell([{ variantId: cottonId, qty: 1, unitPricePaise: rupees(800) }]);
+    expect(payments.applyAdvance(db, customerId, next.id, next.totalPaise)).toBe(rupees(840));
+    expect(invoices.getInvoice(db, next.id).status).toBe('paid');
+    expect(customers.getCustomer(db, customerId).advancePaise).toBe(0);
+  });
+
+  it('a walk-in sale can only be refunded: there is nobody to hold credit for', () => {
+    const inv = sell([{ variantId: cottonId, qty: 1, unitPricePaise: rupees(800) }], { customerId: null, buyerName: 'Anita' });
+    pay(inv.id, inv.totalPaise, null);
+    expect(() => note(inv.id, [{ variantId: cottonId, qty: 1 }], { leftover: 'credit' })).toThrow(/saved customer/);
+    const cn = note(inv.id, [{ variantId: cottonId, qty: 1 }], { leftover: 'refund', refund: { method: 'cash' } });
+    expect(cn.refundedPaise).toBe(inv.totalPaise);
+  });
+
+  it('splits a note between clearing what is owed and refunding the rest', () => {
+    const inv = sell([{ variantId: cottonId, qty: 4, unitPricePaise: rupees(800) }]); // 3360
+    pay(inv.id, rupees(3000)); // 360 still owed
+    const cn = note(inv.id, [{ variantId: cottonId, qty: 1 }], { leftover: 'refund', refund: { method: 'upi' } }); // 840 credit
+    expect(cn).toMatchObject({ appliedPaise: rupees(360), refundedPaise: rupees(480) });
+    expect(invoices.getInvoice(db, inv.id).status).toBe('paid');
   });
 });
 
-describe('cancelling', () => {
-  it('takes the credit back off the invoice and the pieces off the shelf, and shows it on the statement', () => {
-    const c = customer();
-    const inv = invoice(c.id);
-    const cn = credit(inv.id, [{ invoiceLineId: lineId(inv, red), qty: 2, restock: true }]);
-    const gone = creditNotes.cancelCreditNote(db, cn.id, 'Entered by mistake');
-    expect(gone).toMatchObject({ status: 'cancelled', cancelReason: 'Entered by mistake' });
-    expect(stock(red)).toBe(20 - 3);
-    expect(invoices.getInvoice(db, inv.id)).toMatchObject({ paidPaise: 0, creditedPaise: 0 });
-    expect(customers.getCustomer(db, c.id)).toMatchObject({ outstandingPaise: rupees(4200), creditedPaise: 0 });
-    expect(receivables.customerLedger(db, c.id).entries.map((e) => e.kind)).toContain('credit-note-cancelled');
-    // The pieces can be taken back again on a new credit note.
-    expect(credit(inv.id, [{ invoiceLineId: lineId(inv, red), qty: 3, restock: true }]).number.slice(-4)).toBe('0002');
+describe('returns in parts always add up to the invoice', () => {
+  it('a multi-rate invoice with discounts, returned a piece at a time, credits exactly what was charged', () => {
+    saveSettings(db, { roundOff: 'nearest' });
+    const inv = sell(
+      [
+        { variantId: cottonId, qty: 3, unitPricePaise: 77777, discountPaise: 1234 },
+        { variantId: silkId, qty: 2, unitPricePaise: 301333 },
+      ],
+      { discountPaise: 4567 },
+    );
+    pay(inv.id, inv.totalPaise);
+    const totals = { taxable: 0, cgst: 0, sgst: 0, total: 0 };
+    const all_ = [
+      [cottonId, 1], [silkId, 1], [cottonId, 2], [silkId, 1],
+    ] as const;
+    for (const [v, q] of all_) {
+      const cn = note(inv.id, [{ variantId: v, qty: q }], { leftover: 'credit' });
+      totals.taxable += cn.taxablePaise;
+      totals.cgst += cn.cgstPaise;
+      totals.sgst += cn.sgstPaise;
+      totals.total += cn.totalPaise;
+    }
+    // CGST and SGST are each note's tax split in two, so across several notes they can differ from the invoice's own split by a paisa
+    // a note; the tax as a whole, the taxable value and the money never do.
+    expect(totals.taxable).toBe(inv.taxablePaise);
+    expect(totals.total).toBe(inv.totalPaise);
+    expect(totals.cgst + totals.sgst).toBe(inv.cgstPaise + inv.sgstPaise);
+    expect(Math.abs(totals.cgst - inv.cgstPaise)).toBeLessThanOrEqual(all_.length);
+    expect(credits.returnableLines(db, inv.id).every((l) => l.remainingQty === 0)).toBe(true);
+    expect(() => note(inv.id, [{ variantId: cottonId, qty: 1 }], { leftover: 'credit' })).toThrow(/already been taken back in full/);
   });
 
-  it('is refused once money was handed back or the credit went onto another invoice', () => {
-    const c = customer();
-    const inv = invoice(c.id);
-    pay(c.id, 4200, inv.id);
-    const cn = credit(inv.id, [{ invoiceLineId: lineId(inv, red), qty: 2, restock: true }]);
-    invoices.createInvoice(db, { type: 'B2C', customerId: c.id, issueDate: today, dueDate: null, discountPaise: 0, notes: '', lines: [{ variantId: blue, qty: 1, unitPricePaise: rupees(1000) }], applyAdvancePaise: rupees(1050) });
-    expect(() => creditNotes.cancelCreditNote(db, cn.id, '')).toThrow(/was put toward/);
-    creditNotes.refundCreditNote(db, cn.id, { method: 'cash' });
-    expect(() => creditNotes.cancelCreditNote(db, cn.id, '')).toThrow(/Money was handed back/);
+  it('works for prices that include GST, and with the other rounding choices', () => {
+    for (const roundOff of ['up', 'down', 'none'] as const) {
+      saveSettings(db, { pricesIncludeGst: true, roundOff });
+      const inv = sell([{ variantId: cottonId, qty: 3, unitPricePaise: 99999 }, { variantId: silkId, qty: 1, unitPricePaise: 123457 }]);
+      let sum = 0;
+      for (const [v, q] of [[cottonId, 1], [cottonId, 2], [silkId, 1]] as const) sum += note(inv.id, [{ variantId: v, qty: q }], { leftover: 'credit' }).totalPaise;
+      expect(sum).toBe(inv.totalPaise);
+    }
   });
 
-  it('is refused when the pieces it put back have been sold on, and changes nothing', () => {
-    const inv = invoice(null);
-    inventory.adjustStock(db, { variantId: red, delta: -(stock(red) - 1), reason: 'adjustment', note: '' });
-    const cn = credit(inv.id, [{ invoiceLineId: lineId(inv, red), qty: 3, restock: true }]);
-    inventory.adjustStock(db, { variantId: red, delta: -stock(red), reason: 'adjustment', note: '' });
-    expect(() => creditNotes.cancelCreditNote(db, cn.id, '')).toThrow(/Not enough stock/);
-    expect(creditNotes.getCreditNote(db, cn.id).status).toBe('issued');
-  });
-
-  it('stops an invoice being cancelled while it has a credit note', () => {
-    const inv = invoice(null);
-    const cn = credit(inv.id, [{ invoiceLineId: lineId(inv, red), qty: 1, restock: true }]);
-    expect(() => invoices.cancelInvoice(db, inv.id, '')).toThrow(/Cancel it first/);
-    creditNotes.cancelCreditNote(db, cn.id, '');
-    expect(invoices.cancelInvoice(db, inv.id, '').status).toBe('cancelled');
-  });
-});
-
-describe('rules', () => {
-  it('needs items, a reason, a date that makes sense, and refuses dates before the invoice or in the future', () => {
-    const inv = invoice(null);
-    const l = lineId(inv, red);
-    expect(() => credit(inv.id, [])).toThrow(/at least one item/);
-    expect(() => credit(inv.id, [{ invoiceLineId: l, qty: 1, restock: true }], { reason: '' })).toThrow(/why the goods/);
-    expect(() => credit(inv.id, [{ invoiceLineId: l, qty: 1, restock: true }], { issueDate: addDays(today, 2) })).toThrow(/not in the future/);
-    const old = invoice(null, { issueDate: addDays(today, -5) });
-    expect(() => credit(old.id, [{ invoiceLineId: lineId(old, red), qty: 1, restock: true }], { issueDate: addDays(today, -9) })).toThrow(/before the invoice/);
-  });
-
-  it('lists credit notes by customer, invoice and search', () => {
-    const c = customer();
-    const a = invoice(c.id);
-    const b = invoice(null);
-    credit(a.id, [{ invoiceLineId: lineId(a, red), qty: 1, restock: true }]);
-    credit(b.id, [{ invoiceLineId: lineId(b, red), qty: 1, restock: true }]);
-    expect(creditNotes.listCreditNotes(db)).toHaveLength(2);
-    expect(creditNotes.listCreditNotes(db, { customerId: c.id })).toHaveLength(1);
-    expect(creditNotes.listCreditNotes(db, { invoiceId: b.id })).toHaveLength(1);
-    expect(creditNotes.listCreditNotes(db, { search: 'sunita' })).toHaveLength(1);
+  it('a note for the whole invoice is worth exactly the invoice, round-off and all', () => {
+    const inv = sell([{ variantId: cottonId, qty: 1, unitPricePaise: 77777 }]);
+    const cn = note(inv.id, [{ variantId: cottonId, qty: 1 }]);
+    expect(cn.totalPaise).toBe(inv.totalPaise);
+    expect(cn.roundOffPaise).toBe(inv.roundOffPaise);
+    expect(invoices.getInvoice(db, inv.id).status).toBe('paid'); // nothing owed any more
   });
 });
 
-describe('reports', () => {
-  const range = { from: addDays(today, -30), to: today };
-
-  it('shows credit notes in the sales report and takes returned goods out of profit', () => {
-    const inv = invoice(null); // 4 pieces, ₹4,000 taxable, cost ₹400 each
-    const before = reports.salesReport(db, range);
-    expect(before.grossProfitPaise).toBe(rupees(4000) - rupees(1600));
-    credit(inv.id, [{ invoiceLineId: lineId(inv, red), qty: 2, restock: true }]); // goes back on the shelf: cost returns too
-    credit(inv.id, [{ invoiceLineId: lineId(inv, blue), qty: 1, restock: false }]); // damaged: the cost is lost
-    const r = reports.salesReport(db, range);
-    expect(r).toMatchObject({ invoicedPaise: rupees(4200), creditNoteCount: 2, creditedPaise: rupees(3150), creditedTaxablePaise: rupees(3000), netInvoicedPaise: rupees(1050) });
-    // Sales fell by ₹3,000. The two returned reds give back their ₹800 cost; the damaged blue does not.
-    expect(r.grossProfitPaise).toBe(rupees(4000) - rupees(1600) - (rupees(2000) - rupees(800)) - rupees(1000));
-    expect(salesCsv(r)).toContain('Credit notes (goods taken back),3150.00');
+describe('what a credit note will not do', () => {
+  it('refuses bad input in plain words', () => {
+    const inv = sell([{ variantId: cottonId, qty: 2, unitPricePaise: rupees(800) }]);
+    const id = lineOf(inv.id, cottonId).id;
+    const base: CreditNoteInput = { invoiceId: inv.id, issueDate: today, reason: 'Returned', lines: [{ invoiceLineId: id, qty: 1, restock: true }] };
+    expect(() => credits.createCreditNote(db, { ...base, reason: ' ' })).toThrow(/reason is required/i);
+    expect(() => credits.createCreditNote(db, { ...base, lines: [] })).toThrow(/at least one item/);
+    expect(() => credits.createCreditNote(db, { ...base, lines: [{ invoiceLineId: id, qty: 3, restock: true }] })).toThrow(/Only 2 of/);
+    expect(() => credits.createCreditNote(db, { ...base, lines: [{ invoiceLineId: id, qty: 0, restock: true }] })).toThrow(/1 or more/);
+    expect(() => credits.createCreditNote(db, { ...base, lines: [{ invoiceLineId: id, qty: 1, restock: true }, { invoiceLineId: id, qty: 1, restock: true }] })).toThrow(/listed twice/);
+    expect(() => credits.createCreditNote(db, { ...base, lines: [{ invoiceLineId: 'nope', qty: 1, restock: true }] })).toThrow(/not on/);
+    expect(() => credits.createCreditNote(db, { ...base, issueDate: '2999-01-01' })).toThrow(/future/);
+    expect(() => credits.createCreditNote(db, { ...base, issueDate: '2020-01-01' })).toThrow(/before the invoice/);
+    expect(() => credits.createCreditNote(db, { ...base, invoiceId: 'nope' })).toThrow(/no longer exists/);
+    expect(credits.listCreditNotes(db)).toEqual([]);
   });
 
-  it('lists credit notes in the GST report with a row for each rate, and works out the tax due after them', () => {
-    const c = customers.createCustomer(db, { name: 'Biz Ltd', type: 'B2B', phone: '', email: '', gstin: '27AAPFU0939F1ZV', address: '', city: 'Mumbai', state: 'Maharashtra', pincode: '', notes: '' });
-    const inv = invoice(c.id, { type: 'B2B', lines: [{ variantId: red, qty: 1, unitPricePaise: rupees(1000), ratePercent: 12 }, { variantId: blue, qty: 1, unitPricePaise: rupees(1000), ratePercent: 5 }] });
-    const cn = credit(inv.id, [{ invoiceLineId: lineId(inv, red), qty: 1, restock: true }]);
-    const g = reports.gstReport(db, range);
-    expect(g.totals.taxPaise).toBe(rupees(120) + rupees(50));
-    expect(g.creditNotes).toMatchObject({ invoices: 1, taxablePaise: rupees(1000), taxPaise: rupees(120), invoiceValuePaise: cn.totalPaise });
-    expect(g.netTotals).toMatchObject({ taxablePaise: rupees(1000), taxPaise: rupees(50) });
-    expect(g.creditRegister).toEqual([expect.objectContaining({ number: cn.number, invoiceNumber: inv.number, gstin: '27AAPFU0939F1ZV', type: 'B2B', placeOfSupply: 'Maharashtra', ratePercent: 12, taxablePaise: rupees(1000), cgstPaise: 0, sgstPaise: 0, igstPaise: rupees(120), totalPaise: cn.totalPaise })]);
-    expect(gstCreditCsv(g)).toContain(`${cn.number},${today},${inv.number}`);
-    expect(gstCsv(g)).toContain('Tax due after credit notes,50.00');
-    // A cancelled credit note is not counted.
-    creditNotes.cancelCreditNote(db, cn.id, '');
-    expect(reports.gstReport(db, range).creditRegister).toHaveLength(0);
-    expect(reports.gstReport(db, range).netTotals.taxPaise).toBe(rupees(170));
+  it('does not credit a cancelled invoice, and an invoice with credit notes can no longer be cancelled', () => {
+    const a = sell([{ variantId: cottonId, qty: 1, unitPricePaise: rupees(800) }]);
+    invoices.cancelInvoice(db, a.id, 'wrong');
+    expect(() => note(a.id, [{ variantId: cottonId, qty: 1 }])).toThrow(/cancelled/);
+    const b = sell([{ variantId: cottonId, qty: 2, unitPricePaise: rupees(800) }]);
+    const cn = note(b.id, [{ variantId: cottonId, qty: 1 }]);
+    expect(() => invoices.cancelInvoice(db, b.id, 'oops')).toThrow(/credit notes against it/);
+    expect(() => invoices.cancelInvoice(db, b.id, 'oops')).toThrow(cn.number);
+  });
+
+  it('cannot be undone by reversing the credit it created', () => {
+    const inv = sell([{ variantId: cottonId, qty: 2, unitPricePaise: rupees(800) }]);
+    note(inv.id, [{ variantId: cottonId, qty: 1 }]);
+    const credit = payments.listPayments(db).find((p) => p.kind === 'credit')!;
+    expect(() => payments.voidPayment(db, credit.id, 'mistake')).toThrow(/cannot be undone/);
+  });
+});
+
+describe('refunding money a customer is holding', () => {
+  it('hands back an advance, oldest first, and can be reversed', () => {
+    payments.recordPayment(db, { customerId, amountPaise: rupees(1000), method: 'upi', reference: '', receivedOn: today, note: '', allocations: [] });
+    payments.recordPayment(db, { customerId, amountPaise: rupees(500), method: 'cash', reference: '', receivedOn: today, note: '', allocations: [] });
+    expect(customers.getCustomer(db, customerId).advancePaise).toBe(rupees(1500));
+
+    const made = payments.refundAdvance(db, { customerId, amountPaise: rupees(1200), method: 'bank', date: today, accountId: 'cash', note: 'changed her mind' });
+    expect(made.map((p) => p.amountPaise)).toEqual([rupees(1000), rupees(200)]); // oldest money first
+    expect(made.every((p) => p.kind === 'refund' && !!p.refundOf)).toBe(true);
+    expect(customers.getCustomer(db, customerId).advancePaise).toBe(rupees(300));
+    expect(payments.advanceHeld(db, customerId)).toBe(rupees(300));
+
+    // a payment with part of it refunded cannot be reversed until the refund is
+    const first = payments.getPayment(db, made[0]!.refundOf!);
+    expect(first.refundedPaise).toBe(rupees(1000));
+    expect(() => payments.voidPayment(db, first.id, 'x')).toThrow(/Reverse the refund first/);
+
+    payments.voidPayment(db, made[1]!.id, 'entered twice');
+    expect(customers.getCustomer(db, customerId).advancePaise).toBe(rupees(500));
+  });
+
+  it('refuses more than is held, nothing held, and a walk-in', () => {
+    expect(() => payments.refundAdvance(db, { customerId, amountPaise: 100, method: 'cash', date: today })).toThrow(/not holding any/);
+    payments.recordPayment(db, { customerId, amountPaise: rupees(100), method: 'cash', reference: '', receivedOn: today, note: '', allocations: [] });
+    expect(() => payments.refundAdvance(db, { customerId, amountPaise: rupees(101), method: 'cash', date: today })).toThrow(/holding ₹100/);
+    expect(() => payments.refundAdvance(db, { customerId: 'nobody', amountPaise: 100, method: 'cash', date: today })).toThrow(/no longer exists/);
+  });
+});
+
+describe('credit notes in the books', () => {
+  it('come off sales, profit, GST and the register, with a register of their own', () => {
+    const inv = sell([{ variantId: cottonId, qty: 4, unitPricePaise: rupees(800) }, { variantId: silkId, qty: 2, unitPricePaise: rupees(3000) }]);
+    const cn = note(inv.id, [{ variantId: cottonId, qty: 1 }, { variantId: silkId, qty: 1 }]);
+    const range = { from: today, to: today };
+
+    const sales = salesReport(db, range);
+    expect(sales).toMatchObject({ creditNoteCount: 1, creditNotePaise: cn.totalPaise, invoicedPaise: inv.totalPaise - cn.totalPaise, taxablePaise: inv.taxablePaise - cn.taxablePaise, piecesSold: 6 - 2 });
+    // profit: taxable less the cost of what was kept (3 cotton at 300, 1 silk at 1500)
+    expect(sales.grossProfitPaise).toBe(sales.taxablePaise - (3 * rupees(300) + rupees(1500)));
+    expect(sales.series.reduce((s, p) => s + p.invoicedPaise, 0)).toBe(inv.totalPaise - cn.totalPaise);
+
+    const gst = gstReport(db, range);
+    const tax = (i: { cgstPaise: number; sgstPaise: number }) => i.cgstPaise + i.sgstPaise;
+    expect(gst.totals.taxablePaise).toBe(inv.taxablePaise - cn.taxablePaise);
+    expect(gst.totals.taxPaise).toBe(tax(inv) - tax(cn));
+    expect(gst.totals.invoiceValuePaise).toBe(inv.totalPaise - cn.totalPaise);
+    expect(gst.credits).toMatchObject({ count: 1, taxablePaise: cn.taxablePaise, taxPaise: tax(cn), valuePaise: cn.totalPaise });
+    expect(gst.hsn.reduce((s, h) => s + h.taxablePaise, 0)).toBe(gst.totals.taxablePaise);
+    expect(gst.hsn.reduce((s, h) => s + h.taxPaise, 0)).toBe(gst.totals.taxPaise);
+    expect(gst.b2cByState.reduce((s, r) => s + r.taxablePaise, 0)).toBe(gst.totals.taxablePaise);
+    expect(gst.creditNoteRegister.map((r) => [r.number, r.invoiceNumber, r.ratePercent, r.totalPaise])).toEqual([
+      [cn.number, inv.number, 5, cn.totalPaise],
+      [cn.number, inv.number, 18, 0],
+    ]);
+  });
+
+  it('show on the customer ledger and the day book', () => {
+    const inv = sell([{ variantId: cottonId, qty: 2, unitPricePaise: rupees(800) }]);
+    const cn = note(inv.id, [{ variantId: cottonId, qty: 1 }]);
+    const ledger = customerLedger(db, customerId);
+    expect(ledger.entries.map((e) => e.kind)).toEqual(['invoice', 'credit-note']);
+    expect(ledger).toMatchObject({ billedPaise: inv.totalPaise, creditedPaise: cn.totalPaise, balancePaise: inv.totalPaise - cn.totalPaise });
+    expect(ledger.entries[1]!.description).toContain(cn.number);
+
+    const book = dayBook(db, { from: today, to: today }, 'all');
+    expect(book.entries.map((e) => e.kind)).toEqual(['sale', 'credit-note']);
+    expect(book.invoicedPaise).toBe(inv.totalPaise - cn.totalPaise);
+  });
+
+  it('go through the typed API and are written to the activity log', async () => {
+    const api = createApi(db);
+    const inv = sell([{ variantId: cottonId, qty: 2, unitPricePaise: rupees(800) }]);
+    const returnable = await api.creditNoteReturnable(inv.id);
+    expect(returnable[0]).toMatchObject({ qty: 2, creditedQty: 0, remainingQty: 2, ratePercent: 5 });
+    const made = await api.creditNoteCreate({ invoiceId: inv.id, issueDate: today, reason: 'Wrong colour', lines: [{ invoiceLineId: returnable[0]!.invoiceLineId, qty: 1, restock: true }] });
+    expect((await api.creditNoteGet(made.id)).number).toBe(made.number);
+    expect((await api.creditNotesList({ invoiceId: inv.id })).map((c) => c.number)).toEqual([made.number]);
+    expect((await api.creditNotesList({ search: 'wrong colour' })).length).toBe(1);
+    expect((await api.auditList())[0]).toMatchObject({ label: 'Issued a credit note', entityType: 'invoice', entityId: inv.id });
+    await expect(api.creditNotePrint(made.id)).rejects.toThrow(/desktop app/);
+  });
+});
+
+describe('older books', () => {
+  it('credits an invoice made before lines kept their own tax, using the invoice\'s figures', () => {
+    const old = new DatabaseSync(':memory:');
+    old.exec('PRAGMA foreign_keys = ON');
+    migrate(old, 14);
+    const t = '2026-09-01T10:00:00.000Z';
+    old.exec(`
+      INSERT INTO designs (id, code, name, hsn_code, created_at, updated_at) VALUES ('d1', 'MG-001', 'Butidar', '5007', '${t}', '${t}');
+      INSERT INTO variants (id, design_id, sku, color, size, stock, created_at, updated_at) VALUES ('v1', 'd1', 'MG-001-RED', 'Red', '6 m', 5, '${t}', '${t}');
+      INSERT INTO invoices (id, number, fy, seq, type, seller_json, buyer_json, place_of_supply, issue_date, gst_rate_percent, intra_state, subtotal_paise, discount_paise, taxable_paise, cgst_paise, sgst_paise, round_off_paise, total_paise, created_at, updated_at)
+        VALUES ('i1', 'MG/2026-27/0001', '2026-27', 1, 'B2C', '{}', '{"name":"Sunita","gstin":""}', 'Uttar Pradesh', '2026-09-01', 12, 1, 300000, 0, 300000, 18000, 18000, 0, 336000, '${t}', '${t}');
+      INSERT INTO invoice_lines (id, invoice_id, variant_id, position, design_name, color, size, sku, hsn, qty, unit_price_paise, amount_paise, unit_cost_paise, gst_rate_percent)
+        VALUES ('l1', 'i1', 'v1', 0, 'Butidar', 'Red', '6 m', 'MG-001-RED', '5007', 3, 100000, 300000, 40000, 12);
+    `);
+    migrate(old);
+    const book = old as unknown as Db;
+    const cn = credits.createCreditNote(book, { invoiceId: 'i1', issueDate: '2026-09-02', reason: 'Returned', lines: [{ invoiceLineId: 'l1', qty: 1, restock: true }] });
+    expect(cn).toMatchObject({ taxablePaise: 100000, cgstPaise: 6000, sgstPaise: 6000, totalPaise: 112000, appliedPaise: 112000 });
+    expect(inventory.getVariant(book, 'v1').stock).toBe(6);
+    const rest = credits.createCreditNote(book, { invoiceId: 'i1', issueDate: '2026-09-02', reason: 'Returned', lines: [{ invoiceLineId: 'l1', qty: 2, restock: true }] });
+    expect(cn.totalPaise + rest.totalPaise).toBe(336000);
+  });
+
+  it('keeps every payment, allocation and kind when the payments table is rebuilt', () => {
+    const old = new DatabaseSync(':memory:');
+    old.exec('PRAGMA foreign_keys = ON');
+    migrate(old, 14);
+    const t = '2026-09-01T10:00:00.000Z';
+    old.exec(`
+      INSERT INTO customers (id, name, type, created_at, updated_at) VALUES ('c1', 'Sunita', 'B2C', '${t}', '${t}');
+      INSERT INTO invoices (id, number, fy, seq, type, customer_id, seller_json, buyer_json, place_of_supply, issue_date, gst_rate_percent, intra_state, subtotal_paise, taxable_paise, total_paise, created_at, updated_at)
+        VALUES ('i1', 'MG/2026-27/0001', '2026-27', 1, 'B2C', 'c1', '{}', '{}', 'UP', '2026-09-01', 5, 1, 100000, 100000, 105000, '${t}', '${t}');
+      INSERT INTO payments (id, customer_id, amount_paise, method, received_on, kind, account_id, created_at, updated_at, cheque_date, cheque_status)
+        VALUES ('p1', 'c1', 60000, 'cheque', '2026-09-01', 'receipt', 'bank', '${t}', '${t}', '2026-09-05', 'pending'),
+               ('p2', 'c1', 5000, 'other', '2026-09-01', 'writeoff', '', '${t}', '${t}', NULL, NULL);
+      INSERT INTO payment_allocations (id, payment_id, invoice_id, amount_paise, created_at) VALUES ('a1', 'p1', 'i1', 60000, '${t}'), ('a2', 'p2', 'i1', 5000, '${t}');
+    `);
+    migrate(old);
+    expect((old.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(LATEST_SCHEMA_VERSION);
+    expect(old.prepare('SELECT id, kind, amount_paise, account_id, cheque_status, credit_note_id, refund_of FROM payments ORDER BY id').all().map((r) => ({ ...r }))).toEqual([
+      { id: 'p1', kind: 'receipt', amount_paise: 60000, account_id: 'bank', cheque_status: 'pending', credit_note_id: null, refund_of: null },
+      { id: 'p2', kind: 'writeoff', amount_paise: 5000, account_id: '', cheque_status: null, credit_note_id: null, refund_of: null },
+    ]);
+    expect(old.prepare('SELECT COUNT(*) AS n FROM payment_allocations').get()).toEqual({ n: 2 });
+    expect(old.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    // the new kinds are accepted, and an unknown one still is not
+    old.exec(`INSERT INTO payments (id, amount_paise, method, received_on, kind, created_at, updated_at) VALUES ('p3', 100, 'cash', '2026-09-02', 'refund', '${t}', '${t}')`);
+    expect(() => old.exec(`INSERT INTO payments (id, amount_paise, method, received_on, kind, created_at, updated_at) VALUES ('p4', 100, 'cash', '2026-09-02', 'gift', '${t}', '${t}')`)).toThrow();
+    // the payments an allocation points at are still found (the foreign key survived the swap)
+    expect(() => old.exec(`INSERT INTO payment_allocations (id, payment_id, invoice_id, amount_paise, created_at) VALUES ('a9', 'ghost', 'i1', 1, '${t}')`)).toThrow();
   });
 });

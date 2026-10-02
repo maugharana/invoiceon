@@ -1,4 +1,4 @@
-import { Archive, ArrowLeft, Download, FileText, HandCoins, Pencil, Plus, Printer, ScrollText } from 'lucide-react';
+import { Archive, ArrowLeft, Download, FileText, HandCoins, Pencil, Plus, Printer, ScrollText, Undo2 } from 'lucide-react';
 import { useState } from 'react';
 import { formatDate, todayIso } from '../../../shared/gst';
 import { formatMoney } from '../../../shared/money';
@@ -6,7 +6,6 @@ import { occasionLabel, upcomingOccasions } from '../../../shared/occasions';
 import { Menu } from '../../components/Menu';
 import { ConfirmDialog } from '../../components/Modal';
 import { NotesPanel } from '../../components/NotesPanel';
-import { LoyaltyCard, WishlistCard } from './CustomerExtras';
 import { TagChips } from '../../components/TagInput';
 import { useToast } from '../../components/Toast';
 import { Button, Card, EmptyState, ErrorNote, Figure, InvoicePill, Money, PageHeader, Spinner, TypePill } from '../../components/ui';
@@ -17,7 +16,9 @@ import { useRecent } from '../../lib/recent';
 import { plural } from '../../lib/format';
 import { navigate, paths } from '../../lib/router';
 import { RecordPaymentModal } from '../payments/RecordPaymentModal';
+import { RefundModal } from '../payments/RefundModal';
 import { CustomerFormModal } from './CustomerFormModal';
+import { LoyaltyCard, WishlistCard } from './CustomerExtras';
 
 export function CustomerPage({ id }: { id: string }) {
   const toast = useToast();
@@ -26,7 +27,7 @@ export function CustomerPage({ id }: { id: string }) {
   const ledger = useQuery(() => api.customerLedger(id), [id]);
   const invoices = useQuery(() => api.invoicesList({ customerId: id }), [id]);
   const purchases = useQuery(() => api.customerPurchases(id), [id]);
-  const [dialog, setDialog] = useState<'edit' | 'archive' | 'pay' | null>(null);
+  const [dialog, setDialog] = useState<'edit' | 'archive' | 'pay' | 'refund' | null>(null);
   const c = customer.data;
   const docs = useDocumentOutput();
   useRecent(c ? { kind: 'customer', id: c.id, title: c.name, hint: [c.phone, c.city].filter(Boolean).join(' · ') } : null);
@@ -85,6 +86,11 @@ export function CustomerPage({ id }: { id: string }) {
             <Button icon={<HandCoins className="h-4 w-4" />} onClick={() => setDialog('pay')}>
               Record payment
             </Button>
+            {c.advancePaise > 0 && (
+              <Button icon={<Undo2 className="h-4 w-4" />} onClick={() => setDialog('refund')} title="Give back advance or credit this customer is holding">
+                Refund
+              </Button>
+            )}
             <Button icon={<Pencil className="h-4 w-4" />} onClick={() => setDialog('edit')}>
               Edit
             </Button>
@@ -102,7 +108,18 @@ export function CustomerPage({ id }: { id: string }) {
         <Figure label="Total billed" sub="Excludes cancelled">
           <Money paise={c.billedPaise} fractionDigits={0} />
         </Figure>
-        <Figure label="Received" sub={[ledger.data && ledger.data.writtenOffPaise > 0 ? `Plus ${formatMoney(ledger.data.writtenOffPaise, { fractionDigits: 0 })} written off` : '', ledger.data && ledger.data.creditedPaise > 0 ? `${formatMoney(ledger.data.creditedPaise, { fractionDigits: 0 })} in credit notes` : ''].filter(Boolean).join(' · ') || undefined}>
+        <Figure
+          label="Received"
+          sub={
+            ledger.data
+              ? [
+                  ledger.data.writtenOffPaise > 0 && `${formatMoney(ledger.data.writtenOffPaise, { fractionDigits: 0 })} written off`,
+                  ledger.data.creditedPaise > 0 && `${formatMoney(ledger.data.creditedPaise, { fractionDigits: 0 })} credit notes`,
+                  ledger.data.refundedPaise > 0 && `${formatMoney(ledger.data.refundedPaise, { fractionDigits: 0 })} refunded`,
+                ].filter(Boolean).join(' · ') || undefined
+              : undefined
+          }
+        >
           <Money paise={received} fractionDigits={0} />
         </Figure>
         <Figure label="Invoices">{c.invoiceCount}</Figure>
@@ -171,7 +188,7 @@ export function CustomerPage({ id }: { id: string }) {
             </thead>
             <tbody>
               {ledger.data?.entries.map((e, i) => {
-                const reversal = e.kind === 'invoice-cancelled' || e.kind === 'payment-voided' || e.kind === 'credit-note-cancelled';
+                const reversal = e.kind === 'invoice-cancelled' || e.kind === 'payment-voided' || e.kind === 'refund-voided';
                 const link = e.invoiceId;
                 return (
                   <tr
@@ -273,6 +290,7 @@ export function CustomerPage({ id }: { id: string }) {
       </Card>
 
       {dialog === 'pay' && <RecordPaymentModal customer={c} onClose={() => setDialog(null)} />}
+      {dialog === 'refund' && <RefundModal customer={c} onClose={() => setDialog(null)} />}
       {dialog === 'edit' && <CustomerFormModal customer={c} onClose={() => setDialog(null)} onSaved={() => setDialog(null)} />}
       {dialog === 'archive' && (
         <ConfirmDialog
