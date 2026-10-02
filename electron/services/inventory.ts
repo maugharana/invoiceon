@@ -576,6 +576,18 @@ export function bulkAddSarees(db: Db, rows: BulkSareeRow[]): BulkAddResult {
   return { errors: [], designsCreated, designsExtended, variantsCreated };
 }
 
+/**
+ * Adds one saree on the spot (from the invoice screen) and returns the id of the piece it made. It is the Add sarees sheet with a
+ * single row, so every check and rule is the same: a name that matches a design adds a colour or size to it.
+ */
+export function quickAddSaree(db: Db, row: BulkSareeRow): string {
+  const result = bulkAddSarees(db, [row]);
+  if (result.errors[0]) throw new UserError(result.errors[0].message);
+  const made = get<{ id: string }>(db, 'SELECT id FROM variants WHERE deleted_at IS NULL ORDER BY created_at DESC, rowid DESC LIMIT 1');
+  if (!made) throw new UserError('The item could not be added. Try again.');
+  return made.id;
+}
+
 export function archiveVariant(db: Db, id: string): void {
   getVariant(db, id);
   run(db, 'UPDATE variants SET deleted_at = ?, updated_at = ? WHERE id = ?', nowIso(), nowIso(), id);

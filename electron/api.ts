@@ -120,6 +120,12 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
     designArchive: async (id) => inventory.archiveDesign(db, id),
 
     inventoryBulkAdd: async (rows) => inventory.bulkAddSarees(db, rows),
+    inventoryQuickAdd: async (row) => {
+      const id = inventory.quickAddSaree(db, row);
+      const made = invoices.variantsForSale(db).find((v) => v.variantId === id);
+      if (!made) throw new UserError('The item was added but could not be loaded. Reopen the invoice screen.');
+      return made;
+    },
     variantCreate: async (designId, input) => inventory.createVariant(db, designId, input),
     variantUpdate: async (id, input) => inventory.updateVariant(db, id, input),
     variantRestore: async (id) => inventory.restoreVariant(db, id),

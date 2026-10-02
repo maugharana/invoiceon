@@ -148,6 +148,8 @@ export interface Api {
 
   /** Adds many sarees at once. All or nothing: if any row has a problem, none are added and the problems come back per row. */
   inventoryBulkAdd(rows: BulkSareeRow[]): Promise<BulkAddResult>;
+  /** Adds one saree to the inventory from the invoice screen and returns it ready to put on the invoice. Same rules as the Add sarees sheet. */
+  inventoryQuickAdd(row: BulkSareeRow): Promise<SaleVariant>;
   variantCreate(designId: string, input: VariantInput): Promise<Variant>;
   variantUpdate(id: string, input: VariantInput): Promise<Variant>;
   variantArchive(id: string): Promise<void>;

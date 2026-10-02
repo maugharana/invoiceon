@@ -50,6 +50,7 @@ const RULES: Record<string, Rule> = {
   designRestore: { label: 'Brought a design back', entity: 'design', summary: (_a, r) => join(r?.code, r?.name) },
   designsBulk: { label: 'Changed several designs', entity: 'design', id: () => '', summary: (a, r) => join(a[0]?.kind, `${r?.designs ?? 0} designs`) },
   inventoryBulkAdd: { label: 'Added sarees from a sheet', entity: 'design', id: () => '', summary: (_a, r) => join(`${r?.designsCreated ?? 0} new designs`, `${r?.variantsCreated ?? 0} pieces`) },
+  inventoryQuickAdd: { label: 'Added a saree while invoicing', entity: 'design', id: (_a, r) => r?.designId ?? '', summary: (_a, r) => join(r?.designName, r?.sku) },
   variantCreate: { label: 'Added a colour and size', entity: 'design', id: (_a, r) => r?.designId ?? '', summary: (_a, r) => join(r?.sku) },
   variantUpdate: { label: 'Changed a colour and size', entity: 'design', id: (_a, r) => r?.designId ?? '', summary: (_a, r) => join(r?.sku) },
   variantArchive: { label: 'Archived a colour and size', entity: 'variant', id: arg0Id },

@@ -176,6 +176,10 @@ The period lives in the URL, so switching tabs keeps it.
 - Rows with the same normalised name (case and spacing ignored) form one design; a name matching an existing design extends it; two existing designs with one name are refused rather than guessed at.
 - **MRP** is a new optional field on each variant (migration 5; `0` means not set). It is stored and shown, and is not used in invoice maths: prices stay GST-exclusive (SP), MRP is the printed GST-inclusive price.
 
+## Adding a saree while invoicing
+
+On the New invoice and New proforma screens, the item box ends with **Not in inventory? Add “…”**. It opens a small dialog (`QuickAddItemModal.tsx`) for name, colour, size, selling price and pieces in stock, with MRP, cost, fabric, HSN, short name and Saree ID under "Other details". Saving calls `inventoryQuickAdd`, which is the Add sarees sheet with one row (`quickAddSaree` in `electron/services/inventory.ts`), so the same checks apply: a name that matches a design adds a colour or size to it, and a piece that already exists is refused. The piece is received as *opening* stock, then put on the invoice; issuing takes it out as a normal *sale*, so the stock ledger shows both. On a proforma the pieces default to 0, because a quote takes no stock.
+
 ## Customers, quotes, money, materials and the shell (stages 8–15)
 
 Migrations 8 to 13. Each has an upgrade test (`tests/upgrade.test.ts`) that builds a populated book at the previous version, upgrades it, and checks the backfills.

@@ -15,6 +15,7 @@ import { toNumber } from '../../lib/format';
 import { navigate, paths, type AdvancePreset } from '../../lib/router';
 import { CustomerFormModal } from '../customers/CustomerFormModal';
 import { HeldListModal, HoldModal } from './HeldBills';
+import { QuickAddItemModal } from './QuickAddItemModal';
 import { ShipToCard } from './ShipToCard';
 
 interface Line {
@@ -140,7 +141,7 @@ function CustomerPicker({ customers, type, value, onChange, onCreate }: { custom
 }
 
 // ── Item picker ─────────────────────────────────────────────────────────────
-function ItemPicker({ variants, taken, onPick, allowOutOfStock = false }: { variants: SaleVariant[]; taken: Set<string>; onPick: (v: SaleVariant) => void; allowOutOfStock?: boolean }) {
+function ItemPicker({ variants, taken, onPick, onCreate, allowOutOfStock = false }: { variants: SaleVariant[]; taken: Set<string>; onPick: (v: SaleVariant) => void; onCreate: (name: string) => void; allowOutOfStock?: boolean }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -153,6 +154,13 @@ function ItemPicker({ variants, taken, onPick, allowOutOfStock = false }: { vari
     setQ('');
     setActive(0);
     setOpen(false); // typing (or clicking back in) reopens the list
+  };
+
+  const create = () => {
+    onCreate(q);
+    setQ('');
+    setActive(0);
+    setOpen(false);
   };
 
   return (
@@ -174,7 +182,7 @@ function ItemPicker({ variants, taken, onPick, allowOutOfStock = false }: { vari
         onKeyDown={(e) => {
           if (e.key === 'ArrowDown') {
             e.preventDefault();
-            setActive((a) => Math.min(a + 1, results.length - 1));
+            setActive((a) => Math.min(a + 1, results.length));
           } else if (e.key === 'ArrowUp') {
             e.preventDefault();
             setActive((a) => Math.max(a - 1, 0));
@@ -182,6 +190,7 @@ function ItemPicker({ variants, taken, onPick, allowOutOfStock = false }: { vari
             e.preventDefault();
             const v = results[active];
             if (v) pick(v);
+            else if (active === results.length) create();
           } else if (e.key === 'Escape') setOpen(false);
         }}
         className="h-9 w-full rounded-lg border border-dashed border-line bg-surface pl-9 pr-3 text-sm transition-[border-color,box-shadow] duration-150 placeholder:text-ink-muted/60 hover:border-ink/25 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/15"
@@ -214,6 +223,11 @@ function ItemPicker({ variants, taken, onPick, allowOutOfStock = false }: { vari
               </li>
             );
           })}
+          <li>
+            <button type="button" onClick={create} onMouseEnter={() => setActive(results.length)} className={`flex w-full items-center gap-2 border-t border-line px-3 py-2 text-left text-brand ${active === results.length ? 'bg-brand-tint' : ''}`}>
+              <Plus className="h-4 w-4" aria-hidden /> Not in inventory? Add{q.trim() ? ` “${q.trim()}”` : ' a new item'}
+            </button>
+          </li>
         </ul>
       )}
     </div>
@@ -243,6 +257,10 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
   const [transport, setTransport] = useState('');
   const [trackingNo, setTrackingNo] = useState('');
   const [lines, setLines] = useState<Line[]>([]);
+  /** The text typed in the item box when "add to inventory" was chosen; null when the dialog is closed. */
+  const [addingItem, setAddingItem] = useState<string | null>(null);
+  /** Items added to the inventory from this screen, kept here until the list of items has loaded them. */
+  const [justAdded, setJustAdded] = useState<SaleVariant[]>([]);
   /** Items whose discount / GST / note boxes are open. Ones that already have something typed open by themselves. */
   const [openMore, setMore] = useState<Set<string>>(new Set());
   const more = useMemo(() => new Set([...openMore, ...lines.filter((l) => l.discount > 0 || l.rate !== '' || l.note !== '').map((l) => l.variantId)]), [openMore, lines]);
@@ -335,7 +353,12 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
   const editing = source.data && editId ? source.data : null;
 
   const customer = customers.data?.find((c) => c.id === customerId) ?? null;
-  const variantById = useMemo(() => new Map((variants.data ?? []).map((v) => [v.variantId, v])), [variants.data]);
+  const sellable = useMemo(() => {
+    const loaded = variants.data ?? [];
+    const have = new Set(loaded.map((v) => v.variantId));
+    return [...loaded, ...justAdded.filter((v) => !have.has(v.variantId))];
+  }, [variants.data, justAdded]);
+  const variantById = useMemo(() => new Map(sellable.map((v) => [v.variantId, v])), [sellable]);
 
   // When arriving from a customer's page, follow their usual billing type once their record loads.
   const presetApplied = useRef(false);
@@ -690,7 +713,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
               </table>
             )}
             <div className="p-4">
-              <ItemPicker variants={variants.data ?? []} taken={new Set(lines.map((l) => l.variantId))} onPick={addVariant} allowOutOfStock={quote} />
+              <ItemPicker variants={sellable} taken={new Set(lines.map((l) => l.variantId))} onPick={addVariant} onCreate={(name) => setAddingItem(name)} allowOutOfStock={quote} />
               {variants.data?.length === 0 && <p className="mt-2 text-xs text-ink-muted">There's nothing to sell yet — add designs and stock under Inventory first.</p>}
             </div>
           </Card>
@@ -841,6 +864,20 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
             setShowHeld(false);
             applyDraft(d);
             toast.success(`Picked up “${bill.name}”`);
+          }}
+        />
+      )}
+      {addingItem !== null && (
+        <QuickAddItemModal
+          initialName={addingItem}
+          quote={quote}
+          onClose={() => setAddingItem(null)}
+          onAdded={(v) => {
+            setJustAdded((a) => [...a, v]);
+            addVariant(v);
+            setAddingItem(null);
+            refresh();
+            toast.success(`${v.designName} (${v.color}) is now in your inventory.`);
           }}
         />
       )}
