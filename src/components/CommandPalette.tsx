@@ -1,4 +1,4 @@
-import { BarChart3, Boxes, ClipboardList, CornerDownLeft, FileText, LayoutDashboard, Receipt, Search, Settings as SettingsIcon, Shirt, UserRound, Users, Wallet, type LucideIcon } from 'lucide-react';
+import { BarChart3, Bell, Boxes, ClipboardList, CornerDownLeft, FileText, LayoutDashboard, Receipt, Search, Settings as SettingsIcon, Shirt, UserRound, Users, Wallet, type LucideIcon } from 'lucide-react';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { matchesAll } from '../../shared/search';
@@ -95,7 +95,11 @@ function Palette({ onClose }: { onClose: () => void }) {
       ['Proformas', paths.proformas(), ClipboardList, 'quotes quotations'],
       ['Customers', paths.customers, Users],
       ['Payments', paths.payments, Wallet],
-      ['Dues', paths.dues, Wallet, 'outstanding overdue owed'],
+      ['Dues', paths.dues, Wallet, 'outstanding overdue owed promised instalments'],
+      ['Cheques', paths.cheques, Wallet, 'post-dated pdc deposit bounced cleared'],
+      ['Cash and accounts', paths.accounts, Wallet, 'close the day drawer count balances transfer bank'],
+      ['Match bank statement', paths.reconcile, Wallet, 'reconcile reconciliation'],
+      ['Notifications', paths.notifications, Bell, 'alerts reminders attention'],
       ['Expenses', paths.expenses(), Receipt, 'spending costs'],
       ['Sales report', paths.reports('sales'), BarChart3],
       ['Profit and loss', paths.reports('profit'), BarChart3, 'p&l earnings net gross'],
@@ -106,9 +110,13 @@ function Palette({ onClose }: { onClose: () => void }) {
       ['Stock movement', paths.reports('movement'), BarChart3, 'in out sold added'],
       ['Fast movers and dead stock', paths.reports('movers'), BarChart3, 'slow not selling'],
       ['Aged receivables', paths.reports('receivables'), BarChart3, 'dues outstanding owed'],
+      ['Quotes report', paths.reports('quotes'), BarChart3, 'win rate lost proforma'],
+      ['Purchases and input GST', paths.reports('purchases'), BarChart3, 'itc tax credit'],
+      ['Account book', paths.reports('accountbook'), BarChart3, 'cash bank upi balances'],
       ['Settings', paths.settingsSection('business'), SettingsIcon],
       ['Invoice settings', paths.settingsSection('invoice'), SettingsIcon, 'pdf logo colour prefix'],
       ['Data management', paths.settingsSection('data'), SettingsIcon, 'backup restore'],
+      ['Activity log', paths.settingsSection('activity'), SettingsIcon, 'audit history changes who'],
     ];
     const rec = records;
     const recent: Command[] = loadRecent().map((r) => ({ id: `recent-${r.kind}-${r.id}`, group: 'Recent', label: r.title, hint: r.hint, icon: RECENT_ICON[r.kind], run: go(RECENT_PATH[r.kind](r.id)) }));

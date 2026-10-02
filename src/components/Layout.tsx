@@ -7,6 +7,7 @@ import { useApplyPreferences } from '../lib/prefs';
 import { useQuery } from '../lib/data';
 import { navigate, paths, type Section } from '../lib/router';
 import { CommandPaletteProvider, useCommandPalette } from './CommandPalette';
+import { NotificationBell } from './NotificationBell';
 import { QuickCreateFab, QuickCreateProvider } from './QuickCreate';
 import { ShortcutsHelp } from './ShortcutsHelp';
 import { Button } from './ui';
@@ -47,9 +48,12 @@ export function TopBar() {
         <CalendarDays className="h-3.5 w-3.5" aria-hidden />
         <span className="num">FY {financialYear(todayIso())}</span>
       </a>
-      <Button variant="primary" title="New invoice (Ctrl+N)" icon={<Plus className="h-4 w-4" />} onClick={() => navigate(paths.newInvoice())}>
-        New invoice
-      </Button>
+      <div className="flex items-center gap-3">
+        <NotificationBell />
+        <Button variant="primary" title="New invoice (Ctrl+N)" icon={<Plus className="h-4 w-4" />} onClick={() => navigate(paths.newInvoice())}>
+          New invoice
+        </Button>
+      </div>
     </div>
   );
 }

@@ -6,7 +6,7 @@ import { PAYMENT_METHODS, type PaymentMethod, type ProformaStatus } from '../../
 
 export type Section = 'dashboard' | 'inventory' | 'invoices' | 'proformas' | 'customers' | 'payments' | 'expenses' | 'reports' | 'settings';
 
-export const SETTINGS_SECTIONS = ['business', 'tax', 'invoice', 'proforma', 'expenses', 'accounts', 'instructions', 'notifications', 'messages', 'data', 'preferences', 'plus'] as const;
+export const SETTINGS_SECTIONS = ['business', 'tax', 'invoice', 'proforma', 'expenses', 'accounts', 'instructions', 'notifications', 'messages', 'data', 'preferences', 'activity', 'plus'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 export type Route =
@@ -20,6 +20,7 @@ export type Route =
   | { name: 'invoice-new'; customerId: string | null; advance: AdvancePreset | null; /** An earlier invoice to start from (Duplicate). */ copyFrom: string | null }
   | { name: 'payments' }
   | { name: 'dues' }
+  | { name: 'notifications' }
   | { name: 'cheques' }
   | { name: 'accounts' }
   | { name: 'reconcile' }
@@ -96,6 +97,8 @@ export function parseHash(hash: string): Route {
       if (parts[1] === 'receipt' && id) return { name: 'print-receipt', id };
       if (parts[1] === 'invoices') return { name: 'print-invoices', ids: (params.get('ids') ?? '').split(',').map(decodeURIComponent).filter(Boolean) };
       return { name: 'dashboard' };
+    case 'notifications':
+      return { name: 'notifications' };
     case 'payments':
       if (parts[1] === 'dues') return { name: 'dues' };
       if (parts[1] === 'cheques') return { name: 'cheques' };
@@ -124,6 +127,8 @@ export const sectionOf = (route: Route): Section => {
     case 'dashboard':
     case 'settings':
       return route.name;
+    case 'notifications':
+      return 'dashboard';
     case 'inventory':
     case 'materials':
     case 'inventory-add':
@@ -190,6 +195,7 @@ export const paths = {
   expenses: (category?: string) => (category ? `/expenses?category=${encodeURIComponent(category)}` : '/expenses'),
   payments: '/payments',
   dues: '/payments/dues',
+  notifications: '/notifications',
   cheques: '/payments/cheques',
   accounts: '/payments/accounts',
   reconcile: '/payments/reconcile',

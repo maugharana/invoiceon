@@ -14,6 +14,7 @@ import { useQuery, useRefresh } from '../../lib/data';
 import { toNumber } from '../../lib/format';
 import { navigate, paths, type AdvancePreset } from '../../lib/router';
 import { CustomerFormModal } from '../customers/CustomerFormModal';
+import { HeldListModal, HoldModal } from './HeldBills';
 import { ShipToCard } from './ShipToCard';
 
 interface Line {
@@ -259,24 +260,34 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
     }, 500);
     return () => clearTimeout(t);
   }, [draftable, draft, type, customerId, buyerName, issueDate, dueDate, discount, notes, lines, received, payMethod]);
-  function restoreDraft() {
-    if (!draft || !variants.data) return;
+  /** Fills the form from a saved bill: the unfinished one found on arrival, or one picked up from "On hold". */
+  function applyDraft(d: InvoiceDraft) {
+    if (!variants.data) return;
     const known = new Set(variants.data.map((v) => v.variantId));
-    setType(draft.type);
-    setCustomerId(draft.customerId);
-    setBuyerName(draft.buyerName);
-    if (draft.issueDate) setIssueDate(draft.issueDate);
-    if (draft.dueDate) {
-      setDueDate(draft.dueDate);
+    setType(d.type);
+    setCustomerId(d.customerId);
+    setBuyerName(d.buyerName);
+    if (d.issueDate) setIssueDate(d.issueDate);
+    if (d.dueDate) {
+      setDueDate(d.dueDate);
       dueTouched.current = true;
     }
-    setDiscount(draft.discountPaise);
-    setNotes(draft.notes);
-    setLines(draft.lines.filter((l) => known.has(l.variantId)));
-    setReceived(draft.receivedPaise);
-    setPayMethod(draft.payMethod);
+    setDiscount(d.discountPaise);
+    setNotes(d.notes);
+    setLines(d.lines.filter((l) => known.has(l.variantId)));
+    setReceived(d.receivedPaise);
+    setPayMethod(d.payMethod);
+  }
+  function restoreDraft() {
+    if (!draft || !variants.data) return;
+    applyDraft(draft);
     setDraft(null);
   }
+  const [holding, setHolding] = useState(false);
+  const [showHeld, setShowHeld] = useState(false);
+  const heldCount = useQuery(() => (quote || editId ? Promise.resolve([]) : api.heldList('invoice')), [quote, editId]);
+  /** The bill as it stands, in the form saved drafts and held bills share. */
+  const currentDraft = (): InvoiceDraft => ({ savedAt: new Date().toISOString(), type, customerId, buyerName, issueDate, dueDate, discountPaise: discount, notes, lines, receivedPaise: received, payMethod });
   function discardDraft() {
     clearDraft();
     setDraft(null);
@@ -432,7 +443,25 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
 
   return (
     <>
-      <PageHeader back={back} title={editing ? `Edit ${editing.number}` : quote ? 'New proforma' : 'New invoice'} subtitle={editing ? 'Changes the quote itself; it keeps its number.' : nextNumber.data ? <>Will be numbered <span className="num text-ink">{nextNumber.data}</span></> : undefined} />
+      <PageHeader
+        back={back}
+        title={editing ? `Edit ${editing.number}` : quote ? 'New proforma' : 'New invoice'}
+        subtitle={editing ? 'Changes the quote itself; it keeps its number.' : nextNumber.data ? <>Will be numbered <span className="num text-ink">{nextNumber.data}</span></> : undefined}
+        actions={
+          !quote && !editId ? (
+            <>
+              {(heldCount.data?.length ?? 0) > 0 && (
+                <Button onClick={() => setShowHeld(true)} disabled={!variants.data}>
+                  On hold ({heldCount.data!.length})
+                </Button>
+              )}
+              <Button disabled={lines.length === 0} onClick={() => setHolding(true)} title="Set this bill aside to finish later, so you can serve the next customer">
+                Hold
+              </Button>
+            </>
+          ) : undefined
+        }
+      />
 
       {draft && (
         <div className="animate-fade-in mb-6 flex items-center justify-between gap-4 rounded-lg bg-status-partial-bg px-4 py-3 text-status-partial-fg">
@@ -712,6 +741,36 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
         </aside>
       </div>
 
+      {holding && (
+        <HoldModal
+          suggestion={customer?.name ?? (buyerName.trim() || `Bill at ${new Date().toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}`)}
+          draft={currentDraft()}
+          onClose={() => setHolding(false)}
+          onHeld={() => {
+            // The bill is safe on the shelf: clear the counter for the next one.
+            setHolding(false);
+            clearDraft();
+            setLines([]);
+            setCustomerId(null);
+            setBuyerName('');
+            setDiscount(0);
+            setNotes('');
+            setReceived(0);
+            setShipTo(null);
+            dueTouched.current = false;
+          }}
+        />
+      )}
+      {showHeld && (
+        <HeldListModal
+          onClose={() => setShowHeld(false)}
+          onResume={(bill, d) => {
+            setShowHeld(false);
+            applyDraft(d);
+            toast.success(`Picked up “${bill.name}”`);
+          }}
+        />
+      )}
       {creating !== null && (
         <CustomerFormModal
           defaultType={type}

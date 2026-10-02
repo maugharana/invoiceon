@@ -8,6 +8,10 @@ import type {
   StockTakeResult,
   BulkSareeRow,
   Customer,
+  AuditEntry,
+  AuditQuery,
+  HeldBill,
+  Notification,
   MaterialMovement,
   MaterialMovementReason,
   MaterialPricePoint,
@@ -158,6 +162,15 @@ export interface Api {
   purchaseGet(id: string): Promise<Purchase>;
   purchaseCreate(input: PurchaseInput): Promise<PurchaseResult>;
   purchaseDelete(id: string): Promise<void>;
+
+  /** Everything that wants attention right now, most urgent first. Worked out fresh each time. */
+  notificationsList(): Promise<Notification[]>;
+  /** What was done and when, newest first. */
+  auditList(query?: AuditQuery): Promise<AuditEntry[]>;
+  /** Bills set aside half-made to finish later. */
+  heldList(kind?: HeldBill['kind']): Promise<HeldBill[]>;
+  heldHold(input: { name: string; kind?: HeldBill['kind']; payload: unknown }): Promise<HeldBill>;
+  heldDiscard(id: string): Promise<void>;
 
   locationsList(): Promise<StockLocation[]>;
   locationCreate(name: string): Promise<StockLocation>;

@@ -25,7 +25,7 @@ export function localDate(timestamp: string): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function reversedPayments(db: Db, today: string): AttentionItem[] {
+export function reversedPayments(db: Db, today: string): AttentionItem[] {
   const rows = all<{ id: string; customer_id: string | null; name: string | null; amount_paise: number; void_reason: string; voided_at: string }>(
     db,
     `SELECT p.id, p.customer_id, c.name, p.amount_paise, p.void_reason, p.voided_at
@@ -43,7 +43,7 @@ function reversedPayments(db: Db, today: string): AttentionItem[] {
   }));
 }
 
-function expiringQuotes(db: Db, today: string): AttentionItem[] {
+export function expiringQuotes(db: Db, today: string): AttentionItem[] {
   const last = addDays(today, QUOTE_WARNING_DAYS);
   return listProformas(db, { status: 'open' })
     .filter((p) => p.validUntil >= today && p.validUntil <= last)
@@ -58,7 +58,7 @@ function expiringQuotes(db: Db, today: string): AttentionItem[] {
 }
 
 /** A variant priced below what it costs loses money on every sale: usually a price not updated after a material got dearer. */
-function belowCost(db: Db): AttentionItem[] {
+export function belowCost(db: Db): AttentionItem[] {
   const names = new Map(listDesigns(db).map((d) => [d.id, d.name]));
   const byDesign = new Map<string, ReturnType<typeof loadVariants>>();
   for (const v of loadVariants(db)) {
@@ -80,7 +80,7 @@ function belowCost(db: Db): AttentionItem[] {
 }
 
 /** A saree still priced above its cost but earning less than the margin you want to keep. (Below cost has its own, louder, item.) */
-function lowMargin(db: Db): AttentionItem[] {
+export function lowMargin(db: Db): AttentionItem[] {
   const floor = getSettings(db).marginAlertPercent;
   if (floor <= 0) return [];
   const names = new Map(listDesigns(db).map((d) => [d.id, d.name]));
@@ -108,7 +108,7 @@ function lowMargin(db: Db): AttentionItem[] {
 }
 
 /** Raw material that has run low, so the weaver or shop can be called before work stops. */
-function lowMaterials(db: Db): AttentionItem[] {
+export function lowMaterials(db: Db): AttentionItem[] {
   return listMaterials(db)
     .filter((m) => m.status !== 'ok')
     .map((m) => ({
@@ -122,7 +122,7 @@ function lowMaterials(db: Db): AttentionItem[] {
 }
 
 /** Follow-ups due and promises to pay that have come round (or been missed). */
-function dueNotes(db: Db, today: string): AttentionItem[] {
+export function dueNotes(db: Db, today: string): AttentionItem[] {
   return openDueNotes(db, { onOrBefore: today }).map((n) => {
     const late = n.dueDate !== null && n.dueDate < today;
     const about = n.subjectLabel ? ` (${n.subjectLabel})` : '';
@@ -138,10 +138,10 @@ function dueNotes(db: Db, today: string): AttentionItem[] {
 
 /** Customers' birthdays and anniversaries in the next few days, so a message can go out before the day. */
 export const OCCASION_WARNING_DAYS = 3;
-function occasions(db: Db, today: string): AttentionItem[] {
+export function occasions(db: Db, today: string, window: number = OCCASION_WARNING_DAYS): AttentionItem[] {
   const items: (AttentionItem & { days: number })[] = [];
   for (const c of listCustomers(db)) {
-    for (const o of upcomingOccasions(c, today, OCCASION_WARNING_DAYS)) {
+    for (const o of upcomingOccasions(c, today, window)) {
       items.push({
         kind: 'occasion',
         id: `occasion:${c.id}:${o.kind}`,

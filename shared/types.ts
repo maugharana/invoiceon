@@ -1654,3 +1654,57 @@ export interface ReconcilePreview {
 export interface PurchaseResult extends Purchase {
   priceChanges: { materialId: string; materialName: string; fromPaise: Paise; toPaise: Paise }[];
 }
+
+// ── Activity log ────────────────────────────────────────────────────────────
+export interface AuditEntry {
+  id: string;
+  /** When it was done (UTC timestamp). */
+  at: string;
+  /** The request that made the change, e.g. "invoiceCreate". */
+  action: string;
+  /** What it means in plain words, e.g. "Issued an invoice". */
+  label: string;
+  /** What kind of thing it touched (invoice, customer…), and which one. */
+  entityType: string;
+  entityId: string;
+  summary: string;
+}
+export interface AuditQuery {
+  search?: string;
+  entityType?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+}
+
+// ── Bills set aside to finish later ─────────────────────────────────────────
+export interface HeldBill {
+  id: string;
+  name: string;
+  kind: 'invoice' | 'proforma';
+  /** The half-made bill as the New invoice screen saved it. */
+  payload: unknown;
+  createdAt: string;
+}
+
+// ── Notifications ───────────────────────────────────────────────────────────
+export type NotificationKind =
+  | AttentionKind
+  | 'overdue-invoices'
+  | 'low-stock'
+  | 'cheque-due'
+  | 'recurring-due'
+  | 'bill-due'
+  | 'budget'
+  | 'instalment-due';
+export type NotificationLink = AttentionItem['link'] | { to: 'path'; path: string };
+export interface Notification {
+  kind: NotificationKind;
+  /** Stable, so a notification can be marked read and stay read. */
+  id: string;
+  /** urgent = money or stock is at risk now; soon = worth doing this week; info = nice to know. */
+  severity: 'urgent' | 'soon' | 'info';
+  title: string;
+  detail: string;
+  link: NotificationLink;
+}

@@ -571,6 +571,33 @@ CREATE TABLE stock_transfers (
 CREATE INDEX ix_stock_transfers_variant ON stock_transfers (variant_id, created_at);
 `;
 
+// Stage 15: a record of what was done (the activity log), and bills held half-made to resume later.
+const V13 = `
+-- A plain record of what was done and when, for looking back at "who changed this?". It is written beside each change and never
+-- edited. It carries a short description, not the data itself, so it does not grow into a second copy of the book.
+CREATE TABLE audit_log (
+  id          TEXT PRIMARY KEY,
+  at          TEXT NOT NULL,
+  action      TEXT NOT NULL,
+  label       TEXT NOT NULL,
+  entity_type TEXT NOT NULL DEFAULT '',
+  entity_id   TEXT NOT NULL DEFAULT '',
+  summary     TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX ix_audit_log_at ON audit_log (at);
+CREATE INDEX ix_audit_log_entity ON audit_log (entity_type, entity_id);
+
+-- Bills set aside half-made so the counter is free for the next customer, to be picked up again later.
+CREATE TABLE held_bills (
+  id           TEXT PRIMARY KEY,
+  name         TEXT NOT NULL,
+  kind         TEXT NOT NULL DEFAULT 'invoice' CHECK (kind IN ('invoice','proforma')),
+  payload_json TEXT NOT NULL,
+  created_at   TEXT NOT NULL,
+  deleted_at   TEXT
+);
+`;
+
 // Append new migrations to the end; never edit one that has shipped.
 const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 1, sql: V1 },
@@ -585,6 +612,7 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 10, sql: V10 },
   { version: 11, sql: V11 },
   { version: 12, sql: V12 },
+  { version: 13, sql: V13 },
 ];
 
 /** Brings a database up to date. `upTo` stops early at a version, which only the tests use, to build an older database to upgrade. */

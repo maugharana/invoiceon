@@ -6,6 +6,9 @@ import { backupNow, listBackups } from './backup';
 import type { Db } from './db/connection';
 import { UserError } from './services/common';
 import * as accounts from './services/accounts';
+import { auditBefore, isAudited, listAudit, recordAudit } from './services/audit';
+import * as held from './services/held';
+import { notifications } from './services/notifications';
 import * as customers from './services/customers';
 import * as instalments from './services/instalments';
 import { dashboardNow, dashboardOverview } from './services/dashboard';
@@ -49,9 +52,36 @@ function checkInvoiceIds(db: Db, ids: string[]): string[] {
   return list;
 }
 
-/** Binds the data layer to one open database. This is the only place that knows which service backs which call. */
+/**
+ * Binds the data layer to one open database. This is the only place that knows which service backs which call. Every call that
+ * changes something also leaves a line in the activity log, written here so no screen has to remember to.
+ */
 export function createApi(db: Db, host?: Host, dataDir?: string): Api {
+  const api = buildApi(db, host, dataDir);
+  const logged = {} as Record<string, unknown>;
+  for (const [name, fn] of Object.entries(api)) {
+    if (!isAudited(name) || typeof fn !== 'function') {
+      logged[name] = fn;
+      continue;
+    }
+    logged[name] = async (...args: unknown[]) => {
+      const before = auditBefore(db, name);
+      const result = await (fn as (...a: unknown[]) => Promise<unknown>)(...args);
+      recordAudit(db, name, args, result, before);
+      return result;
+    };
+  }
+  return logged as unknown as Api;
+}
+
+function buildApi(db: Db, host?: Host, dataDir?: string): Api {
   return {
+    notificationsList: async () => notifications(db),
+    auditList: async (query) => listAudit(db, query ?? {}),
+    heldList: async (kind) => held.listHeld(db, kind ?? 'invoice'),
+    heldHold: async (input) => held.holdBill(db, input),
+    heldDiscard: async (id) => held.discardHeld(db, id),
+
     getSettings: async () => settings.getSettings(db),
     saveSettings: async (patch) => settings.saveSettings(db, patch),
 
