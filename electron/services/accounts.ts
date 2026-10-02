@@ -39,6 +39,14 @@ function movements(db: Db, accounts: PaymentAccount[]): Movement[] {
   )) {
     out.push({ account: accountKeyOf(known, r.account_id), date: r.received_on, at: r.created_at, kind: 'receipt', party: r.name ?? 'Walk-in customer', detail: [r.reference, r.note].filter(Boolean).join(' · ') || 'Payment received', inPaise: r.amount_paise, outPaise: 0, method: r.method });
   }
+  // A refund is money handed back: it leaves the account it was paid from.
+  for (const r of all<{ account_id: string; received_on: string; created_at: string; amount_paise: number; method: string; reference: string; note: string; name: string | null }>(
+    db,
+    `SELECT p.account_id, p.received_on, p.created_at, p.amount_paise, p.method, p.reference, p.note, c.name
+     FROM payments p LEFT JOIN customers c ON c.id = p.customer_id WHERE p.voided_at IS NULL AND p.kind = 'refund'`,
+  )) {
+    out.push({ account: accountKeyOf(known, r.account_id), date: r.received_on, at: r.created_at, kind: 'refund', party: r.name ?? 'Walk-in customer', detail: [r.reference, r.note].filter(Boolean).join(' · ') || 'Refund', inPaise: 0, outPaise: r.amount_paise, method: r.method });
+  }
   for (const r of all<{ account_id: string; paid_day: string; created_at: string; amount_paise: number; method: string; category: string; vendor: string; reference: string }>(
     db,
     `SELECT account_id, COALESCE(paid_on, expense_date) AS paid_day, created_at, amount_paise, method, category, vendor, reference

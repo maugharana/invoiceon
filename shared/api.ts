@@ -1,4 +1,5 @@
 import type { Paise } from './money';
+import type { Role } from './roles';
 import type {
   BulkAddResult,
   BulkDesignAction,
@@ -70,6 +71,25 @@ import type {
   FestivalComparison,
   ReorderRow,
   DataInfo,
+  Gstr1Export,
+  AuthStatus,
+  AuthUser,
+  ManagedUser,
+  LoyaltyEntry,
+  WishlistEntry,
+  ProductionOrder,
+  ProductionOrderInput,
+  ProductionQuery,
+  Photo,
+  PhotoInput,
+  PhotoOwner,
+  CreditNote,
+  CreditNoteInput,
+  CreditNotePreview,
+  CreditNoteQuery,
+  CreditNoteSummary,
+  ReturnableLine,
+  RefundInput,
   BackupResult,
   BackupSettings,
   DriveBackup,
@@ -210,6 +230,10 @@ export interface Api {
   notesDue(query?: { kind?: NoteKind; onOrBefore?: string }): Promise<DueNote[]>;
 
   variantsForSale(): Promise<SaleVariant[]>;
+  /** The piece a scanned or typed code belongs to (its barcode or SKU), or null. */
+  variantByCode(code: string): Promise<SaleVariant | null>;
+  /** Prints a sheet of price labels with barcodes, one entry per colour and size. */
+  labelsPrint(items: { variantId: string; copies: number }[]): Promise<void>;
 
   invoicesList(query?: InvoiceQuery): Promise<InvoiceSummary[]>;
   invoiceGet(id: string): Promise<Invoice>;
@@ -234,6 +258,10 @@ export interface Api {
   /** Desktop app only: several invoices in one PDF, each on its own page. */
   invoicesExportPdf(ids: string[]): Promise<{ saved: boolean; path?: string }>;
   invoicesPrint(ids: string[]): Promise<void>;
+  /** Prints the short 80 mm receipt for a thermal printer. */
+  invoiceSlipPrint(id: string): Promise<void>;
+  /** Opens another InvoiceOn window, for working on two things side by side. */
+  appNewWindow(): Promise<void>;
   invoiceExportPdf(id: string): Promise<{ saved: boolean; path?: string }>;
   /** Desktop app only: opens the system print dialog for the invoice. */
   invoicePrint(id: string): Promise<void>;
@@ -243,6 +271,70 @@ export interface Api {
   paymentRecord(input: PaymentInput): Promise<Payment>;
   /** Reverses a payment (a mistake, or a refund). Invoices it paid become due again. */
   paymentVoid(id: string, reason: string): Promise<Payment>;
+  /** Hands back advance or credit a customer is holding. Money out. */
+  paymentRefund(input: RefundInput): Promise<Payment[]>;
+
+  // Signing in (optional: a shop that never turns it on is open to whoever opens the app)
+  authStatus(): Promise<AuthStatus>;
+  /** The names to choose from on the sign-in screen. */
+  authUsers(): Promise<AuthUser[]>;
+  authSignIn(input: { userId: string; pin: string }): Promise<AuthUser>;
+  authSignOut(): Promise<void>;
+  /** Turns sign-in on by creating the owner. The recovery code is shown once. */
+  authSetup(input: { name: string; pin: string }): Promise<{ user: AuthUser; recoveryCode: string }>;
+  authChangePin(input: { oldPin: string; newPin: string }): Promise<void>;
+  /** A forgotten owner PIN, reset with the recovery code. */
+  authRecover(input: { code: string; newPin: string }): Promise<{ user: AuthUser; recoveryCode: string }>;
+  /** Turns sign-in off (owner PIN needed). Everyone is removed. */
+  authDisable(input: { pin: string }): Promise<void>;
+  userList(): Promise<ManagedUser[]>;
+  userCreate(input: { name: string; role: Role; pin: string }): Promise<ManagedUser>;
+  userUpdate(id: string, patch: { name?: string; role?: Role; active?: boolean }): Promise<ManagedUser>;
+  userResetPin(id: string, pin: string): Promise<void>;
+
+  // Loyalty and wishlist
+  loyaltyHistory(customerId: string): Promise<LoyaltyEntry[]>;
+  /** Adds or takes off points by hand, with a reason. Returns the new balance. */
+  loyaltyAdjust(input: { customerId: string; points: number; note: string }): Promise<number>;
+  wishlistGet(customerId: string): Promise<WishlistEntry[]>;
+  wishlistAdd(input: { customerId: string; designId: string; note?: string }): Promise<WishlistEntry[]>;
+  wishlistRemove(id: string): Promise<void>;
+
+  // Production orders and job work
+  productionList(query?: ProductionQuery): Promise<ProductionOrder[]>;
+  productionGet(id: string): Promise<ProductionOrder>;
+  productionCreate(input: ProductionOrderInput): Promise<ProductionOrder>;
+  productionUpdate(id: string, input: ProductionOrderInput): Promise<ProductionOrder>;
+  /** Hands the raw materials over for the whole order. */
+  productionIssueMaterials(id: string): Promise<ProductionOrder>;
+  /** Pieces came back: they go on the shelf, and the wage becomes a bill to whoever made them. */
+  productionReceive(id: string, input: { qty: number; receivedOn?: string }): Promise<ProductionOrder>;
+  /** Finish with fewer pieces than planned; unused materials go back to the shelf. */
+  productionCloseShort(id: string): Promise<ProductionOrder>;
+  productionCancel(id: string): Promise<ProductionOrder>;
+
+  // Photos
+  photosList(ownerType: PhotoOwner, ownerId: string): Promise<Photo[]>;
+  /** The picture itself, as a data URL. */
+  photoGet(id: string): Promise<string>;
+  photoAdd(input: PhotoInput): Promise<Photo>;
+  photoDelete(id: string): Promise<void>;
+  /** Makes this the first picture, the one lists show. Returns the owner's pictures in their new order. */
+  photoSetCover(id: string): Promise<Photo[]>;
+  /** The first small picture of each thing, for lists and grids. Things without one are left out. */
+  photoCovers(ownerType: PhotoOwner, ids: string[]): Promise<Record<string, string>>;
+
+  // Credit notes (returns)
+  creditNotesList(query?: CreditNoteQuery): Promise<CreditNoteSummary[]>;
+  creditNoteGet(id: string): Promise<CreditNote>;
+  creditNoteNextNumber(issueDate: string): Promise<string>;
+  /** What each line of an invoice can still take back. */
+  creditNoteReturnable(invoiceId: string): Promise<ReturnableLine[]>;
+  /** What a credit note would come to and how it would be settled, without making it. */
+  creditNotePreview(input: CreditNoteInput): Promise<CreditNotePreview>;
+  creditNoteCreate(input: CreditNoteInput): Promise<CreditNote>;
+  creditNoteExportPdf(id: string): Promise<{ saved: boolean; path?: string }>;
+  creditNotePrint(id: string): Promise<void>;
   /** Puts a customer's held advance toward one of their open invoices. Returns the invoice as it stands afterwards. */
   invoiceApplyAdvance(invoiceId: string): Promise<Invoice>;
   paymentsSummary(): Promise<PaymentsSummary>;
@@ -276,6 +368,8 @@ export interface Api {
   /** Sales for a date range: invoiced (by invoice date) alongside collected (by payment date). */
   reportSales(range: { from: string; to: string }): Promise<SalesReport>;
   /** GST collected on invoices dated in the range, split B2B/B2C, by HSN, and as a GSTR-1-style register. */
+  /** The month's GSTR-1 as a JSON file for the GST portal. For one calendar month. */
+  reportGstr1(range: { from: string; to: string }): Promise<Gstr1Export>;
   reportGst(range: { from: string; to: string }): Promise<GstReport>;
   /** Stock on hand, valued at cost and at selling price, as of a date (default today). */
   reportStock(asOf?: string): Promise<StockReport>;

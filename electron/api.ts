@@ -6,9 +6,13 @@ import * as drive from './drive';
 import type { Db } from './db/connection';
 import { UserError } from './services/common';
 import * as accounts from './services/accounts';
-import { auditBefore, isAudited, listAudit, recordAudit } from './services/audit';
+import { auditBefore, isAudited, listAudit, recordAudit, recordNote } from './services/audit';
+import * as users from './services/users';
+import { BEFORE_SIGN_IN, roleCan } from '../shared/roles';
+import type { AuthUser } from '../shared/types';
 import * as held from './services/held';
 import { notifications } from './services/notifications';
+import * as credits from './services/credits';
 import * as customers from './services/customers';
 import * as instalments from './services/instalments';
 import { dashboardNow, dashboardOverview } from './services/dashboard';
@@ -24,6 +28,10 @@ import * as locations from './services/locations';
 import * as materials from './services/materials';
 import * as notes from './services/notes';
 import * as payments from './services/payments';
+import * as photos from './services/photos';
+import { gstr1 } from './services/gstr';
+import * as loyalty from './services/loyalty';
+import * as production from './services/production';
 import * as proformas from './services/proformas';
 import * as purchases from './services/purchases';
 import * as receivables from './services/receivables';
@@ -44,6 +52,8 @@ export interface Host {
   /** Asks for a backup file to open; null if cancelled. */
   pickFile?(title: string): Promise<string | null>;
   pickFolder?(title: string): Promise<string | null>;
+  /** Opens another window on the same book. */
+  openWindow?(): Promise<void>;
   /** Closes the app and opens it again, so a prepared restore can be applied. */
   restartApp?(): Promise<void>;
   /** Encrypts secrets with the operating system, when it can. */
@@ -65,25 +75,107 @@ function checkInvoiceIds(db: Db, ids: string[]): string[] {
  * Binds the data layer to one open database. This is the only place that knows which service backs which call. Every call that
  * changes something also leaves a line in the activity log, written here so no screen has to remember to.
  */
+type AuthKeys = 'authStatus' | 'authUsers' | 'authSignIn' | 'authSignOut' | 'authSetup' | 'authChangePin' | 'authRecover' | 'authDisable' | 'userList' | 'userCreate' | 'userUpdate' | 'userResetPin';
+
 export function createApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backupService.DriveOverrides): Api {
-  const api = buildApi(db, host, dataDir, driveOverrides);
-  const logged = {} as Record<string, unknown>;
+  // Who is signed in. Held here, in the one process that owns the book, so a screen cannot claim to be someone else.
+  let session: AuthUser | null = null;
+  /** The signed-in person as they are right now (a changed role or a removal counts at once), or null. */
+  const who = (): AuthUser | null => {
+    if (!session) return null;
+    session = users.currentUser(db, session.id);
+    return session;
+  };
+  const owner = (): AuthUser => {
+    const u = who();
+    if (!u || u.role !== 'owner') throw new UserError('Only the owner can do this.');
+    return u;
+  };
+
+  const auth: Pick<Api, AuthKeys> = {
+    authStatus: async () => ({ required: users.authRequired(db), user: who() }),
+    authUsers: async () => users.signInChoices(db),
+    authSignIn: async (input) => {
+      session = users.signIn(db, String(input?.userId ?? ''), String(input?.pin ?? ''));
+      recordNote(db, 'Signed in', session.name);
+      return session;
+    },
+    authSignOut: async () => {
+      if (session) recordNote(db, 'Signed out', session.name);
+      session = null;
+    },
+    authSetup: async (input) => {
+      const made = users.setup(db, input);
+      session = made.user;
+      recordNote(db, 'Turned on sign-in', made.user.name);
+      return made;
+    },
+    authChangePin: async (input) => {
+      const u = who();
+      if (!u) throw new UserError('Sign in first.');
+      users.changeOwnPin(db, u.id, input?.oldPin, input?.newPin);
+      recordNote(db, 'Changed their PIN', u.name);
+    },
+    authRecover: async (input) => {
+      const made = users.recover(db, input?.code, input?.newPin);
+      session = made.user;
+      recordNote(db, 'Reset the owner PIN with the recovery code', made.user.name);
+      return made;
+    },
+    authDisable: async (input) => {
+      const u = owner();
+      users.disable(db, u.id, input?.pin);
+      recordNote(db, 'Turned off sign-in', u.name);
+      session = null;
+    },
+    userList: async () => {
+      owner();
+      return users.listUsers(db);
+    },
+    userCreate: async (input) => {
+      const o = owner();
+      const made = users.createUser(db, input);
+      recordNote(db, `Added ${made.name} (${made.role})`, o.name);
+      return made;
+    },
+    userUpdate: async (id, patch) => {
+      const o = owner();
+      const changed = users.updateUser(db, id, patch);
+      recordNote(db, `Changed ${changed.name}`, o.name);
+      return changed;
+    },
+    userResetPin: async (id, pin) => {
+      const o = owner();
+      users.resetPin(db, id, pin);
+      recordNote(db, 'Reset someone\'s PIN', o.name);
+    },
+  };
+
+  const api = { ...buildApi(db, host, dataDir, driveOverrides), ...auth } as Api;
+  const guarded = {} as Record<string, unknown>;
   for (const [name, fn] of Object.entries(api)) {
-    if (!isAudited(name) || typeof fn !== 'function') {
-      logged[name] = fn;
+    if (typeof fn !== 'function') {
+      guarded[name] = fn;
       continue;
     }
-    logged[name] = async (...args: unknown[]) => {
-      const before = auditBefore(db, name);
+    const audited = isAudited(name);
+    guarded[name] = async (...args: unknown[]) => {
+      // Once the shop uses sign-in, nothing but signing in works until someone has, and then only what their role allows.
+      if (users.authRequired(db) && !(BEFORE_SIGN_IN as readonly string[]).includes(name) && !auth[name as AuthKeys]) {
+        const u = who();
+        if (!u) throw new UserError('Sign in to continue.');
+        if (!roleCan(u.role, name)) throw new UserError("Your sign-in doesn't allow this. Ask the owner.");
+      }
+      const before = audited ? auditBefore(db, name) : undefined;
       const result = await (fn as (...a: unknown[]) => Promise<unknown>)(...args);
-      recordAudit(db, name, args, result, before);
+      if (audited) recordAudit(db, name, args, result, before, session?.name ?? '');
       return result;
     };
   }
-  return logged as unknown as Api;
+  return guarded as unknown as Api;
 }
 
-function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backupService.DriveOverrides): Api {
+function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backupService.DriveOverrides): Omit<Api, AuthKeys> {
   /** Backups and Google Drive need to know where the data folder is; the browser-only bridge passes one too. */
   const need = (): drive.DriveContext => {
     if (!dataDir) throw new UserError(DESKTOP_ONLY);
@@ -164,6 +256,14 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
     customerArchive: async (id) => customers.archiveCustomer(db, id),
 
     variantsForSale: async () => invoices.variantsForSale(db),
+    variantByCode: async (code) => invoices.variantByCode(db, code),
+    labelsPrint: async (items) => {
+      if (!host) throw new UserError(DESKTOP_ONLY);
+      const list = (Array.isArray(items) ? items : []).filter((i) => i && Number.isInteger(i.copies) && i.copies > 0).slice(0, 300);
+      if (list.length === 0) throw new UserError('Choose at least one label to print.');
+      for (const i of list) inventory.getVariant(db, i.variantId);
+      return host.printDocument(`/print/labels?items=${list.map((i) => encodeURIComponent(`${i.variantId}:${Math.min(200, i.copies)}`)).join(',')}`);
+    },
 
     invoicesList: async (query) => invoices.listInvoices(db, query ?? {}),
     invoiceGet: async (id) => invoices.getInvoice(db, id),
@@ -202,6 +302,16 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
       const list = checkInvoiceIds(db, ids);
       return host.printDocument(`/print/invoices?ids=${list.map(encodeURIComponent).join(',')}`);
     },
+    invoiceSlipPrint: async (id) => {
+      if (!host) throw new UserError(DESKTOP_ONLY);
+      invoices.getInvoice(db, id);
+      return host.printDocument(`/print/slip/${encodeURIComponent(id)}`);
+    },
+    appNewWindow: async () => {
+      if (!host?.openWindow) throw new UserError(DESKTOP_ONLY);
+      return host.openWindow();
+    },
+    reportGstr1: async (range) => gstr1(db, range),
     invoiceExportPdf: async (id) => {
       if (!host) throw new UserError(DESKTOP_ONLY);
       const inv = invoices.getInvoice(db, id);
@@ -216,6 +326,46 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
     paymentsList: async (query) => payments.listPayments(db, query ?? {}),
     paymentRecord: async (input) => payments.recordPayment(db, input),
     paymentVoid: async (id, reason) => payments.voidPayment(db, id, reason),
+    paymentRefund: async (input) => payments.refundAdvance(db, input),
+
+    loyaltyHistory: async (customerId) => loyalty.history(db, customerId),
+    loyaltyAdjust: async (input) => loyalty.adjust(db, input),
+    wishlistGet: async (customerId) => loyalty.wishlist(db, customerId),
+    wishlistAdd: async (input) => loyalty.addWish(db, input),
+    wishlistRemove: async (id) => loyalty.removeWish(db, id),
+
+    productionList: async (query) => production.listOrders(db, query ?? {}),
+    productionGet: async (id) => production.getOrder(db, id),
+    productionCreate: async (input) => production.createOrder(db, input),
+    productionUpdate: async (id, input) => production.updateOrder(db, id, input),
+    productionIssueMaterials: async (id) => production.issueMaterials(db, id),
+    productionReceive: async (id, input) => production.receivePieces(db, id, input),
+    productionCloseShort: async (id) => production.closeShort(db, id),
+    productionCancel: async (id) => production.cancelOrder(db, id),
+
+    photosList: async (type, id) => photos.listPhotos(db, type, id),
+    photoGet: async (id) => photos.getPhotoImage(db, id),
+    photoAdd: async (input) => photos.addPhoto(db, input),
+    photoDelete: async (id) => photos.deletePhoto(db, id),
+    photoSetCover: async (id) => photos.setCover(db, id),
+    photoCovers: async (type, ids) => photos.coverThumbs(db, type, Array.isArray(ids) ? ids.map(String) : []),
+
+    creditNotesList: async (query) => credits.listCreditNotes(db, query ?? {}),
+    creditNoteGet: async (id) => credits.getCreditNote(db, id),
+    creditNoteNextNumber: async (issueDate) => credits.nextCreditNoteNumber(db, issueDate),
+    creditNoteReturnable: async (invoiceId) => credits.returnableLines(db, invoiceId),
+    creditNotePreview: async (input) => credits.previewCreditNote(db, input),
+    creditNoteCreate: async (input) => credits.createCreditNote(db, input),
+    creditNoteExportPdf: async (id) => {
+      if (!host) throw new UserError(DESKTOP_ONLY);
+      const note = credits.getCreditNote(db, id);
+      return host.exportDocumentPdf(`/print/credit-note/${encodeURIComponent(id)}`, `Credit note ${note.number.replace(/[\\/:*?"<>|]/g, '-')}.pdf`);
+    },
+    creditNotePrint: async (id) => {
+      if (!host) throw new UserError(DESKTOP_ONLY);
+      credits.getCreditNote(db, id);
+      return host.printDocument(`/print/credit-note/${encodeURIComponent(id)}`);
+    },
     invoiceApplyAdvance: async (invoiceId) => invoices.applyAdvanceToInvoice(db, invoiceId),
     paymentChequeStatus: async (id, status, reason) => payments.setChequeStatus(db, id, status, reason ?? ''),
     paymentsReconcile: async (ids, on) => payments.setReconciled(db, ids, on ?? null),

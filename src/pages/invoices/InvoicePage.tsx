@@ -1,4 +1,4 @@
-import { ArrowLeft, Ban, ClipboardCopy, Copy, Download, HandCoins, Mail, MessageCircle, Printer, Send } from 'lucide-react';
+import { ArrowLeft, Ban, ClipboardCopy, Copy, Download, HandCoins, Mail, MessageCircle, Printer, Receipt, Send, Undo2 } from 'lucide-react';
 import { useState } from 'react';
 import { formatDate } from '../../../shared/gst';
 import { invoiceMessage, mailtoLink, whatsappLink, whatsappPhone } from '../../../shared/messages';
@@ -16,6 +16,7 @@ import { useRecent } from '../../lib/recent';
 import { useQuery, useRefresh } from '../../lib/data';
 import { navigate, paths } from '../../lib/router';
 import { RecordPaymentModal } from '../payments/RecordPaymentModal';
+import { CreditNoteModal } from './CreditNoteModal';
 import { DeliveryCard } from './DeliveryCard';
 import { InstalmentsCard } from './InstalmentsCard';
 import { WriteOffModal } from './WriteOffModal';
@@ -31,6 +32,7 @@ export function InvoicePage({ id }: { id: string }) {
   const [busy, setBusy] = useState<'pdf' | 'print' | 'advance' | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [writingOff, setWritingOff] = useState(false);
+  const [returning, setReturning] = useState(false);
   const [paying, setPaying] = useState(false);
   const [reason, setReason] = useState('');
 
@@ -80,6 +82,7 @@ export function InvoicePage({ id }: { id: string }) {
   };
   const exportPdf = () => (window.invoiceon ? run('pdf', async () => ((await api.invoiceExportPdf(id)).saved ? toast.success('PDF saved') : undefined)) : openPrintView());
   const print = () => (window.invoiceon ? run('print', () => api.invoicePrint(id)) : openPrintView());
+  const printSlip = () => (window.invoiceon ? run('print', () => api.invoiceSlipPrint(id)) : void window.open(`${location.origin}${location.pathname}#${paths.printSlip(id)}`, '_blank'));
   // Sharing: a ready-written message. WhatsApp and email can't take the PDF from us, so the person attaches the one they save.
   const message = invoiceMessage(inv, { name: inv.seller.name, upiId: inv.seller.upiId }, settings.data?.msgInvoice ?? '');
   const phone = whatsappPhone(inv.buyer.phone ?? '');
@@ -124,6 +127,9 @@ ${message.body}`)) ? toast.success('Message copied — paste it anywhere') : toa
             <Button icon={<Printer className="h-4 w-4" />} loading={busy === 'print'} disabled={busy !== null} onClick={() => void print()}>
               Print
             </Button>
+            <Button icon={<Receipt className="h-4 w-4" />} disabled={busy !== null} onClick={() => void printSlip()} title="A short receipt for an 80 mm thermal printer">
+              Receipt
+            </Button>
             {!cancelled && (
               <Menu
                 label="Share"
@@ -139,6 +145,11 @@ ${message.body}`)) ? toast.success('Message copied — paste it anywhere') : toa
               Duplicate
             </Button>
             {!cancelled && (
+              <Button icon={<Undo2 className="h-4 w-4" />} onClick={() => setReturning(true)} title="A customer brings something back: makes a credit note, puts the pieces back in stock and puts the money right">
+                Take items back
+              </Button>
+            )}
+            {!cancelled && inv.credits.length === 0 && (
               <Button variant="danger" icon={<Ban className="h-4 w-4" />} onClick={() => setCancelling(true)}>
                 Cancel invoice
               </Button>
@@ -205,6 +216,29 @@ ${message.body}`)) ? toast.success('Message copied — paste it anywhere') : toa
         </Card>
       )}
 
+      {inv.credits.length > 0 && (
+        <Card className="mb-6 p-6">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="text-base">Credit notes</h2>
+            <span className="text-ink-muted">
+              <Money paise={inv.creditedPaise} /> taken back in all
+            </span>
+          </div>
+          <ul className="divide-y divide-line/70">
+            {inv.credits.map((c) => (
+              <li key={c.id} className="flex items-center justify-between py-1.5">
+                <span>
+                  <a href={`#${paths.creditNote(c.id)}`} className="num transition-colors hover:text-brand">{c.number}</a>
+                  <span className="num ml-3 text-ink-muted">{formatDate(c.issueDate)}</span>
+                </span>
+                <Money paise={c.totalPaise} />
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-ink-muted">The invoice stays as it was issued; its balance already allows for the credit notes. It can no longer be cancelled.</p>
+        </Card>
+      )}
+
       {!cancelled && <InstalmentsCard invoice={inv} />}
       {!cancelled && <DeliveryCard invoice={inv} />}
       {!cancelled && <NotesPanel subjectType="invoice" subjectId={inv.id} kinds={['promise', 'followup', 'call', 'note']} title="Follow-up and promises" />}
@@ -216,6 +250,7 @@ ${message.body}`)) ? toast.success('Message copied — paste it anywhere') : toa
         </div>
       </div>
 
+      {returning && <CreditNoteModal invoice={inv} onClose={() => setReturning(false)} onDone={(n) => navigate(paths.creditNote(n.id))} />}
       {writingOff && <WriteOffModal invoice={inv} onClose={() => setWritingOff(false)} />}
       {paying && <RecordPaymentModal invoice={inv} customer={customer.data} onClose={() => setPaying(false)} />}
       {cancelling && (

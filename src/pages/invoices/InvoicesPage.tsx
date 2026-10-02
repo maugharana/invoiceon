@@ -71,6 +71,12 @@ export function InvoicesPage({ initialStatus }: { initialStatus: Status }) {
         actions={
           !none && (
             <>
+              <Button onClick={() => navigate(paths.quickBill)} title="The counter screen: scan, press how they paid">
+                Quick bill
+              </Button>
+              <Button onClick={() => navigate(paths.creditNotes)} title="Goods taken back and sales corrected">
+                Credit notes
+              </Button>
               {selected.size > 0 && (
                 <>
                   <Button icon={<Download className="h-4 w-4" />} onClick={() => void docs.savePdf(paths.printInvoices([...selected]), () => api.invoicesExportPdf([...selected]))} title="Save the ticked invoices together in one PDF, one per page">

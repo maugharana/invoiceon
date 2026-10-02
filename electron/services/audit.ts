@@ -91,6 +91,18 @@ const RULES: Record<string, Rule> = {
   paymentVoid: { label: 'Reversed a payment', entity: 'payment', id: arg0Id, summary: (a, r) => join(money(r?.amountPaise), r?.customerName, a[1]) },
   paymentChequeStatus: { label: 'Moved a cheque along', entity: 'payment', id: arg0Id, summary: (a, r) => join(money(r?.amountPaise), r?.customerName, a[1]) },
   paymentsReconcile: { label: 'Matched payments to the bank statement', entity: 'payment', id: () => '', summary: (a, r) => `${r ?? 0} ${a[1] === null ? 'untick' : 'ticked'}` },
+  productionCreate: { label: 'Planned a production order', entity: 'production', summary: (_a, r) => join(r?.number, r?.designName, r?.color, `${r?.qty ?? ''} pieces`) },
+  productionUpdate: { label: 'Changed a production order', entity: 'production', id: arg0Id, summary: (_a, r) => join(r?.number) },
+  productionIssueMaterials: { label: 'Handed over materials for an order', entity: 'production', id: arg0Id, summary: (_a, r) => join(r?.number) },
+  productionReceive: { label: 'Received pieces from an order', entity: 'production', id: arg0Id, summary: (a, r) => join(r?.number, `${a[1]?.qty ?? ''} pieces`) },
+  productionCloseShort: { label: 'Closed an order early', entity: 'production', id: arg0Id, summary: (_a, r) => join(r?.number) },
+  productionCancel: { label: 'Cancelled a production order', entity: 'production', id: arg0Id, summary: (_a, r) => join(r?.number) },
+  loyaltyAdjust: { label: 'Changed loyalty points', entity: 'customer', id: (a) => a[0]?.customerId ?? '', summary: (a) => join(`${(a[0]?.points ?? 0) > 0 ? '+' : ''}${a[0]?.points ?? ''}`, a[0]?.note) },
+  wishlistAdd: { label: 'Added to a wishlist', entity: 'customer', id: (a) => a[0]?.customerId ?? '' },
+  photoAdd: { label: 'Added a picture', entity: 'design', id: (a) => a[0]?.ownerId ?? '', summary: (a) => a[0]?.ownerType ?? '' },
+  photoDelete: { label: 'Removed a picture', entity: 'photo', id: arg0Id },
+  creditNoteCreate: { label: 'Issued a credit note', entity: 'invoice', id: (_a, r) => r?.invoiceId ?? '', summary: (_a, r) => join(r?.number, r?.buyerName, money(r?.totalPaise)) },
+  paymentRefund: { label: 'Refunded a customer', entity: 'payment', id: (_a, r) => r?.[0]?.id ?? '', summary: (a, r) => join(r?.[0]?.customerName, money(a[0]?.amountPaise)) },
   paymentWriteOff: { label: 'Wrote off a balance', entity: 'payment', summary: (_a, r) => join(money(r?.amountPaise), r?.note) },
   transferCreate: { label: 'Moved money between accounts', entity: 'transfer', summary: (_a, r) => money(r?.amountPaise) },
   transferDelete: { label: 'Undid a move of money', entity: 'transfer', id: arg0Id },
@@ -113,6 +125,15 @@ const RULES: Record<string, Rule> = {
   recurringRun: { label: 'Entered standing expenses that came due', entity: 'expense', id: () => '', summary: (_a, r) => `${r ?? 0} entries` },
 };
 
+/** A line for something that is not a data change, such as signing in. */
+export function recordNote(db: Db, label: string, who: string): void {
+  try {
+    run(db, 'INSERT INTO audit_log (id, at, action, label, entity_type, entity_id, summary, user_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', newId(), nowIso(), 'auth', label, 'user', '', '', who);
+  } catch (err) {
+    console.error('[audit] could not write the log', err);
+  }
+}
+
 /** Whether a call is one that gets logged. */
 export const isAudited = (method: string): boolean => method in RULES;
 
@@ -126,13 +147,13 @@ export function auditBefore(db: Db, method: string): unknown {
 }
 
 /** Writes one line to the activity log. It never throws: the log must not be the reason a real change fails. */
-export function recordAudit(db: Db, method: string, args: unknown[], result: unknown, before?: unknown): void {
+export function recordAudit(db: Db, method: string, args: unknown[], result: unknown, before?: unknown, who = ''): void {
   const rule = RULES[method];
   if (!rule) return;
   try {
     const id = (rule.id ?? resultId)(args, result);
     const summary = rule.summary ? rule.summary(args, result, before) : '';
-    run(db, 'INSERT INTO audit_log (id, at, action, label, entity_type, entity_id, summary) VALUES (?, ?, ?, ?, ?, ?, ?)', newId(), nowIso(), method, rule.label, rule.entity, id, String(summary ?? '').slice(0, 300));
+    run(db, 'INSERT INTO audit_log (id, at, action, label, entity_type, entity_id, summary, user_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', newId(), nowIso(), method, rule.label, rule.entity, id, String(summary ?? '').slice(0, 300), who);
   } catch (err) {
     console.error('[audit] could not write the log', err);
   }
@@ -157,12 +178,12 @@ export function listAudit(db: Db, query: AuditQuery = {}): AuditEntry[] {
   }
   const search = (query.search ?? '').trim().toLowerCase();
   const limit = Math.min(Math.max(query.limit ?? 300, 1), 1000);
-  return all<{ id: string; at: string; action: string; label: string; entity_type: string; entity_id: string; summary: string }>(
+  return all<{ id: string; at: string; action: string; label: string; entity_type: string; entity_id: string; summary: string; user_name: string }>(
     db,
     `SELECT * FROM audit_log ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY at DESC, rowid DESC`,
     ...params,
   )
-    .filter((r) => !search || `${r.label} ${r.summary} ${r.entity_type}`.toLowerCase().includes(search))
+    .filter((r) => !search || `${r.label} ${r.summary} ${r.entity_type} ${r.user_name}`.toLowerCase().includes(search))
     .slice(0, limit)
-    .map((r) => ({ id: r.id, at: r.at, action: r.action, label: r.label, entityType: r.entity_type, entityId: r.entity_id, summary: r.summary }));
+    .map((r) => ({ id: r.id, at: r.at, action: r.action, label: r.label, entityType: r.entity_type, entityId: r.entity_id, summary: r.summary, userName: r.user_name }));
 }

@@ -24,8 +24,10 @@ function Row({ label, value, strong, muted }: { label: string; value: string; st
 }
 
 /** `variant="proforma"` dresses the same document as a quote: its own title and number label, "valid until", and no claim to be a tax invoice. */
-export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice: Invoice; variant?: 'invoice' | 'proforma' }) {
+export function InvoiceDocument({ invoice: inv, variant = 'invoice', against }: { invoice: Invoice; variant?: 'invoice' | 'proforma' | 'credit-note'; against?: { invoiceNumber: string; reason: string } }) {
   const proforma = variant === 'proforma';
+  // A credit note is drawn the same way, but it is not paid or owed, so it has no payment details and says which invoice it reverses.
+  const creditNote = variant === 'credit-note';
   const tax = inv.type === 'B2B';
   const w = INVOICE_WORDS[inv.branding.language ?? 'en'];
   const cancelled = inv.status === 'cancelled';
@@ -35,14 +37,14 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
   const rateLabel = (r: number) => `${+r.toFixed(2)}%`; // 2.5%, 6%, 9%
   // A QR that opens a UPI payment for what is still owed (the whole total on a quote). Not on cancelled or settled invoices.
   const owed = proforma ? inv.totalPaise : inv.totalPaise - inv.paidPaise;
-  const upi = inv.branding.showUpiQr && inv.seller.upiId && !cancelled && owed > 0 ? upiPayLink({ upiId: inv.seller.upiId, payeeName: inv.seller.name, amountPaise: owed, note: inv.number }) : null;
+  const upi = !creditNote && inv.branding.showUpiQr && inv.seller.upiId && !cancelled && owed > 0 ? upiPayLink({ upiId: inv.seller.upiId, payeeName: inv.seller.name, amountPaise: owed, note: inv.number }) : null;
 
   return (
     <article
       className="invoice-paper relative mx-auto w-[210mm] min-h-[297mm] bg-white p-[14mm] text-[11px] leading-relaxed text-ink print:min-h-0 print:w-auto print:p-0"
       // The one colour the owner chooses in Settings → Invoice Settings. Everything else stays in the brand's ink tones.
       style={{ '--accent': inv.branding.accent } as CSSProperties}
-      aria-label={`${proforma ? 'Proforma' : 'Invoice'} ${inv.number}`}
+      aria-label={`${proforma ? 'Proforma' : creditNote ? 'Credit note' : 'Invoice'} ${inv.number}`}
     >
       {cancelled && (
         <div aria-hidden className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -67,9 +69,10 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
           </div>
         </div>
         <div className="text-right">
-          <div className="text-2xl tracking-wide text-[color:var(--accent)]">{(proforma ? w.proforma : tax ? w.taxInvoice : w.invoice).toUpperCase()}</div>
+          <div className="text-2xl tracking-wide text-[color:var(--accent)]">{(proforma ? w.proforma : creditNote ? 'Credit note' : tax ? w.taxInvoice : w.invoice).toUpperCase()}</div>
           <dl className="mt-2 space-y-0.5">
-            <div className="flex justify-end gap-3"><dt className="text-ink-muted">{proforma ? 'Proforma no.' : 'Invoice no.'}</dt><dd className="num font-medium">{inv.number}</dd></div>
+            <div className="flex justify-end gap-3"><dt className="text-ink-muted">{proforma ? 'Proforma no.' : creditNote ? 'Credit note no.' : 'Invoice no.'}</dt><dd className="num font-medium">{inv.number}</dd></div>
+            {creditNote && against && <div className="flex justify-end gap-3"><dt className="text-ink-muted">Against invoice</dt><dd className="num">{against.invoiceNumber}</dd></div>}
             <div className="flex justify-end gap-3"><dt className="text-ink-muted">{w.date}</dt><dd className="num">{formatDate(inv.issueDate)}</dd></div>
             {(proforma || tax) && inv.dueDate && <div className="flex justify-end gap-3"><dt className="text-ink-muted">{proforma ? w.validUntil : w.dueDate}</dt><dd className="num">{formatDate(inv.dueDate)}</dd></div>}
           </dl>
@@ -160,6 +163,12 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
               <div className="mt-0.5 whitespace-pre-line">{inv.notes}</div>
             </>
           )}
+          {creditNote && against?.reason && (
+            <>
+              <div className="mt-4 text-[10px] uppercase tracking-wider text-ink-muted">Reason</div>
+              <div className="mt-0.5 whitespace-pre-line">{against.reason}</div>
+            </>
+          )}
         </div>
         <div>
           <Row label={inv.pricesIncludeGst ? `${w.subtotal} (incl. GST)` : w.subtotal} value={formatMoney(inv.subtotalPaise - inv.lineDiscountPaise)} />
@@ -220,7 +229,7 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
       <footer className="mt-8 break-inside-avoid border-t border-line pt-4">
         <div className={`grid items-end gap-8 ${inv.branding.showSignature ? 'grid-cols-[1fr_14rem]' : 'grid-cols-1'}`}>
           <div className="space-y-3 text-[10px] text-ink-muted">
-            {(inv.seller.bank || upi) && (
+            {!creditNote && (inv.seller.bank || upi) && (
               <div className="flex items-start gap-4">
                 <div>
                   <div className="mb-0.5 uppercase tracking-wider">{w.payTo}</div>
@@ -235,12 +244,13 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
                 )}
               </div>
             )}
-            {inv.seller.terms && (
+            {!creditNote && inv.seller.terms && (
               <div>
                 <div className="mb-0.5 uppercase tracking-wider">{w.terms}</div>
                 <div>{inv.seller.terms}</div>
               </div>
             )}
+            {creditNote && <div>This credit note reverses part of the invoice named above. The tax shown is reduced by the same amount.</div>}
             {proforma && !cancelled && <div>This is a proforma invoice — a quotation for your order, not a tax invoice. No goods are reserved until it is invoiced.</div>}
             {cancelled && <div className="text-status-overdue-fg">Cancelled{inv.cancelledAt ? ` on ${formatDate(localDateOf(inv.cancelledAt))}` : ''}{inv.cancelReason ? ` — ${inv.cancelReason}` : ''}</div>}
           </div>

@@ -117,6 +117,8 @@ function Palette({ onClose }: { onClose: () => void }) {
       ['Invoice settings', paths.settingsSection('invoice'), SettingsIcon, 'pdf logo colour prefix'],
       ['Data management', paths.settingsSection('data'), SettingsIcon, 'backup restore'],
       ['Activity log', paths.settingsSection('activity'), SettingsIcon, 'audit history changes who'],
+      ['Quick bill (counter)', paths.quickBill, SettingsIcon, 'counter scan barcode pos fast sale'],
+      ['Credit notes', paths.creditNotes, SettingsIcon, 'return refund taken back'],
       ['Backup and restore', paths.settingsSection('backup'), SettingsIcon, 'backup restore google drive cloud online copy pen drive'],
     ];
     const rec = records;
