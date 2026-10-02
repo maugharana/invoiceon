@@ -1,7 +1,7 @@
-import { Boxes, ChevronRight, ClipboardCheck, Download, MapPin, Plus, SearchX, SlidersHorizontal } from 'lucide-react';
+import { Boxes, ChevronRight, ClipboardCheck, Download, Globe, MapPin, Plus, SearchX, SlidersHorizontal } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { designsCsv } from '../../../shared/csv';
-import { MARGIN_LABEL, NO_FILTERS, SOLD_LABEL, applyDesignFilters, fabricsOf, filtersActive, type DesignFilters, type MarginBand, type SoldBand } from '../../../shared/designFilters';
+import { designsCsv, websiteCsv } from '../../../shared/csv';
+import { MARGIN_LABEL, NO_FILTERS, SOLD_LABEL, applyDesignFilters, choicesOf, fabricsOf, filtersActive, type DesignFilters, type MarginBand, type SoldBand } from '../../../shared/designFilters';
 import { formatDate, todayIso } from '../../../shared/gst';
 import { formatMoney } from '../../../shared/money';
 import { tagCounts } from '../../../shared/tags';
@@ -18,6 +18,7 @@ import { BulkDesignModal, type BulkKind } from './BulkDesignModal';
 import { PlacesModal } from './Places';
 import { DesignFormModal } from './DesignFormModal';
 import { InventoryShell } from './InventoryTabs';
+import { isUntidy } from './TidyNamesPage';
 
 type Filter = 'all' | 'low' | 'out';
 type SortKey = 'name' | 'stock' | 'value' | 'price' | 'margin' | 'sold' | 'cover';
@@ -65,6 +66,8 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
 
   const s = summary.data;
   const isEmptyInventory = s?.designCount === 0;
+  const untidyCount = (everything.data ?? []).filter(isUntidy).length;
+  const choice = useMemo(() => ({ weaveStyle: choicesOf(everything.data ?? [], 'weaveStyle'), technique: choicesOf(everything.data ?? [], 'technique'), pattern: choicesOf(everything.data ?? [], 'pattern'), work: choicesOf(everything.data ?? [], 'work') }), [everything.data]);
   const fabrics = useMemo(() => fabricsOf(everything.data ?? []), [everything.data]);
   const tagList = useMemo(() => tagCounts((everything.data ?? []).map((d) => d.tags)), [everything.data]);
 
@@ -145,6 +148,24 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
               Export CSV
             </Button>
           )}
+          {!isEmptyInventory && (
+            <Button
+              icon={<Globe className="h-4 w-4" />}
+              onClick={() =>
+                void (async () => {
+                  try {
+                    const [listings, shop] = await Promise.all([api.websiteListings(), api.getSettings()]);
+                    await saveCsv(`website-products-${todayIso()}.csv`, websiteCsv(listings, { name: shop.businessName }), 'Product file saved. Import it as drafts in your online shop.');
+                  } catch (err) {
+                    toast.error(errorMessage(err));
+                  }
+                })()
+              }
+              title="Every design as a product import for an online shop, as drafts"
+            >
+              Website CSV
+            </Button>
+          )}
           <Button onClick={() => setAdding(true)}>Add one design</Button>
           <Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => navigate(paths.addSarees)}>
             Add sarees
@@ -160,6 +181,15 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
           <Figure label="Stock value" sub="At cost" highlight>
             <Money paise={s.stockValuePaise} fractionDigits={0} />
           </Figure>
+        </div>
+      )}
+
+      {!isEmptyInventory && untidyCount > 0 && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-surface px-4 py-3">
+          <p className="min-w-0 flex-1 text-sm text-ink-muted">
+            {untidyCount === 1 ? '1 design was' : `${untidyCount} designs were`} named by hand, before names were built from choices. Pick their choices and they get the same name style as every new saree.
+          </p>
+          <Button className="shrink-0" onClick={() => navigate(paths.tidyNames)}>Fix names</Button>
         </div>
       )}
 
@@ -187,7 +217,7 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
         <>
           <div className="mb-4 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <SearchInput value={search} onChange={setSearch} placeholder="Search name, short name, code, color or SKU" />
+              <SearchInput value={search} onChange={setSearch} placeholder="Search name, special name, code, color or SKU" />
               <Button icon={<SlidersHorizontal className="h-4 w-4" />} onClick={() => setShowFilters((v) => !v)} aria-expanded={showFilters}>
                 Filters{active ? ' · on' : ''}
               </Button>
@@ -209,7 +239,28 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
 
           {showFilters && (
             <Card className="animate-fade-in mb-4 p-4">
-              <div className="grid grid-cols-6 items-end gap-4">
+              <div className="grid grid-cols-6 items-end gap-x-4 gap-y-3">
+                {(
+                  [
+                    ['weaveStyle', 'Weave style', 'Any weave style'],
+                    ['technique', 'Technique', 'Any technique'],
+                    ['pattern', 'Pattern', 'Any pattern'],
+                    ['work', 'Special work', 'Any work'],
+                  ] as const
+                ).map(([field, label, any]) =>
+                  choice[field].length > 0 ? (
+                    <Field key={field} label={label}>
+                      <Select value={columns[field]} onChange={(e) => setColumn(field, e.target.value)}>
+                        <option value="">{any}</option>
+                        {choice[field].map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                  ) : null,
+                )}
                 <Field label="Tag">
                   <Select value={columns.tag} onChange={(e) => setColumn('tag', e.target.value)}>
                     <option value="">Any tag</option>

@@ -12,7 +12,8 @@ const OWNER_ONLY = [
   'dataExportAll', 'dataInfo', 'designArchive', 'designCreate', 'designDuplicate', 'designRestore', 'designUpdate', 'designsBulk', 'driveBackups', 'driveConnectStart', 'driveConnectWait', 'driveDeleteBackup',
   'driveDisconnect', 'driveSaveCredentials', 'exportSaveZip', 'inventoryBulkAdd', 'invoiceCancel', 'locationArchive', 'locationCreate', 'locationRename', 'loyaltyAdjust', 'materialAdjust', 'materialCreate',
   'materialDelete', 'materialUpdate', 'photoDelete', 'photoSetCover', 'productionCancel', 'productionCloseShort', 'productionCreate', 'productionIssueMaterials', 'productionReceive', 'productionUpdate',
-  'proformaCancel', 'quoteTemplateDelete', 'sampleDataLoad', 'saveSettings', 'stockAdjust', 'stockTakeApply', 'stockTransfer', 'userCreate', 'userList', 'userResetPin', 'userUpdate', 'variantArchive',
+  'proformaCancel', 'quoteTemplateDelete',
+  'catalogueEntries', 'catalogueRename', 'catalogueDelete', 'designsTidy', 'weaverOrderCreate', 'weaverOrderUpdate', 'weaverOrderReceive', 'weaverOrderPay', 'weaverPaymentVoid', 'weaverOrderCancel', 'sampleDataLoad', 'saveSettings', 'stockAdjust', 'stockTakeApply', 'stockTransfer', 'userCreate', 'userList', 'userResetPin', 'userUpdate', 'variantArchive',
   'variantCreate', 'variantRestore', 'variantUpdate',
 ];
 

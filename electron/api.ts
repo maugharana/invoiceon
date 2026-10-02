@@ -17,7 +17,10 @@ import * as customers from './services/customers';
 import * as instalments from './services/instalments';
 import { dashboardNow, dashboardOverview } from './services/dashboard';
 import { festivalComparison } from './services/festival';
+import { buildListing } from '../shared/websiteText';
 import * as bulk from './services/bulk';
+import * as catalogue from './services/catalogue';
+import * as weaverOrders from './services/weaverOrders';
 import { exportEverything } from './services/exportAll';
 import * as moreReports from './services/moreReports';
 import { reorderList } from './services/deadstock';
@@ -187,6 +190,32 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
     heldList: async (kind) => held.listHeld(db, kind ?? 'invoice'),
     heldHold: async (input) => held.holdBill(db, input),
     heldDiscard: async (id) => held.discardHeld(db, id),
+
+    websiteListings: async () => {
+      const shop = { name: settings.getSettings(db).businessName, gstRatePercent: settings.getSettings(db).gstRatePercent };
+      return inventory.listDesigns(db).map((d) => buildListing(inventory.getDesign(db, d.id), shop));
+    },
+    inventoryQuickAdd: async (row) => {
+      const id = inventory.quickAddSaree(db, row);
+      const made = invoices.variantsForSale(db).find((v) => v.variantId === id);
+      if (!made) throw new UserError('The item was added but could not be loaded. Reopen the invoice screen.');
+      return made;
+    },
+    catalogueOptions: async () => inventory.catalogueOptions(db),
+    catalogueEntries: async () => catalogue.catalogueEntries(db),
+    catalogueRename: async (input) => catalogue.renameChoice(db, input),
+    catalogueDelete: async (input) => catalogue.deleteChoice(db, input),
+    designsTidy: async (rows) => catalogue.tidyDesigns(db, rows),
+
+    weaverOrdersList: async (query) => weaverOrders.listWeaverOrders(db, query ?? {}),
+    weaverOrderGet: async (id) => weaverOrders.getWeaverOrder(db, id),
+    weaverOrderCreate: async (input) => weaverOrders.createWeaverOrder(db, input),
+    weaverOrderUpdate: async (id, input) => weaverOrders.updateWeaverOrder(db, id, input),
+    weaverOrderReceive: async (id, input) => weaverOrders.receiveWeaverOrder(db, id, input),
+    weaverOrderPay: async (id, input) => weaverOrders.payWeaverOrder(db, id, input),
+    weaverPaymentVoid: async (id) => weaverOrders.voidWeaverPayment(db, id),
+    weaverOrderCancel: async (id, reason) => weaverOrders.cancelWeaverOrder(db, id, reason),
+    weaverOrderDraft: async (proformaId) => weaverOrders.draftFromQuote(db, proformaId),
 
     getSettings: async () => settings.getSettings(db),
     saveSettings: async (patch) => settings.saveSettings(db, patch),

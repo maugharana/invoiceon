@@ -10,6 +10,10 @@ import { DashboardPage } from './pages/DashboardPage';
 import { DesignPage } from './pages/inventory/DesignPage';
 import { InventoryPage } from './pages/inventory/InventoryPage';
 import { AddSareesPage } from './pages/inventory/AddSareesPage';
+import { TidyNamesPage } from './pages/inventory/TidyNamesPage';
+import { WeaverOrderEditPage } from './pages/inventory/WeaverOrderEditPage';
+import { WeaverOrderPage } from './pages/inventory/WeaverOrderPage';
+import { WeaverOrdersPage } from './pages/inventory/WeaverOrdersPage';
 import { MaterialsPage } from './pages/inventory/MaterialsPage';
 import { ProductionPage } from './pages/inventory/ProductionPage';
 import { StockTakePage } from './pages/inventory/StockTakePage';
@@ -38,6 +42,16 @@ function renderRoute(route: Route) {
       return <InventoryPage initialFilter={route.status} />;
     case 'materials':
       return <MaterialsPage />;
+    case 'inventory-names':
+      return <TidyNamesPage />;
+    case 'weaver-orders':
+      return <WeaverOrdersPage />;
+    case 'weaver-order-new':
+      return <WeaverOrderEditPage quoteId={route.quoteId} />;
+    case 'weaver-order-edit':
+      return <WeaverOrderEditPage editId={route.id} />;
+    case 'weaver-order':
+      return <WeaverOrderPage id={route.id} />;
     case 'production':
       return <ProductionPage />;
     case 'inventory-add':
@@ -115,6 +129,11 @@ const pageKey = (r: Route): string => {
     case 'invoices':
     case 'proformas':
       return `${r.name}:${r.status}`;
+    case 'weaver-order-new':
+      return `weaver-order-new:${r.quoteId ?? ''}`;
+    case 'weaver-order-edit':
+    case 'weaver-order':
+      return `${r.name}:${r.id}`;
     case 'proforma-new':
       return `proforma-new:${r.customerId ?? ''}:${r.copyFrom ?? ''}`;
     case 'proforma-edit':
@@ -153,7 +172,7 @@ export default function App() {
   if (route.name === 'print-credit-note') return <PrintCreditNotePage id={route.id} />;
   if (route.name === 'print-invoices') return <PrintInvoicesPage ids={route.ids} />;
   return (
-    <AppShell active={sectionOf(route)} pageKey={pageKey(route)} hideFab={route.name === 'invoice-new' || route.name === 'quick-bill' || route.name === 'proforma-new' || route.name === 'proforma-edit' || route.name === 'inventory-add' || route.name === 'stock-take'}>
+    <AppShell active={sectionOf(route)} pageKey={pageKey(route)} hideFab={route.name === 'invoice-new' || route.name === 'quick-bill' || route.name === 'proforma-new' || route.name === 'proforma-edit' || route.name === 'inventory-add' || route.name === 'inventory-names' || route.name === 'weaver-order-new' || route.name === 'weaver-order-edit' || route.name === 'stock-take'}>
       {renderRoute(route)}
     </AppShell>
   );

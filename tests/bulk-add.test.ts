@@ -125,7 +125,7 @@ describe('bulk add sarees', () => {
   });
 });
 
-describe('short (one-word) names', () => {
+describe('special names', () => {
   const designNamed = (name: string) => inventory.listDesigns(db).find((d) => d.name === name)!;
 
   it('are stored on the design, taken from the first row that has one, and searchable', () => {
@@ -135,11 +135,14 @@ describe('short (one-word) names', () => {
     expect(inventory.listDesigns(db, { search: 'nothing' })).toHaveLength(0);
   });
 
-  it('must be one word', () => {
-    const result = inventory.bulkAddSarees(db, [row({ nickname: 'Two words' })]);
-    expect(result.errors[0]!.message).toMatch(/one word/);
-    expect(() => inventory.createDesign(db, { code: 'X-1', name: 'X', nickname: 'a b', fabric: '', hsnCode: '', description: '', defaultPricePaise: 1 })).toThrow(/one word/);
-    expect(() => inventory.createDesign(db, { code: 'X-2', name: 'X', nickname: 'x'.repeat(21), fabric: '', hsnCode: '', description: '', defaultPricePaise: 1 })).toThrow(/too long/);
+  it('can be a phrase, are tidied, and stop at a sensible length', () => {
+    const result = inventory.bulkAddSarees(db, [row({ name: 'Two words', nickname: '  Rang   Bahar ' })]);
+    expect(result.errors).toEqual([]);
+    expect(designNamed('Two words').nickname).toBe('Rang Bahar');
+    expect(inventory.listDesigns(db, { search: 'bahar' })).toHaveLength(1);
+    const d = inventory.createDesign(db, { code: 'X-1', name: 'X', nickname: 'Mau Rani Gulabi Rang', fabric: '', hsnCode: '', description: '', defaultPricePaise: 1 });
+    expect(d.nickname).toBe('Mau Rani Gulabi Rang');
+    expect(() => inventory.createDesign(db, { code: 'X-2', name: 'X', nickname: 'x'.repeat(41), fabric: '', hsnCode: '', description: '', defaultPricePaise: 1 })).toThrow(/too long/);
   });
 
   it('are optional, and a design that already has one keeps it', () => {
@@ -157,5 +160,36 @@ describe('short (one-word) names', () => {
     const d = inventory.createDesign(db, { code: 'X-1', name: 'X', nickname: 'Ex', fabric: '', hsnCode: '', description: '', defaultPricePaise: 1 });
     expect(d.nickname).toBe('Ex');
     expect(inventory.updateDesign(db, d.id, { code: 'X-1', name: 'X', nickname: '', fabric: '', hsnCode: '', description: '', defaultPricePaise: 1 }).nickname).toBe('');
+  });
+});
+
+describe('adding a saree from the invoice screen', () => {
+  it('returns the new piece ready to sell, and the invoice takes its stock out through the ledger', async () => {
+    const api = createApi(db);
+    const made = await api.inventoryQuickAdd(row({ stock: 2, sellPricePaise: rupees(5000) }));
+    expect(made).toMatchObject({ designName: 'Mau Silk Butidar', color: 'Maroon', stock: 2, sellPricePaise: rupees(5000) });
+    expect((await api.variantsForSale()).map((v) => v.variantId)).toContain(made.variantId);
+
+    const inv = await api.invoiceCreate({ type: 'B2C', customerId: null, issueDate: '2026-05-10', dueDate: '2026-05-10', discountPaise: 0, notes: '', lines: [{ variantId: made.variantId, qty: 2, unitPricePaise: made.sellPricePaise }] });
+    expect(inv.lines).toHaveLength(1);
+    const moves = await api.stockMovements(made.variantId);
+    expect(moves.map((m) => [m.reason, m.delta])).toEqual([
+      ['sale', -2],
+      ['opening', 2],
+    ]);
+  });
+
+  it('adds a colour to a design you already have, and refuses a piece that already exists', async () => {
+    const api = createApi(db);
+    await api.inventoryQuickAdd(row());
+    const second = await api.inventoryQuickAdd(row({ color: 'Emerald' }));
+    expect(second.designName).toBe('Mau Silk Butidar');
+    expect(counts()).toEqual({ designs: 1, variants: 2 });
+    await expect(api.inventoryQuickAdd(row({ color: 'emerald' }))).rejects.toThrow(/already has/);
+    expect(counts()).toEqual({ designs: 1, variants: 2 });
+  });
+
+  it('names the problem when a field is missing', async () => {
+    await expect(createApi(db).inventoryQuickAdd(row({ color: ' ' }))).rejects.toThrow(/Colour/);
   });
 });

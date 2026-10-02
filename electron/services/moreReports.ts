@@ -1,7 +1,8 @@
 import { addDays, todayIso } from '../../shared/gst';
 import { sameDayLastYear } from '../../shared/periods';
+import { splitWorks } from '../../shared/nomenclature';
 import type { QuotesReport } from '../../shared/types';
-import type { DayBook, DayBookEntry, DayBookMode, MarginBy, MarginLine, MarginReport, MarginRow, MoverClass, MoverRow, MoversReport, PaymentMethod, ProfitAndLoss, ProfitLossFigures, StockMovementReport, StockMovementRow } from '../../shared/types';
+import { MARGIN_BY_LABEL, type DayBook, type DayBookEntry, DayBookMode, MarginBy, MarginLine, MarginReport, MarginRow, MoverClass, MoverRow, MoversReport, PaymentMethod, ProfitAndLoss, ProfitLossFigures, StockMovementReport, StockMovementRow } from '../../shared/types';
 import { all, type Db } from '../db/connection';
 import { UserError } from './common';
 import { listExpenses, netOf, overviewOf } from './expenses';
@@ -119,10 +120,23 @@ export function quotesReport(db: Db, range: Range): QuotesReport {
 }
 
 // ── Margin, by design / colour / customer ───────────────────────────────────
-function keyOf(by: MarginBy, inv: LoadedInvoice, line: LoadedInvoice['lines'][number]): { key: string; name: string } {
-  if (by === 'design') return { key: line.designId ?? `name:${line.designName.toLowerCase()}`, name: line.designName };
-  if (by === 'colour') return { key: line.color.trim().toLowerCase(), name: line.color.trim() || 'No colour' };
-  return inv.row.customer_id ? { key: inv.row.customer_id, name: inv.buyerName } : { key: 'walk-in', name: 'Walk-in customers' };
+type DesignAttrs = Map<string, { weaveStyle: string; fabric: string; technique: string; pattern: string; work: string }>;
+
+/** What each design is made of, to group sales by it. */
+function designAttrs(db: Db): DesignAttrs {
+  return new Map(all<{ id: string; weave_style: string; fabric: string; technique: string; pattern: string; work: string }>(db, 'SELECT id, weave_style, fabric, technique, pattern, work FROM designs').map((d) => [d.id, { weaveStyle: d.weave_style, fabric: d.fabric, technique: d.technique, pattern: d.pattern, work: d.work }]));
+}
+
+const NOT_SET = 'Not set';
+
+/** The groups a line belongs to: one for most, but a saree with two works is in both (so those rows can add up to more than the whole). */
+function keysOf(by: MarginBy, inv: LoadedInvoice, line: LoadedInvoice['lines'][number], attrs: DesignAttrs): { key: string; name: string }[] {
+  if (by === 'design') return [{ key: line.designId ?? `name:${line.designName.toLowerCase()}`, name: line.designName }];
+  if (by === 'colour') return [{ key: line.color.trim().toLowerCase(), name: line.color.trim() || 'No colour' }];
+  if (by === 'customer') return [inv.row.customer_id ? { key: inv.row.customer_id, name: inv.buyerName } : { key: 'walk-in', name: 'Walk-in customers' }];
+  const a = line.designId ? attrs.get(line.designId) : undefined;
+  const values = by === 'work' ? splitWorks(a?.work) : [(a?.[by] ?? '').trim()].filter(Boolean);
+  return values.length > 0 ? values.map((v) => ({ key: v.toLowerCase(), name: v })) : [{ key: '', name: NOT_SET }];
 }
 
 const marginOf = (profit: number, revenue: number): number | null => (revenue > 0 ? (profit / revenue) * 100 : null);
@@ -130,34 +144,40 @@ const marginOf = (profit: number, revenue: number): number | null => (revenue > 
 /** Sales, cost and profit grouped by design, colour or customer, best profit first. Revenue is before GST and after the invoice's discount. */
 export function marginReport(db: Db, range: Range, by: MarginBy): MarginReport {
   checkRange(range);
-  if (!['design', 'colour', 'customer'].includes(by)) throw new UserError('Choose design, colour or customer.');
+  if (!(Object.keys(MARGIN_BY_LABEL) as string[]).includes(by)) throw new UserError('Choose what to group the margin by.');
+  const attrs = designAttrs(db);
   const rows = new Map<string, MarginRow & { invoices: Set<string> }>();
+  const whole = { pieces: 0, revenue: 0, cost: 0 };
   for (const inv of loadInvoices(db, range)) {
     for (const line of inv.lines) {
-      const { key, name } = keyOf(by, inv, line);
-      const r = rows.get(key) ?? { key, name, pieces: 0, invoiceCount: 0, revenuePaise: 0, costPaise: 0, profitPaise: 0, marginPercent: null, invoices: new Set<string>() };
-      r.pieces += line.qty;
-      r.revenuePaise += line.taxable;
-      r.costPaise += line.cost;
-      r.invoices.add(inv.row.id);
-      rows.set(key, r);
+      whole.pieces += line.qty;
+      whole.revenue += line.taxable;
+      whole.cost += line.cost;
+      for (const { key, name } of keysOf(by, inv, line, attrs)) {
+        const r = rows.get(key) ?? { key, name, pieces: 0, invoiceCount: 0, revenuePaise: 0, costPaise: 0, profitPaise: 0, marginPercent: null, invoices: new Set<string>() };
+        r.pieces += line.qty;
+        r.revenuePaise += line.taxable;
+        r.costPaise += line.cost;
+        r.invoices.add(inv.row.id);
+        rows.set(key, r);
+      }
     }
   }
   const out: MarginRow[] = [...rows.values()]
     .map(({ invoices, ...r }) => ({ ...r, invoiceCount: invoices.size, profitPaise: r.revenuePaise - r.costPaise, marginPercent: marginOf(r.revenuePaise - r.costPaise, r.revenuePaise) }))
     .sort((a, b) => b.profitPaise - a.profitPaise || a.name.localeCompare(b.name));
-  const revenuePaise = sum(out, (r) => r.revenuePaise);
-  const costPaise = sum(out, (r) => r.costPaise);
-  return { range, by, rows: out, totals: { pieces: sum(out, (r) => r.pieces), revenuePaise, costPaise, profitPaise: revenuePaise - costPaise, marginPercent: marginOf(revenuePaise - costPaise, revenuePaise) } };
+  // Totals come from the lines themselves, not the rows: a saree with two works is in two rows but sold once.
+  return { range, by, rows: out, totals: { pieces: whole.pieces, revenuePaise: whole.revenue, costPaise: whole.cost, profitPaise: whole.revenue - whole.cost, marginPercent: marginOf(whole.revenue - whole.cost, whole.revenue) } };
 }
 
 /** The invoice lines behind one row of the margin report, newest first. */
 export function marginDrill(db: Db, range: Range, by: MarginBy, key: string): MarginLine[] {
   checkRange(range);
   const lines: MarginLine[] = [];
+  const attrs = designAttrs(db);
   for (const inv of loadInvoices(db, range)) {
     for (const line of inv.lines) {
-      if (keyOf(by, inv, line).key !== key) continue;
+      if (!keysOf(by, inv, line, attrs).some((k) => k.key === key)) continue;
       lines.push({
         invoiceId: inv.row.id,
         number: inv.row.number,

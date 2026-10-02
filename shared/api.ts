@@ -1,6 +1,18 @@
+import type { WebsiteListing } from './websiteText';
 import type { Paise } from './money';
 import type { Role } from './roles';
 import type {
+  CatalogueEntry,
+  CatalogueOptions,
+  TidyResult,
+  TidyRow,
+  WeaverOrder,
+  WeaverOrderDraft,
+  WeaverOrderInput,
+  WeaverOrderQuery,
+  WeaverOrderSummary,
+  WeaverPayInput,
+  WeaverReceiveInput,
   BulkAddResult,
   BulkDesignAction,
   BulkDesignResult,
@@ -139,6 +151,37 @@ import type { CompareWith } from './periods';
  * plain Error whose message is safe to show the user.
  */
 export interface Api {
+  /** Every design as web page text and shop-import data: title, search text, description, tags and prices (see shared/websiteText.ts). */
+  websiteListings(): Promise<WebsiteListing[]>;
+  /** Adds one saree to the inventory from the invoice screen and returns it ready to put on the invoice. Same rules as the Add sarees sheet. */
+  inventoryQuickAdd(row: BulkSareeRow): Promise<SaleVariant>;
+  /** The choices for weave style, fabric, technique, work and colour. */
+  catalogueOptions(): Promise<CatalogueOptions>;
+  /** Every choice with how many designs use it, for the screen that manages them. */
+  catalogueEntries(): Promise<CatalogueEntry[]>;
+  /** Renames a choice everywhere it is used. Renaming to a choice that already exists merges the two. Built in choices can't be renamed. */
+  catalogueRename(input: { kind: CatalogueEntry['kind']; from: string; to: string }): Promise<{ changed: number }>;
+  /** Removes a choice nobody uses. A choice in use, or a built in one, is refused. */
+  catalogueDelete(input: { kind: CatalogueEntry['kind']; label: string }): Promise<void>;
+  /** Sets the choices on several designs and, where asked, renames each to the name they build. All or nothing. */
+  designsTidy(rows: TidyRow[]): Promise<TidyResult>;
+
+  weaverOrdersList(query?: WeaverOrderQuery): Promise<WeaverOrderSummary[]>;
+  weaverOrderGet(id: string): Promise<WeaverOrder>;
+  weaverOrderCreate(input: WeaverOrderInput): Promise<WeaverOrder>;
+  /** Changes an order. A line that has pieces received can't go below what has arrived or be removed. */
+  weaverOrderUpdate(id: string, input: WeaverOrderInput): Promise<WeaverOrder>;
+  /** Marks pieces as arrived: they go into stock, through the stock ledger, and the order moves to part received or received. */
+  weaverOrderReceive(id: string, input: WeaverReceiveInput): Promise<WeaverOrder>;
+  /** Records money paid to the weaver. It is also entered as an expense. */
+  weaverOrderPay(id: string, input: WeaverPayInput): Promise<WeaverOrder>;
+  /** Takes a payment back (entered by mistake). Its expense is removed too. */
+  weaverPaymentVoid(id: string): Promise<WeaverOrder>;
+  /** Cancels an order nothing has arrived for and nothing is paid on. */
+  weaverOrderCancel(id: string, reason: string): Promise<WeaverOrder>;
+  /** What is short for a quote's items, as a starting point for an order to a weaver. */
+  weaverOrderDraft(proformaId: string): Promise<WeaverOrderDraft>;
+
   getSettings(): Promise<Settings>;
   saveSettings(patch: Partial<Settings>): Promise<Settings>;
 

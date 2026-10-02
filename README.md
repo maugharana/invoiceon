@@ -42,6 +42,10 @@ freshly extracted files. If you hit it, exclude that cache folder from real-time
 elevated terminal, then re-run. `electronDist` in `package.json` already reuses the installed Electron so the
 main app payload isn't downloaded a second time. No app icon is set yet (default Electron icon) — a polish-stage item.
 
+## Automatic checks
+
+`.github/workflows/checks.yml` runs on every pull request and on `main`: `npm run typecheck`, `npm test` and `npm run build` on Linux with Node 22 (no Electron download). A red check on a pull request means one of those fails locally too.
+
 ## Stack
 
 - **Electron 44** shell, **React 19 + TypeScript + Tailwind 3** UI, bundled with **Vite**; main process bundled with esbuild.
@@ -176,6 +180,31 @@ The period lives in the URL, so switching tabs keeps it.
 - Rows with the same normalised name (case and spacing ignored) form one design; a name matching an existing design extends it; two existing designs with one name are refused rather than guessed at.
 - **MRP** is a new optional field on each variant (migration 5; `0` means not set). It is stored and shown, and is not used in invoice maths: prices stay GST-exclusive (SP), MRP is the printed GST-inclusive price.
 
+## Adding a saree while invoicing
+
+On the New invoice and New proforma screens, the item box ends with **Not in inventory? Add “…”**. It opens a dialog (`QuickAddItemModal.tsx`) with the saree's choices (below), size, selling price, **cost price** (so the first sale already has a profit) and pieces in stock (1 on an invoice, 0 on a quote). MRP, HSN and Saree ID are under "Other details". Saving calls `inventoryQuickAdd`, which is the Add sarees sheet with one row (`quickAddSaree` in `electron/services/inventory.ts`), so the same checks apply: a name that matches a design adds a colour or size to it, and a piece that already exists is refused. The piece is received as *opening* stock, then put on the invoice; issuing takes it out as a normal *sale*, so the stock ledger shows both.
+
+## How a saree is named
+
+Code: `shared/nomenclature.ts`, migrations 21 and 22, `tests/nomenclature.test.ts`, `tests/catalogue.test.ts`. A saree is entered as separate choices, and its name is built from them the same way every time:
+
+```
+Banarasi Katan Silk Kadhua Butidar Saree with Zardozi Work and Aari Work, Lalima         the design
+Maroon Banarasi Katan Silk Kadhua Butidar Saree with Zardozi Work and Aari Work, Lalima  one colour of it
+```
+
+- **Order: weave style, fabric, technique, pattern, "Saree", special work, then the shop's own special name last.** Shoppers search weave plus fabric plus "saree" ("banarasi silk saree" is about 74,000 searches a month in India), and search engines and AI assistants weigh the first words of a title most. The special name goes last so it never pushes those words out. Colour joins the front only for one piece, because a design comes in several colours.
+- **Fields:** `designs.weave_style`, `fabric`, `technique`, `pattern` (one only: a Jaal saree is not a Butidar one, so they are different designs), `work` (one or more, comma separated) and the existing `nickname` (the special name: a word or a phrase up to 40 characters, like "Rang Bahar"). Weave style and colour are required in the quick-add dialog; the rest are optional and skipped in the name.
+- **Names built, not typed.** A design given no name gets one from its choices (only when a weave style, technique, pattern or work is set, so a fabric alone never becomes a name). A name typed by hand is kept. The Design form offers "Use …" when the built name differs from the typed one.
+- **Pick lists** (`catalogueOptions`): a starting set of common weave styles, fabrics, techniques, works and colours (`DEFAULT_OPTIONS`, most searched first), then anything the shop added (`catalogue_options`), then anything already in stock. A choice typed into a list is remembered when the saree is saved. `ChoiceInput` is the control: type to narrow, pick, or add what is not there.
+- **The Add sarees sheet** has a column for each choice (weave style, fabric, technique, pattern, special work, colour, special name) with the pick lists as suggestions in each cell, and shows each row's full name under it. "Own name" is under More columns, for a saree named by hand. Rows with the same name (built or typed) become one design.
+- **Slips and look alikes.** A typed choice that looks like a slip for one in the list ("Kadhwa" for "Kadhua", `closeMatches` in `shared/search.ts`) is offered as "Did you mean…?" before it can become a new choice. On the quick add dialog and the sheet, a saree with the same choices as an existing design but another special name is flagged (`sameChoices`), with a button to use that design's special name so the colour joins it.
+- **Long names.** A name can be up to 200 characters (`MAX_NAME`). Printed invoices, the Inventory list and the item lists wrap it; it was checked with a name of about 120 characters on a printed invoice. Search results show roughly the first 60 characters of a title, which is why the words shoppers search come first.
+- **Fix names** (`TidyNamesPage.tsx`, Inventory banner when needed): designs named by hand before this existed. `guessChoices` in `shared/nomenclature.ts` reads the choices out of the old name (whole words only), the person confirms or corrects, and `designsTidy` saves them and renames the designs all or nothing. An old short name that only repeats a choice (Kadhua) is dropped from the special name. Issued invoices keep the name they were issued with.
+- **Saree Choices** (Settings, `CatalogueSection.tsx`, `electron/services/catalogue.ts`): rename a choice you added (every saree using it changes, and one whose name was built from its choices is renamed too), merge by renaming to an existing choice, remove one nobody uses. The starting choices can't be changed. Colours rename on the pieces, and a merge that would give a design the same colour and size twice is refused.
+
+- **Filters and reports by choice.** The Inventory filters can narrow by weave style, technique, pattern and one of the works (`choicesOf` in `shared/designFilters.ts`). The Margins report groups by weave style, fabric, technique, pattern or special work as well as design, colour and customer (`tests/choice-reports.test.ts`). A saree with two works is counted under each, so work rows can add up to more than the total; the totals come from the sold lines themselves, so nothing is counted twice there. A saree without a choice is grouped under "Not set". Margins use the invoices as issued, and don't yet net off credit notes.
+
 ## Customers, quotes, money, materials and the shell (stages 8–15)
 
 Migrations 8 to 13. Each has an upgrade test (`tests/upgrade.test.ts`) that builds a populated book at the previous version, upgrades it, and checks the backfills.
@@ -189,7 +218,38 @@ Migrations 8 to 13. Each has an upgrade test (`tests/upgrade.test.ts`) that buil
 - **Raw materials (12).** `stock_qty` is a cached balance with a ledger (`material_movements`), like finished stock; quantities are rounded to a thousandth. A purchase adds stock, makes the price just paid the material's price (history in `material_prices`), and can create the matching expense in the same transaction. A costing line's cost includes its wastage percent. The what-if simulator (`simulateMaterialPrices`) changes nothing. Places: the shop is the default; `stock_locations` holds only what is kept elsewhere, and sales and write-offs draw only on the shop's share.
 - **The shell (13).** Every API call that changes something writes one line to `audit_log` from `createApi` (a description, never the data; a log that can't be written never fails the change). Notifications are derived on every call from the books (`electron/services/notifications.ts`), nothing is stored; "read" is remembered per computer in the browser. Held bills are rows in `held_bills` and touch no stock or money.
 
-Not built, on purpose: photos, barcodes/QR labels, credit notes and returns, per-line discounts, multi-rate GST, e-invoice/e-way bill, users and roles, auto-update, production orders and job work. Sync/teams are planned for InvoiceOn Plus.
+Not built, on purpose: e-invoice/e-way bill, users and roles, auto-update, production orders and job work (orders to a weaver for finished sarees are built, see Weaver orders). Sync/teams are planned for InvoiceOn Plus.
+
+## Website text
+
+Code: `shared/websiteText.ts`, `src/pages/inventory/WebsiteTextModal.tsx`, `websiteCsv` in `shared/csv.ts`, `tests/website-text.test.ts`. On a design, **Website text** gives the words for its page, built only from what is recorded about it:
+
+- the product name (the same as the saree's built name), a **search result** (title about 60 characters, description about 155, so the searched words come first and nothing is cut off), a **description** (the choices in a sentence, what each weave style, technique, pattern and work means, the colours and lengths, and a care line for silk and zari), **details**, **tags**, a web address ending, and **schema.org Product data** (JSON) with each colour as an offer, in stock or not, for search engines and AI assistants.
+- It claims nothing the choices don't say: no "handwoven", no weaver, no blouse piece. The dialog says to read it and add those. The meanings come from a table in the file, kept to facts that are well established (where a weave comes from, what a technique or work is); a choice with no entry just has no sentence.
+- **Prices** are what the shopper pays: the printed MRP when there is one, otherwise the selling price plus GST at the design's rate or the shop's usual.
+- **Website CSV** on Inventory exports every design as a product import in the column layout Shopify reads: one row per colour and length, product details on the first row only, and every product as a **draft**, so nothing goes live unreviewed. Check the product category against your shop's list before importing.
+
+## Weaver orders (made to order sarees)
+
+Code: `electron/services/weaverOrders.ts`, migration 23, `src/pages/inventory/WeaverOrder*Page.tsx`, `src/pages/proformas/WeaverCard.tsx`, `tests/weaver-orders.test.ts`. Inventory has a third tab, **Weaver orders**.
+
+The flow for a saree you don't have: customer quote (with a deposit if they pay one) → **Order from weaver** on the quote → **Mark received** when it arrives → **Convert to invoice**.
+
+- **An order** (`WO/2026-27/0001`, numbered by financial year) has a weaver (a vendor), the ordered and expected days, a note, an optional quote it is for, and lines: a piece, how many, and the agreed price each. A saree not in the inventory is added from the order screen (same dialog as on invoices) with no stock until it arrives. An order can be changed, but never to fewer than has arrived or with an arrived line removed, and the weaver can't change once money has been paid.
+- **From a quote.** `weaverOrderDraft` works out what is short: for each item still to invoice, the pieces needed minus what is in stock minus what is already on order for that quote. Prices start at the piece's cost today, and the weaver is filled in when every short saree has the same usual supplier. Quotes reserve no stock, so two quotes asking for the same piece both see the same stock.
+- **Receiving** puts the pieces into stock through the stock ledger (a `purchase` movement pointing back at the order), part by part, and keeps each delivery. **Cost prices are not changed** (a choice: the agreed price lives on the order, for what you owe, not on the piece).
+- **Money.** An order's total is its lines at the agreed prices; payments can't pass it, and none can be recorded until a price is set. Each payment is also entered as an expense in the category *Weaver payments* in the same step (like a raw material purchase), so it counts in profit and in the payment account it came from. Taking a payment back removes that expense. Nothing is deleted: a payment is marked taken back.
+- **Cancelling** needs nothing received and no payments standing.
+- **Notifications** (derived, nothing stored): an order that is past its expected day with pieces to come, and a quote whose ordered sarees have all arrived and is ready to invoice. The quote page shows its orders, what is still short, and an Order from weaver button.
+- Not built: weaver price lists, quality returns to a weaver, and raw materials issued to a weaver for job work.
+
+## E-way bill and e-invoice files
+
+On an issued invoice, **Government forms** prepares the JSON file the government's e-way bill portal or e-invoice (IRN) portal takes on upload. InvoiceOn does not issue the e-way bill number or the IRN: those come from the portals. The dialog shows what the portal would reject (missing GSTIN, pincode or HSN, an invoice number over 16 characters, a bad vehicle number) and the Save button stays off until those are fixed. Transport details are typed in the dialog and are not stored. The layouts follow the portals' published formats (e-way bill 1.0.0621, e-invoice schema 1.1); upload one invoice first and check the portal's validator before relying on it. The logic is in `shared/govFiles.ts`.
+
+## Updates
+
+The installed app looks for a newer version on this project's GitHub releases when it starts, downloads it quietly and offers to install it when the app is next closed (`electron-updater`, see `checkForUpdates` in `electron/main.ts`). It does nothing in development, and a failure (no internet, nothing published) is only logged. To publish a version: raise `version` in `package.json`, merge, then `git tag v<version>` and `git push origin v<version>`. The Release workflow builds the Windows installer and attaches it to a release. Two things to know: this has not been run end to end, because it needs a Windows machine and a real release, so the first update should be tried on a spare computer; and the updater can only read releases of a public repository (a private one would need a token inside the app, which is not done). Without a code signing certificate Windows will show a "unknown publisher" warning on the installer.
 
 ## Backup, restore and Google Drive
 

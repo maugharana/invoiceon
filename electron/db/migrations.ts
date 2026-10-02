@@ -830,6 +830,88 @@ ALTER TABLE audit_log ADD COLUMN user_name TEXT NOT NULL DEFAULT '';
 `;
 
 // Append new migrations to the end; never edit one that has shipped.
+const V21 = `
+-- What a saree is made of and how, as separate fields, so its full name can be built the same way every time (shared/nomenclature.ts).
+ALTER TABLE designs ADD COLUMN weave_style TEXT NOT NULL DEFAULT '';
+ALTER TABLE designs ADD COLUMN technique TEXT NOT NULL DEFAULT '';
+ALTER TABLE designs ADD COLUMN work TEXT NOT NULL DEFAULT '';
+
+-- Choices the shop added itself (a new technique, a new colour), kept so they appear in the pick lists next time.
+CREATE TABLE catalogue_options (
+  id         TEXT PRIMARY KEY,
+  kind       TEXT NOT NULL,
+  label      TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX ux_catalogue_options ON catalogue_options (kind, label COLLATE NOCASE);
+`;
+
+const V22 = `
+-- The pattern woven all over a saree (Butidar, Jaal…): one choice, kept apart from the special work done on it.
+ALTER TABLE designs ADD COLUMN pattern TEXT NOT NULL DEFAULT '';
+`;
+
+const V23 = `
+-- Orders placed with weavers for sarees you do not have yet: what was asked for, what has arrived, and what has been paid.
+CREATE TABLE weaver_orders (
+  id             TEXT PRIMARY KEY,
+  number         TEXT NOT NULL,
+  fy             TEXT NOT NULL,
+  seq            INTEGER NOT NULL,
+  vendor_id      TEXT NOT NULL REFERENCES vendors (id),
+  ordered_on     TEXT NOT NULL,
+  expected_on    TEXT,
+  note           TEXT NOT NULL DEFAULT '',
+  proforma_id    TEXT REFERENCES proformas (id),
+  cancelled_at   TEXT,
+  cancel_reason  TEXT NOT NULL DEFAULT '',
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL
+);
+CREATE UNIQUE INDEX ux_weaver_orders_number ON weaver_orders (number);
+CREATE INDEX ix_weaver_orders_proforma ON weaver_orders (proforma_id);
+
+CREATE TABLE weaver_order_lines (
+  id              TEXT PRIMARY KEY,
+  order_id        TEXT NOT NULL REFERENCES weaver_orders (id),
+  variant_id      TEXT NOT NULL REFERENCES variants (id),
+  position        INTEGER NOT NULL,
+  qty             INTEGER NOT NULL CHECK (qty > 0),
+  received_qty    INTEGER NOT NULL DEFAULT 0 CHECK (received_qty >= 0 AND received_qty <= qty),
+  unit_cost_paise INTEGER NOT NULL DEFAULT 0 CHECK (unit_cost_paise >= 0),
+  design_name     TEXT NOT NULL,
+  color           TEXT NOT NULL,
+  size            TEXT NOT NULL,
+  sku             TEXT NOT NULL
+);
+CREATE INDEX ix_weaver_order_lines_order ON weaver_order_lines (order_id);
+
+-- Each delivery, so a part delivery can be seen as it happened.
+CREATE TABLE weaver_receipts (
+  id          TEXT PRIMARY KEY,
+  order_id    TEXT NOT NULL REFERENCES weaver_orders (id),
+  line_id     TEXT NOT NULL REFERENCES weaver_order_lines (id),
+  qty         INTEGER NOT NULL CHECK (qty > 0),
+  received_on TEXT NOT NULL,
+  created_at  TEXT NOT NULL
+);
+
+-- Money paid to the weaver. Each payment is also an expense, so it counts in profit and in the account it was paid from.
+CREATE TABLE weaver_payments (
+  id           TEXT PRIMARY KEY,
+  order_id     TEXT NOT NULL REFERENCES weaver_orders (id),
+  paid_on      TEXT NOT NULL,
+  amount_paise INTEGER NOT NULL CHECK (amount_paise > 0),
+  method       TEXT NOT NULL,
+  account_id   TEXT NOT NULL DEFAULT '',
+  reference    TEXT NOT NULL DEFAULT '',
+  expense_id   TEXT,
+  voided_at    TEXT,
+  created_at   TEXT NOT NULL
+);
+CREATE INDEX ix_weaver_payments_order ON weaver_payments (order_id);
+`;
+
 // `rebuilds` marks a migration that replaces a table other tables point at (SQLite's documented way of changing a CHECK). Foreign keys
 // are switched off around it, and checked before it is committed, as SQLite's own instructions for that say.
 const MIGRATIONS: { version: number; sql: string; rebuilds?: boolean }[] = [
@@ -853,6 +935,9 @@ const MIGRATIONS: { version: number; sql: string; rebuilds?: boolean }[] = [
   { version: 18, sql: V18 },
   { version: 19, sql: V19 },
   { version: 20, sql: V20 },
+  { version: 21, sql: V21 },
+  { version: 22, sql: V22 },
+  { version: 23, sql: V23 },
 ];
 
 /** Brings a database up to date. `upTo` stops early at a version, which only the tests use, to build an older database to upgrade. */

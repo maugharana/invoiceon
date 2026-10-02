@@ -10,7 +10,7 @@ export function useCsvExport() {
         const result = await api.exportSave(fileName, content);
         if (result.saved) toast.success(doneMessage);
       } else {
-        const url = URL.createObjectURL(new Blob([content], { type: 'text/csv;charset=utf-8' }));
+        const url = URL.createObjectURL(new Blob([content], { type: fileName.endsWith('.json') ? 'application/json' : 'text/csv;charset=utf-8' }));
         Object.assign(document.createElement('a'), { href: url, download: fileName }).click();
         URL.revokeObjectURL(url);
       }

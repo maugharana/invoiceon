@@ -6,7 +6,7 @@ import { PAYMENT_METHODS, type PaymentMethod, type ProformaStatus } from '../../
 
 export type Section = 'dashboard' | 'inventory' | 'invoices' | 'proformas' | 'customers' | 'payments' | 'expenses' | 'reports' | 'settings';
 
-export const SETTINGS_SECTIONS = ['business', 'tax', 'invoice', 'proforma', 'expenses', 'accounts', 'instructions', 'notifications', 'messages', 'data', 'backup', 'users', 'preferences', 'activity', 'plus'] as const;
+export const SETTINGS_SECTIONS = ['business', 'tax', 'invoice', 'proforma', 'expenses', 'accounts', 'instructions', 'notifications', 'messages', 'data', 'backup', 'catalogue', 'users', 'preferences', 'activity', 'plus'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 export type Route =
@@ -14,6 +14,11 @@ export type Route =
   | { name: 'inventory'; status: 'all' | 'low' | 'out' }
   | { name: 'materials' }
   | { name: 'production' }
+  | { name: 'inventory-names' }
+  | { name: 'weaver-orders' }
+  | { name: 'weaver-order-new'; /** The customer quote the order is for. */ quoteId: string | null }
+  | { name: 'weaver-order-edit'; id: string }
+  | { name: 'weaver-order'; id: string }
   | { name: 'inventory-add' }
   | { name: 'stock-take' }
   | { name: 'design'; id: string }
@@ -68,6 +73,13 @@ export function parseHash(hash: string): Route {
     case 'inventory': {
       if (parts[1] === 'materials') return { name: 'materials' };
       if (parts[1] === 'production') return { name: 'production' };
+      if (parts[1] === 'names') return { name: 'inventory-names' };
+      if (parts[1] === 'weaver-orders') {
+        if (parts[2] === 'new') return { name: 'weaver-order-new', quoteId: params.get('quote') };
+        if (parts[2] && parts[3] === 'edit') return { name: 'weaver-order-edit', id: decodeURIComponent(parts[2]) };
+        if (parts[2]) return { name: 'weaver-order', id: decodeURIComponent(parts[2]) };
+        return { name: 'weaver-orders' };
+      }
       if (parts[1] === 'add') return { name: 'inventory-add' };
       if (parts[1] === 'stock-take') return { name: 'stock-take' };
       if (parts[1] === 'designs' && id) return { name: 'design', id };
@@ -153,6 +165,11 @@ export const sectionOf = (route: Route): Section => {
     case 'inventory':
     case 'materials':
     case 'production':
+    case 'inventory-names':
+    case 'weaver-orders':
+    case 'weaver-order-new':
+    case 'weaver-order-edit':
+    case 'weaver-order':
     case 'inventory-add':
     case 'stock-take':
     case 'design':
@@ -199,6 +216,11 @@ export const paths = {
   inventory: (status?: 'low' | 'out') => (status ? `/inventory?status=${status}` : '/inventory'),
   materials: '/inventory/materials',
   production: '/inventory/production',
+  tidyNames: '/inventory/names',
+  weaverOrders: '/inventory/weaver-orders',
+  newWeaverOrder: (quoteId?: string) => (quoteId ? `/inventory/weaver-orders/new?quote=${encodeURIComponent(quoteId)}` : '/inventory/weaver-orders/new'),
+  weaverOrder: (id: string) => `/inventory/weaver-orders/${encodeURIComponent(id)}`,
+  editWeaverOrder: (id: string) => `/inventory/weaver-orders/${encodeURIComponent(id)}/edit`,
   addSarees: '/inventory/add',
   stockTake: '/inventory/stock-take',
   design: (id: string) => `/inventory/designs/${encodeURIComponent(id)}`,

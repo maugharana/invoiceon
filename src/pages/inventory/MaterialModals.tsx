@@ -12,7 +12,7 @@ import { useQuery, useRefresh } from '../../lib/data';
 import { formatDateTime, toNumber } from '../../lib/format';
 
 /** Pick who something is bought from, or add them on the spot. */
-export function SupplierSelect({ value, onChange, label = 'Supplier', hint }: { value: string; onChange: (id: string) => void; label?: string; hint?: string }) {
+export function SupplierSelect({ value, onChange, label = 'Supplier', hint, noun = 'supplier' }: { value: string; onChange: (id: string) => void; label?: string; hint?: string; noun?: string }) {
   const refresh = useRefresh();
   const vendors = useQuery(() => api.vendorsList());
   const [adding, setAdding] = useState(false);
@@ -36,7 +36,7 @@ export function SupplierSelect({ value, onChange, label = 'Supplier', hint }: { 
     <Field label={label} hint={hint}>
       {adding ? (
         <div className="flex gap-2">
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Supplier's name" data-autofocus />
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={`${noun[0]!.toUpperCase()}${noun.slice(1)}'s name`} data-autofocus />
           <Button variant="primary" disabled={!name.trim()} onClick={() => void add()}>
             Add
           </Button>
@@ -56,7 +56,7 @@ export function SupplierSelect({ value, onChange, label = 'Supplier', hint }: { 
               {v.name}
             </option>
           ))}
-          <option value="__new__">＋ Add a new supplier…</option>
+          <option value="__new__">＋ Add a new {noun}…</option>
         </Select>
       )}
       {error && <span className="mt-1 block text-xs text-status-overdue-fg">{error}</span>}

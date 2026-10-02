@@ -114,7 +114,7 @@ describe('margin by design, colour and customer', () => {
     const { red } = shop();
     invoices.cancelInvoice(db, sell(null, red.id, 5).id, '');
     expect(moreReports.marginReport(db, wide, 'design')).toMatchObject({ rows: [], totals: { pieces: 0, marginPercent: null } });
-    expect(() => moreReports.marginReport(db, wide, 'size' as never)).toThrow(/design, colour or customer/);
+    expect(() => moreReports.marginReport(db, wide, 'size' as never)).toThrow(/what to group the margin by/);
     expect((await createApi(db).reportMargin(wide, 'colour')).rows).toEqual([]);
     expect(await createApi(db).reportMarginDrill(wide, 'colour', 'red')).toEqual([]);
   });

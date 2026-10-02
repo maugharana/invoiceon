@@ -331,6 +331,14 @@ export interface DesignSummary {
   name: string;
   /** A special one-word name for the saree, e.g. "Kadhua". Empty when it has none. */
   nickname: string;
+  /** How it is woven in the Banarasi sense: Kadhua, Phekua… Empty when not set. */
+  technique: string;
+  /** The pattern woven all over it: Butidar, Jaal… one only. Empty when not set. */
+  pattern: string;
+  /** The weaving tradition: Banarasi, Kanjivaram, Chanderi… Empty when not set. */
+  weaveStyle: string;
+  /** Special work done on it, one or more separated by commas: Zardozi Work, Aari Work. */
+  work: string;
   fabric: string;
   hsnCode: string;
   description: string;
@@ -365,6 +373,11 @@ export interface DesignInput {
   code: string;
   name: string;
   /** Optional. One word. */
+  weaveStyle?: string;
+  technique?: string;
+  pattern?: string;
+  /** One or more works, separated by commas. */
+  work?: string;
   nickname?: string;
   fabric: string;
   hsnCode: string;
@@ -433,6 +446,11 @@ export interface VariantInput {
 export interface BulkSareeRow {
   name: string;
   /** The special one-word name. Optional; taken from the first row that has one in each design. */
+  weaveStyle?: string;
+  technique?: string;
+  pattern?: string;
+  /** One or more works, separated by commas. */
+  work?: string;
   nickname?: string;
   /** The Saree ID. Left blank to generate one from the design code, colour and size. */
   sku: string;
@@ -1801,7 +1819,9 @@ export interface ProfitAndLoss extends ProfitLossFigures {
   lastYear: (ProfitLossFigures & { range: { from: string; to: string } }) | null;
 }
 
-export type MarginBy = 'design' | 'colour' | 'customer';
+/** What the margin report groups by. A saree with several works counts under each of them, so work rows can add up to more than the total. */
+export type MarginBy = 'design' | 'colour' | 'customer' | 'weaveStyle' | 'fabric' | 'technique' | 'pattern' | 'work';
+export const MARGIN_BY_LABEL: Record<MarginBy, string> = { design: 'Design', colour: 'Colour', customer: 'Customer', weaveStyle: 'Weave style', fabric: 'Fabric', technique: 'Technique', pattern: 'Pattern', work: 'Special work' };
 
 export interface MarginRow {
   /** Stable key, used to ask for the invoice lines behind the row. */
@@ -2130,7 +2150,9 @@ export type NotificationKind =
   | 'budget'
   | 'production-late'
   | 'wishlist-ready'
-  | 'instalment-due';
+  | 'instalment-due'
+  | 'weaver-late'
+  | 'weaver-arrived';
 export type NotificationLink = AttentionItem['link'] | { to: 'path'; path: string };
 export interface Notification {
   kind: NotificationKind;
@@ -2141,4 +2163,146 @@ export interface Notification {
   title: string;
   detail: string;
   link: NotificationLink;
+}
+
+/** The pick lists for entering a saree: what every shop starts with, plus what this shop added or already uses. */
+export type CatalogueOptions = Record<'weaveStyle' | 'fabric' | 'technique' | 'pattern' | 'work' | 'colour', string[]>;
+
+/** One choice in a pick list, for the screen that manages them. */
+export interface CatalogueEntry {
+  kind: 'weaveStyle' | 'fabric' | 'technique' | 'pattern' | 'work' | 'colour';
+  label: string;
+  /** Part of the starting set every shop gets: it can't be renamed or removed. */
+  builtIn: boolean;
+  /** How many designs use it (pieces, for colours). */
+  uses: number;
+}
+
+/** What to change on one design when its name is tidied: its choices, and whether to rename it to the name they build. */
+export interface TidyRow {
+  id: string;
+  weaveStyle: string;
+  fabric: string;
+  technique: string;
+  pattern: string;
+  work: string;
+  nickname: string;
+  rename: boolean;
+}
+export interface TidyResult {
+  updated: number;
+  renamed: number;
+}
+
+// ── Weaver orders ───────────────────────────────────────────────────────────
+export type WeaverOrderStatus = 'open' | 'partial' | 'received' | 'cancelled';
+export const WEAVER_ORDER_STATUS_LABEL: Record<WeaverOrderStatus, string> = { open: 'Ordered', partial: 'Part received', received: 'Received', cancelled: 'Cancelled' };
+
+export interface WeaverOrderLineInput {
+  /** Present when changing a line that already exists. */
+  id?: string;
+  variantId: string;
+  qty: number;
+  /** What the weaver charges for one piece, before any GST. 0 when not agreed yet. */
+  unitCostPaise: Paise;
+}
+
+export interface WeaverOrderInput {
+  vendorId: string;
+  orderedOn: string;
+  expectedOn?: string | null;
+  note: string;
+  /** The customer quote this order is for, if any. */
+  proformaId?: string | null;
+  lines: WeaverOrderLineInput[];
+}
+
+export interface WeaverOrderLine {
+  id: string;
+  variantId: string;
+  designName: string;
+  color: string;
+  size: string;
+  sku: string;
+  qty: number;
+  receivedQty: number;
+  unitCostPaise: Paise;
+  amountPaise: Paise;
+}
+
+export interface WeaverPayment {
+  id: string;
+  paidOn: string;
+  amountPaise: Paise;
+  method: PaymentMethod;
+  accountId: string;
+  reference: string;
+  /** Set when the payment was taken back; it no longer counts. */
+  voidedAt: string | null;
+}
+
+export interface WeaverReceipt {
+  id: string;
+  lineId: string;
+  qty: number;
+  receivedOn: string;
+}
+
+export interface WeaverOrderSummary {
+  id: string;
+  number: string;
+  vendorId: string;
+  vendorName: string;
+  orderedOn: string;
+  expectedOn: string | null;
+  status: WeaverOrderStatus;
+  /** Expected day has passed and pieces are still to come. */
+  late: boolean;
+  pieces: number;
+  receivedPieces: number;
+  /** What the lines add up to at the agreed prices. */
+  totalPaise: Paise;
+  /** Paid so far, not counting payments taken back. */
+  paidPaise: Paise;
+  proformaId: string | null;
+  proformaNumber: string | null;
+}
+
+export interface WeaverOrder extends WeaverOrderSummary {
+  note: string;
+  cancelledAt: string | null;
+  cancelReason: string;
+  lines: WeaverOrderLine[];
+  payments: WeaverPayment[];
+  receipts: WeaverReceipt[];
+}
+
+export interface WeaverOrderQuery {
+  /** 'open' is anything still to arrive. Left out, every order. */
+  status?: 'open' | 'received' | 'cancelled';
+  vendorId?: string;
+  proformaId?: string;
+  search?: string;
+}
+
+export interface WeaverReceiveInput {
+  receivedOn: string;
+  lines: { lineId: string; qty: number }[];
+}
+
+export interface WeaverPayInput {
+  paidOn: string;
+  amountPaise: Paise;
+  method: PaymentMethod;
+  accountId?: string;
+  reference?: string;
+}
+
+/** A starting point for an order made from a quote: what is short, and who usually supplies it. */
+export interface WeaverOrderDraft {
+  proformaId: string;
+  proformaNumber: string;
+  vendorId: string | null;
+  note: string;
+  lines: WeaverOrderLineInput[];
 }

@@ -1,4 +1,4 @@
-import { Archive, ArrowLeft, ArrowRightLeft, Camera, Copy, History, Tag, LineChart, Package, Pencil, PackagePlus, Plus } from 'lucide-react';
+import { Archive, ArrowLeft, ArrowRightLeft, Camera, Copy, Globe, History, Tag, LineChart, Package, Pencil, PackagePlus, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { formatMoney } from '../../../shared/money';
 import type { Variant } from '../../../shared/types';
@@ -13,6 +13,7 @@ import { useRecent } from '../../lib/recent';
 import { plural } from '../../lib/format';
 import { navigate, paths } from '../../lib/router';
 import { DesignFormModal } from './DesignFormModal';
+import { WebsiteTextModal } from './WebsiteTextModal';
 import { LabelsModal } from './Labels';
 import { AdjustStockModal, PriceHistoryModal, StockHistoryModal } from './StockModals';
 import { TransferStockModal } from './Places';
@@ -27,6 +28,7 @@ type Dialog =
   | { kind: 'prices'; variant: Variant }
   | { kind: 'move'; variant: Variant }
   | { kind: 'photos'; variant: Variant }
+  | { kind: 'website' }
   | { kind: 'labels' }
   | { kind: 'archive-variant'; variant: Variant };
 
@@ -136,6 +138,9 @@ export function DesignPage({ id }: { id: string }) {
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-base">Variants</h2>
         <div className="flex gap-2">
+          <Button icon={<Globe className="h-4 w-4" />} onClick={() => setDialog({ kind: 'website' })} title="Words for this saree's page on a website">
+            Website text
+          </Button>
           {d.variants.length > 0 && (
             <Button icon={<Tag className="h-4 w-4" />} onClick={() => setDialog({ kind: 'labels' })} title="Print price labels with barcodes">
               Print labels
@@ -251,6 +256,7 @@ export function DesignPage({ id }: { id: string }) {
           <p className="mt-3 text-xs text-ink-muted">Pictures of this exact colour. The design's own pictures are shown on top of the page.</p>
         </Modal>
       )}
+      {dialog?.kind === 'website' && <WebsiteTextModal design={d} onClose={close} />}
       {dialog?.kind === 'labels' && <LabelsModal title={`Print labels — ${d.name}`} variants={d.variants} onClose={close} />}
       {dialog?.kind === 'adjust' && <AdjustStockModal variant={dialog.variant} onClose={close} />}
       {dialog?.kind === 'history' && <StockHistoryModal variant={dialog.variant} onClose={close} />}

@@ -31,19 +31,20 @@ const SELLING_READS = [
   'creditNotesList', 'creditNoteGet', 'creditNoteNextNumber', 'creditNoteReturnable', 'creditNotePreview', 'creditNoteExportPdf', 'creditNotePrint',
   'heldList', 'photosList', 'photoGet', 'photoCovers', 'wishlistGet', 'loyaltyHistory', 'productionList', 'productionGet',
   'dashboardSummary', 'dashboardNow',
+  'websiteListings', 'catalogueOptions',
 ];
 
 const SELLING_WRITES = [
   'invoiceCreate', 'invoiceSetDelivery', 'invoiceApplyAdvance', 'customerCreate', 'customerUpdate', 'paymentRecord',
   'proformaCreate', 'proformaUpdate', 'proformaConvert', 'proformaSetStage', 'heldHold', 'heldDiscard', 'noteAdd', 'noteDone',
-  'wishlistAdd', 'wishlistRemove', 'photoAdd', 'quoteTemplateSave', 'creditNoteCreate', 'instalmentsSet',
+  'wishlistAdd', 'wishlistRemove', 'inventoryQuickAdd', 'photoAdd', 'quoteTemplateSave', 'creditNoteCreate', 'instalmentsSet',
 ];
 
 const MONEY_READS = [
   'reportSales', 'reportGst', 'reportGstr1', 'reportStock', 'reportProfitLoss', 'reportMargin', 'reportMarginDrill', 'reportMovement', 'reportMovers', 'reportQuotes', 'reportDayBook', 'reportPurchases', 'exportSave',
   'dashboardOverview', 'dashboardReorderList', 'dashboardFestival', 'gstNet',
   'expensesList', 'expensesOverview', 'expensesBreakdown', 'payables', 'vendorsList', 'vendorGet', 'recurringList', 'recurringDue', 'budgetStatus',
-  'accountBook', 'transfersList', 'dayCloseGet', 'dayClosesList', 'reconcilePreview', 'purchasesList', 'purchaseGet', 'materialsList', 'materialMovements', 'materialPriceHistory', 'materialsSimulate', 'auditList',
+  'weaverOrdersList', 'weaverOrderGet', 'weaverOrderDraft', 'accountBook', 'transfersList', 'dayCloseGet', 'dayClosesList', 'reconcilePreview', 'purchasesList', 'purchaseGet', 'materialsList', 'materialMovements', 'materialPriceHistory', 'materialsSimulate', 'auditList',
 ];
 
 const MONEY_WRITES = [

@@ -1,0 +1,42 @@
+name: Checks
+
+# Runs on every pull request and on main: the same three checks a contributor runs by hand (see CLAUDE.md).
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # node:sqlite needs Node 22.
+          node-version: 22
+          cache: npm
+
+      # The Electron binary is not needed to check the code, and skipping it saves a large download.
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm test
+
+      # Bundles the screens and the desktop main process, which catches an import or build error a typecheck can miss.
+      - name: Build
+        run: npm run build

@@ -129,6 +129,21 @@ function createHost(getParent: () => BrowserWindow | null, newWindow: () => void
   };
 }
 
+/**
+ * Looks for a newer installer on the project's GitHub releases and, if there is one, downloads it and offers to install it when the
+ * app is next closed. Only in the installed app, never in development. Any failure (no internet, nothing published yet) is only logged:
+ * the app never waits on it.
+ */
+function checkForUpdates(): void {
+  if (!app.isPackaged) return;
+  void import('electron-updater')
+    .then(({ autoUpdater }) => {
+      autoUpdater.on('error', (err) => console.error('[update] failed', err));
+      return autoUpdater.checkForUpdatesAndNotify();
+    })
+    .catch((err) => console.error('[update] failed', err));
+}
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
@@ -158,6 +173,7 @@ if (!app.requestSingleInstanceLock()) {
     app.on('before-quit', () => db.close());
 
     createWindow();
+    checkForUpdates();
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
