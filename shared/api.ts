@@ -70,6 +70,9 @@ import type {
   FestivalComparison,
   ReorderRow,
   DataInfo,
+  Photo,
+  PhotoInput,
+  PhotoOwner,
   CreditNote,
   CreditNoteInput,
   CreditNotePreview,
@@ -252,6 +255,17 @@ export interface Api {
   paymentVoid(id: string, reason: string): Promise<Payment>;
   /** Hands back advance or credit a customer is holding. Money out. */
   paymentRefund(input: RefundInput): Promise<Payment[]>;
+
+  // Photos
+  photosList(ownerType: PhotoOwner, ownerId: string): Promise<Photo[]>;
+  /** The picture itself, as a data URL. */
+  photoGet(id: string): Promise<string>;
+  photoAdd(input: PhotoInput): Promise<Photo>;
+  photoDelete(id: string): Promise<void>;
+  /** Makes this the first picture, the one lists show. Returns the owner's pictures in their new order. */
+  photoSetCover(id: string): Promise<Photo[]>;
+  /** The first small picture of each thing, for lists and grids. Things without one are left out. */
+  photoCovers(ownerType: PhotoOwner, ids: string[]): Promise<Record<string, string>>;
 
   // Credit notes (returns)
   creditNotesList(query?: CreditNoteQuery): Promise<CreditNoteSummary[]>;

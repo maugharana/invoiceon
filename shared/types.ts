@@ -898,6 +898,29 @@ export interface SaleVariant {
   sellPricePaise: Paise;
 }
 
+// ── Photos ──────────────────────────────────────────────────────────────────
+export type PhotoOwner = 'design' | 'variant' | 'expense';
+
+/** A picture as listed: only the small version travels. Ask for the picture itself (photoGet) to see it large. */
+export interface Photo {
+  id: string;
+  ownerType: PhotoOwner;
+  ownerId: string;
+  /** A data URL of the small picture. */
+  thumb: string;
+  bytes: number;
+  position: number;
+  createdAt: string;
+}
+
+/** Both pictures are made by the screen (resized and compressed) before they are sent. */
+export interface PhotoInput {
+  ownerType: PhotoOwner;
+  ownerId: string;
+  image: string;
+  thumb: string;
+}
+
 // ── Credit notes ────────────────────────────────────────────────────────────
 export interface CreditNoteSummary {
   id: string;

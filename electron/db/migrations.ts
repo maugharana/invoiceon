@@ -715,6 +715,25 @@ CREATE INDEX ix_credit_lines_note ON credit_note_lines (credit_note_id);
 CREATE INDEX ix_credit_lines_invoice_line ON credit_note_lines (invoice_line_id);
 `;
 
+// 16: photos of designs, colours and expense receipts, kept inside the book so one backup holds everything.
+//   owner_type/owner_id say what a photo belongs to (no foreign key, as it can point at three tables). A deleted photo
+//   keeps its row but drops the picture, so the book does not grow with pictures nobody can see.
+const V16 = `
+CREATE TABLE photos (
+  id          TEXT PRIMARY KEY,
+  owner_type  TEXT NOT NULL CHECK (owner_type IN ('design','variant','expense')),
+  owner_id    TEXT NOT NULL,
+  mime        TEXT NOT NULL,
+  image       BLOB,
+  thumb       BLOB,
+  bytes       INTEGER NOT NULL DEFAULT 0,
+  position    INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL,
+  deleted_at  TEXT
+);
+CREATE INDEX ix_photos_owner ON photos (owner_type, owner_id, position) WHERE deleted_at IS NULL;
+`;
+
 // Append new migrations to the end; never edit one that has shipped.
 // `rebuilds` marks a migration that replaces a table other tables point at (SQLite's documented way of changing a CHECK). Foreign keys
 // are switched off around it, and checked before it is committed, as SQLite's own instructions for that say.
@@ -734,6 +753,7 @@ const MIGRATIONS: { version: number; sql: string; rebuilds?: boolean }[] = [
   { version: 13, sql: V13 },
   { version: 14, sql: V14 },
   { version: 15, sql: V15, rebuilds: true },
+  { version: 16, sql: V16 },
 ];
 
 /** Brings a database up to date. `upTo` stops early at a version, which only the tests use, to build an older database to upgrade. */

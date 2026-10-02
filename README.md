@@ -225,6 +225,16 @@ Code: `electron/services/credits.ts`, `payments.ts` (credit and refund kinds), m
 - **Books.** Sales, profit, GST and the dashboard are net of credit notes, dated by the credit note. The GST report's totals are net and `credits` says what came off; it also lists a credit-note register (one row per rate) and a CSV. HSN, B2C-by-state and designs are net too. Refunds are money out in the account book, day/cash/bank book, collected figures and the customer's ledger. The ledger shows each credit note once and each refund.
 - **Migration 15** rebuilds the `payments` table, because SQLite cannot change a CHECK in place. The migrator switches foreign keys off around a migration marked `rebuilds` and checks them before committing, as SQLite's own instructions for this say; the upgrade test builds a book with payments, allocations and a cheque and checks every row survives.
 
+## Pictures
+
+Code: `electron/services/photos.ts`, `src/components/PhotoStrip.tsx`, `src/lib/images.ts`, migration 16, `tests/photos.test.ts`.
+
+- **Kept inside the book**, as small JPEGs the screen makes before sending (about 100 KB, longest side 1200 px, plus a 240 px thumbnail for lists). A backup is therefore always one file that holds the pictures, and a restore can never leave pictures behind.
+- **Where.** Up to 10 on a design, 6 on a colour, 4 on an expense (a photo of the bill). The first is the cover; a design with none of its own shows its first colour's. Lists ask for covers only for the designs on the page (`photoCovers`), and the full picture is fetched only when opened.
+- **Removing** drops the picture's bytes and keeps the row, so the book does not grow with pictures nobody can see.
+- **Inventory** has a List / Pictures switch (remembered per computer).
+- Pictures are not part of the spreadsheet export.
+
 ## Brand
 
 Tokens live in `tailwind.config.js` (teal `#0F6E56`, gold `#D9A94E` for one figure per screen, status pairs, ink).

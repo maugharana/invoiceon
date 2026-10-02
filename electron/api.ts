@@ -25,6 +25,7 @@ import * as locations from './services/locations';
 import * as materials from './services/materials';
 import * as notes from './services/notes';
 import * as payments from './services/payments';
+import * as photos from './services/photos';
 import * as proformas from './services/proformas';
 import * as purchases from './services/purchases';
 import * as receivables from './services/receivables';
@@ -218,6 +219,13 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
     paymentRecord: async (input) => payments.recordPayment(db, input),
     paymentVoid: async (id, reason) => payments.voidPayment(db, id, reason),
     paymentRefund: async (input) => payments.refundAdvance(db, input),
+
+    photosList: async (type, id) => photos.listPhotos(db, type, id),
+    photoGet: async (id) => photos.getPhotoImage(db, id),
+    photoAdd: async (input) => photos.addPhoto(db, input),
+    photoDelete: async (id) => photos.deletePhoto(db, id),
+    photoSetCover: async (id) => photos.setCover(db, id),
+    photoCovers: async (type, ids) => photos.coverThumbs(db, type, Array.isArray(ids) ? ids.map(String) : []),
 
     creditNotesList: async (query) => credits.listCreditNotes(db, query ?? {}),
     creditNoteGet: async (id) => credits.getCreditNote(db, id),

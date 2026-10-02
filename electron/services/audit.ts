@@ -91,6 +91,8 @@ const RULES: Record<string, Rule> = {
   paymentVoid: { label: 'Reversed a payment', entity: 'payment', id: arg0Id, summary: (a, r) => join(money(r?.amountPaise), r?.customerName, a[1]) },
   paymentChequeStatus: { label: 'Moved a cheque along', entity: 'payment', id: arg0Id, summary: (a, r) => join(money(r?.amountPaise), r?.customerName, a[1]) },
   paymentsReconcile: { label: 'Matched payments to the bank statement', entity: 'payment', id: () => '', summary: (a, r) => `${r ?? 0} ${a[1] === null ? 'untick' : 'ticked'}` },
+  photoAdd: { label: 'Added a picture', entity: 'design', id: (a) => a[0]?.ownerId ?? '', summary: (a) => a[0]?.ownerType ?? '' },
+  photoDelete: { label: 'Removed a picture', entity: 'photo', id: arg0Id },
   creditNoteCreate: { label: 'Issued a credit note', entity: 'invoice', id: (_a, r) => r?.invoiceId ?? '', summary: (_a, r) => join(r?.number, r?.buyerName, money(r?.totalPaise)) },
   paymentRefund: { label: 'Refunded a customer', entity: 'payment', id: (_a, r) => r?.[0]?.id ?? '', summary: (a, r) => join(r?.[0]?.customerName, money(a[0]?.amountPaise)) },
   paymentWriteOff: { label: 'Wrote off a balance', entity: 'payment', summary: (_a, r) => join(money(r?.amountPaise), r?.note) },

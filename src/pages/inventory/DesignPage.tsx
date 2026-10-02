@@ -1,8 +1,9 @@
-import { Archive, ArrowLeft, ArrowRightLeft, Copy, History, LineChart, Package, Pencil, PackagePlus, Plus } from 'lucide-react';
+import { Archive, ArrowLeft, ArrowRightLeft, Camera, Copy, History, LineChart, Package, Pencil, PackagePlus, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { formatMoney } from '../../../shared/money';
 import type { Variant } from '../../../shared/types';
-import { ConfirmDialog } from '../../components/Modal';
+import { ConfirmDialog, Modal } from '../../components/Modal';
+import { PhotoStrip } from '../../components/PhotoStrip';
 import { TagChips } from '../../components/TagInput';
 import { useToast } from '../../components/Toast';
 import { Button, Card, EmptyState, ErrorNote, Figure, IconButton, Money, PageHeader, Spinner, StockPill } from '../../components/ui';
@@ -24,6 +25,7 @@ type Dialog =
   | { kind: 'history'; variant: Variant }
   | { kind: 'prices'; variant: Variant }
   | { kind: 'move'; variant: Variant }
+  | { kind: 'photos'; variant: Variant }
   | { kind: 'archive-variant'; variant: Variant };
 
 function Margin({ variant }: { variant: Variant }) {
@@ -124,6 +126,11 @@ export function DesignPage({ id }: { id: string }) {
         </Figure>
       </div>
 
+      <Card className="mb-6 p-4">
+        <div className="mb-2 text-xs font-medium text-ink-muted">Pictures of this design</div>
+        <PhotoStrip ownerType="design" ownerId={d.id} noun="picture" max={10} />
+      </Card>
+
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-base">Variants</h2>
         <Button icon={<Plus className="h-4 w-4" />} onClick={() => setDialog({ kind: 'variant' })}>
@@ -153,7 +160,7 @@ export function DesignPage({ id }: { id: string }) {
                 <th className="th text-right">Cost</th>
                 <th className="th text-right">Price</th>
                 <th className="th">Status</th>
-                <th className="w-[9.5rem]" />
+                <th className="w-[11.5rem]" />
               </tr>
             </thead>
             <tbody>
@@ -188,6 +195,9 @@ export function DesignPage({ id }: { id: string }) {
                     <div className="flex justify-end gap-0.5">
                       <IconButton label={`Adjust stock, ${v.color} ${v.size}`} onClick={() => setDialog({ kind: 'adjust', variant: v })}>
                         <PackagePlus className="h-4 w-4" />
+                      </IconButton>
+                      <IconButton label={`Pictures, ${v.color} ${v.size}`} onClick={() => setDialog({ kind: 'photos', variant: v })}>
+                        <Camera className="h-4 w-4" />
                       </IconButton>
                       <IconButton label={`Stock history, ${v.color} ${v.size}`} onClick={() => setDialog({ kind: 'history', variant: v })}>
                         <History className="h-4 w-4" />
@@ -226,6 +236,12 @@ export function DesignPage({ id }: { id: string }) {
         />
       )}
       {dialog?.kind === 'variant' && <VariantFormModal design={d} variant={dialog.variant} onClose={close} />}
+      {dialog?.kind === 'photos' && (
+        <Modal title={`Pictures — ${dialog.variant.color}, ${dialog.variant.size}`} onClose={close}>
+          <PhotoStrip ownerType="variant" ownerId={dialog.variant.id} noun="picture" max={6} />
+          <p className="mt-3 text-xs text-ink-muted">Pictures of this exact colour. The design's own pictures are shown on top of the page.</p>
+        </Modal>
+      )}
       {dialog?.kind === 'adjust' && <AdjustStockModal variant={dialog.variant} onClose={close} />}
       {dialog?.kind === 'history' && <StockHistoryModal variant={dialog.variant} onClose={close} />}
       {dialog?.kind === 'prices' && <PriceHistoryModal variant={dialog.variant} onClose={close} />}
