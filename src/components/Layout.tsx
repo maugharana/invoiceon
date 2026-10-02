@@ -1,10 +1,11 @@
-import { BarChart3, Boxes, CalendarDays, ClipboardList, FileText, LayoutDashboard, PanelLeftClose, PanelLeftOpen, Plus, Receipt, Search, Settings as SettingsIcon, Users, Wallet, type LucideIcon } from 'lucide-react';
+import { BarChart3, Boxes, CalendarDays, ClipboardList, FileText, LayoutDashboard, LogOut, PanelLeftClose, PanelLeftOpen, Plus, Receipt, Search, Settings as SettingsIcon, Users, Wallet, type LucideIcon } from 'lucide-react';
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { financialYear, todayIso } from '../../shared/gst';
 import { CHORD_MS, goTarget, isTypingContext } from '../../shared/shortcuts';
 import { api } from '../lib/api';
+import { useSession } from '../lib/session';
 import { useApplyPreferences } from '../lib/prefs';
-import { useQuery } from '../lib/data';
+import { useQuery, useRefresh } from '../lib/data';
 import { navigate, paths, type Section } from '../lib/router';
 import { CommandPaletteProvider, useCommandPalette } from './CommandPalette';
 import { NotificationBell } from './NotificationBell';
@@ -28,6 +29,8 @@ export function Logo({ size = 28, live = false }: { size?: number; live?: boolea
 
 export function TopBar() {
   const palette = useCommandPalette();
+  const session = useSession();
+  const refresh = useRefresh();
   return (
     <div className="flex h-14 shrink-0 items-center justify-between gap-6 border-b border-line bg-surface px-5 print:hidden">
       <a href="#/dashboard" className="flex items-center gap-2.5 rounded-lg">
@@ -50,6 +53,12 @@ export function TopBar() {
       </a>
       <div className="flex items-center gap-3">
         <NotificationBell />
+        {session.current && (
+          <button type="button" onClick={() => void api.sessionLogout().then(refresh)} className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs text-ink-muted transition-colors hover:border-ink/25 hover:text-ink" title="Sign out">
+            <LogOut className="h-3.5 w-3.5" aria-hidden />
+            {session.current.name}
+          </button>
+        )}
         <Button variant="primary" title="New invoice (Ctrl+N)" icon={<Plus className="h-4 w-4" />} onClick={() => navigate(paths.newInvoice())}>
           New invoice
         </Button>

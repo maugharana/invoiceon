@@ -799,6 +799,23 @@ CREATE TABLE design_photos (
 CREATE INDEX ix_design_photos_design ON design_photos (design_id, position);
 `;
 
+const V20 = `
+-- People who use the book. With none, nobody signs in (as before). The PIN is stored as a salted hash, never as typed.
+CREATE TABLE users (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  role       TEXT NOT NULL CHECK (role IN ('owner', 'staff')),
+  pin_salt   TEXT NOT NULL,
+  pin_hash   TEXT NOT NULL,
+  active     INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
+);
+-- Who did it, in the activity log. Empty for what was done before people were set up.
+ALTER TABLE audit_log ADD COLUMN actor TEXT NOT NULL DEFAULT '';
+`;
+
 const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 1, sql: V1 },
   { version: 2, sql: V2 },
@@ -819,6 +836,7 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 17, sql: V17 },
   { version: 18, sql: V18 },
   { version: 19, sql: V19 },
+  { version: 20, sql: V20 },
 ];
 
 /** Brings a database up to date. `upTo` stops early at a version, which only the tests use, to build an older database to upgrade. */

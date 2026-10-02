@@ -39,6 +39,10 @@ const RULES: Record<string, Rule> = {
       return changed.length === 0 ? 'nothing different' : changed.length > 8 ? `${changed.length} settings` : changed.join(', ');
     },
   },
+  userCreate: { label: 'Added a person', entity: 'user', summary: (_a, r) => join(r?.name, r?.role) },
+  userUpdate: { label: 'Changed a person', entity: 'user', id: arg0Id, summary: (_a, r) => join(r?.name, r?.role, r?.active === false ? 'switched off' : '') },
+  userSetPin: { label: 'Changed a PIN', entity: 'user', id: arg0Id, summary: (_a, r) => join(r?.name) },
+  userRemove: { label: 'Removed a person', entity: 'user', id: arg0Id },
   sampleDataLoad: { label: 'Loaded the sample data', entity: 'data' },
   backupNow: { label: 'Made a backup', entity: 'data' },
   dataExportAll: { label: 'Exported all the data', entity: 'data' },
@@ -141,13 +145,13 @@ export function auditBefore(db: Db, method: string): unknown {
 }
 
 /** Writes one line to the activity log. It never throws: the log must not be the reason a real change fails. */
-export function recordAudit(db: Db, method: string, args: unknown[], result: unknown, before?: unknown): void {
+export function recordAudit(db: Db, method: string, args: unknown[], result: unknown, before?: unknown, actor = ''): void {
   const rule = RULES[method];
   if (!rule) return;
   try {
     const id = (rule.id ?? resultId)(args, result);
     const summary = rule.summary ? rule.summary(args, result, before) : '';
-    run(db, 'INSERT INTO audit_log (id, at, action, label, entity_type, entity_id, summary) VALUES (?, ?, ?, ?, ?, ?, ?)', newId(), nowIso(), method, rule.label, rule.entity, id, String(summary ?? '').slice(0, 300));
+    run(db, 'INSERT INTO audit_log (id, at, action, label, entity_type, entity_id, summary, actor) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', newId(), nowIso(), method, rule.label, rule.entity, id, String(summary ?? '').slice(0, 300), actor);
   } catch (err) {
     console.error('[audit] could not write the log', err);
   }
@@ -172,12 +176,12 @@ export function listAudit(db: Db, query: AuditQuery = {}): AuditEntry[] {
   }
   const search = (query.search ?? '').trim().toLowerCase();
   const limit = Math.min(Math.max(query.limit ?? 300, 1), 1000);
-  return all<{ id: string; at: string; action: string; label: string; entity_type: string; entity_id: string; summary: string }>(
+  return all<{ id: string; at: string; action: string; label: string; entity_type: string; entity_id: string; summary: string; actor: string }>(
     db,
     `SELECT * FROM audit_log ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY at DESC, rowid DESC`,
     ...params,
   )
     .filter((r) => !search || `${r.label} ${r.summary} ${r.entity_type}`.toLowerCase().includes(search))
     .slice(0, limit)
-    .map((r) => ({ id: r.id, at: r.at, action: r.action, label: r.label, entityType: r.entity_type, entityId: r.entity_id, summary: r.summary }));
+    .map((r) => ({ id: r.id, at: r.at, action: r.action, label: r.label, entityType: r.entity_type, entityId: r.entity_id, summary: r.summary, actor: r.actor }));
 }

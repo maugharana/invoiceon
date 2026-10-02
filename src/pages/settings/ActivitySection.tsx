@@ -98,7 +98,7 @@ export function ActivitySection() {
                     ) : (
                       e.label
                     )}
-                    {e.summary && <span className="block truncate text-xs text-ink-muted">{e.summary}</span>}
+                    {(e.summary || e.actor) && <span className="block truncate text-xs text-ink-muted">{[e.summary, e.actor && `by ${e.actor}`].filter(Boolean).join(' · ')}</span>}
                   </span>
                 </li>
               );

@@ -6,7 +6,7 @@ import { LABEL_LAYOUTS, PAYMENT_METHODS, type LabelLayout, type PaymentMethod, t
 
 export type Section = 'dashboard' | 'inventory' | 'invoices' | 'proformas' | 'customers' | 'payments' | 'expenses' | 'reports' | 'settings';
 
-export const SETTINGS_SECTIONS = ['business', 'tax', 'invoice', 'proforma', 'expenses', 'accounts', 'instructions', 'notifications', 'messages', 'data', 'backup', 'catalogue', 'preferences', 'activity', 'plus'] as const;
+export const SETTINGS_SECTIONS = ['business', 'tax', 'invoice', 'proforma', 'expenses', 'accounts', 'instructions', 'notifications', 'messages', 'data', 'backup', 'catalogue', 'people', 'preferences', 'activity', 'plus'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 export type Route =

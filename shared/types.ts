@@ -1828,6 +1828,8 @@ export interface AuditEntry {
   entityType: string;
   entityId: string;
   summary: string;
+  /** Who did it (a person's name), or '' when nobody was signed in. */
+  actor: string;
 }
 export interface AuditQuery {
   search?: string;
@@ -2182,4 +2184,30 @@ export interface LabelItem {
   /** What the shopper pays: the MRP, or the selling price plus GST. */
   pricePaise: Paise;
   shop: string;
+}
+
+// ── People and roles ────────────────────────────────────────────────────────
+export const USER_ROLES = ['owner', 'staff'] as const;
+export type UserRole = (typeof USER_ROLES)[number];
+export const USER_ROLE_LABEL: Record<UserRole, string> = { owner: 'Owner', staff: 'Staff' };
+
+export interface AppUser {
+  id: string;
+  name: string;
+  role: UserRole;
+  /** Someone who is switched off can't sign in, but what they did stays in the activity log. */
+  active: boolean;
+}
+export interface UserInput {
+  name: string;
+  role: UserRole;
+  /** 4 to 8 digits. */
+  pin: string;
+}
+export interface SessionState {
+  /** False until the first owner is set up: then nobody has to sign in. */
+  enabled: boolean;
+  current: AppUser | null;
+  /** The names offered on the sign in screen. */
+  people: { id: string; name: string }[];
 }

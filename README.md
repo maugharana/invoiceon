@@ -277,6 +277,12 @@ The flow for a saree you don't have: customer quote (with a deposit if they pay 
 
 On an issued invoice, **Government forms** prepares the JSON file the government's e-way bill portal or e-invoice (IRN) portal takes on upload. InvoiceOn does not issue the e-way bill number or the IRN: those come from the portals. The dialog shows what the portal would reject (missing GSTIN, pincode or HSN, an invoice number over 16 characters, a bad vehicle number) and the Save button stays off until those are fixed. Transport details are typed in the dialog and are not stored. The layouts follow the portals' published formats (e-way bill 1.0.0621, e-invoice schema 1.1); upload one invoice first and check the portal's validator before relying on it. The logic is in `shared/govFiles.ts`.
 
+## People and sign in
+
+**Settings → People.** Until an owner is added nobody signs in, as before. Adding the first owner switches sign in on: the book then asks for a name and a PIN (4 to 8 digits) each time it opens, and the activity log notes who did each thing. Owners can do everything. Staff can make invoices, take payments and add stock, but not change settings, cancel invoices or credit notes, void payments, write off, delete, see profit, margin or GST reports, or work with backups, exports and people (the list is `OWNER_ONLY` in `electron/services/users.ts`, and is enforced in `createApi`, not just hidden on screen). PINs are stored as salted scrypt hashes. Five wrong PINs in a row lock that person out for a minute. The last active owner can't be removed, demoted or switched off.
+
+What this is not: the PIN guards the screen on a shared computer and names who did what. It does not encrypt the data file, so someone with the file itself can open it. Staff can still see cost prices on a design and the dashboard figures. If the only owner forgets their PIN, the data file has to be edited to reopen the book (delete the rows in the `users` table).
+
 ## Backup, restore and Google Drive
 
 Code: `electron/backup.ts` (files on this computer, checking and restoring), `electron/drive.ts` (Google), `electron/backupService.ts` (puts them together). Tests: `tests/backup-drive.test.ts`, which includes a stand-in for Google.

@@ -27,6 +27,7 @@ import { DuesPage, PaymentsPage } from './pages/payments/PaymentsPage';
 import { ProformaPage } from './pages/proformas/ProformaPage';
 import { ProformasPage } from './pages/proformas/ProformasPage';
 import { ReportsPage } from './pages/reports/ReportsPage';
+import { SessionGate } from './lib/session';
 import { SettingsPage } from './pages/settings/SettingsPage';
 
 function renderRoute(route: Route) {
@@ -151,8 +152,10 @@ export default function App() {
   if (route.name === 'print-receipt') return <PrintReceiptPage paymentId={route.id} />;
   if (route.name === 'print-invoices') return <PrintInvoicesPage ids={route.ids} />;
   return (
+    <SessionGate>
     <AppShell active={sectionOf(route)} pageKey={pageKey(route)} hideFab={route.name === 'invoice-new' || route.name === 'proforma-new' || route.name === 'proforma-edit' || route.name === 'inventory-add' || route.name === 'inventory-names' || route.name === 'weaver-order-new' || route.name === 'weaver-order-edit' || route.name === 'stock-take'}>
       {renderRoute(route)}
     </AppShell>
+    </SessionGate>
   );
 }

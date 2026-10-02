@@ -1,7 +1,11 @@
 import type { WebsiteListing } from './websiteText';
 import type { Paise } from './money';
 import type {
+  AppUser,
   BulkAddResult,
+  SessionState,
+  UserInput,
+  UserRole,
   BulkDesignAction,
   BulkDesignResult,
   CustomerImportResult,
@@ -141,6 +145,14 @@ import type { CompareWith } from './periods';
  * plain Error whose message is safe to show the user.
  */
 export interface Api {
+  sessionState(): Promise<SessionState>;
+  sessionLogin(userId: string, pin: string): Promise<SessionState>;
+  sessionLogout(): Promise<SessionState>;
+  usersList(): Promise<AppUser[]>;
+  userCreate(input: UserInput): Promise<AppUser>;
+  userUpdate(id: string, patch: { name?: string; role?: UserRole; active?: boolean }): Promise<AppUser>;
+  userSetPin(id: string, pin: string): Promise<AppUser>;
+  userRemove(id: string): Promise<void>;
   getSettings(): Promise<Settings>;
   saveSettings(patch: Partial<Settings>): Promise<Settings>;
 

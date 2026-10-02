@@ -1,11 +1,13 @@
-import { Bell, Building2, Tags, CloudUpload, History, MessageSquare, ClipboardList, CreditCard, Database, FileText, Percent, Settings2, Sparkles, Tag, Wallet, type LucideIcon } from 'lucide-react';
+import { Bell, Building2, Tags, CloudUpload, History, MessageSquare, ClipboardList, CreditCard, Database, FileText, Percent, Settings2, Sparkles, Tag, UserCog, Wallet, type LucideIcon } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useToast } from '../../components/Toast';
 import { Button, Card, ErrorNote, PageHeader, Spinner } from '../../components/ui';
 import { api, errorMessage } from '../../lib/api';
 import { useQuery, useRefresh } from '../../lib/data';
+import { useSession } from '../../lib/session';
 import type { SettingsSection } from '../../lib/router';
 import { paths } from '../../lib/router';
+import { PeopleSection } from './PeopleSection';
 import { ActivitySection } from './ActivitySection';
 import { BackupSection } from './BackupSection';
 import { BusinessProfileSection } from './BusinessProfileSection';
@@ -46,6 +48,7 @@ const SECTIONS: SectionInfo[] = [
   { id: 'data', label: 'Data Management', icon: Database, title: 'Data Management', subtitle: 'Where your data is, and keeping it safe.', saves: false },
   { id: 'backup', label: 'Backup & Restore', icon: CloudUpload, title: 'Backup & Restore', subtitle: 'Copies of your book on this computer, on a second disk and in Google Drive.', saves: false },
   { id: 'catalogue', label: 'Saree Choices', icon: Tags, title: 'Saree Choices', subtitle: 'The lists you pick from when adding a saree: fix a typo, merge two spellings, remove what you do not use.', saves: false },
+  { id: 'people', label: 'People', icon: UserCog, title: 'People', subtitle: 'Who can use the book, and what each person may do.', saves: false },
   { id: 'preferences', label: 'Preferences', icon: Settings2, title: 'Preferences', subtitle: 'Defaults used across the app.', saves: true },
   { id: 'activity', label: 'Activity', icon: History, title: 'Activity', subtitle: 'A record of what was done in InvoiceOn and when.', saves: false },
   { id: 'plus', label: 'InvoiceOn Plus', icon: Sparkles, title: 'InvoiceOn Plus', subtitle: 'Sync, teams and access from anywhere: what is planned.', saves: false },
@@ -77,6 +80,8 @@ function renderSection(id: SettingsSection, draft: Draft, set: SetDraft): ReactN
       return <BackupSection />;
     case 'catalogue':
       return <CatalogueSection />;
+    case 'people':
+      return <PeopleSection />;
     case 'preferences':
       return <PreferencesSection draft={draft} set={set} />;
     case 'activity':
@@ -87,6 +92,7 @@ function renderSection(id: SettingsSection, draft: Draft, set: SetDraft): ReactN
 }
 
 export function SettingsPage({ section }: { section: SettingsSection }) {
+  const session = useSession();
   const toast = useToast();
   const refresh = useRefresh();
   const settings = useQuery(() => api.getSettings());
@@ -102,6 +108,7 @@ export function SettingsPage({ section }: { section: SettingsSection }) {
   // A message about one section shouldn't follow you to another.
   useEffect(() => setError(null), [section]);
 
+  if (session.enabled && session.current?.role !== 'owner') return <PageHeader title="Settings" subtitle="Only an owner can open settings. Ask an owner to sign in." />;
   if (!draft) return settings.error ? <ErrorNote>{settings.error}</ErrorNote> : <Spinner />;
 
   const info = SECTIONS.find((s) => s.id === section) ?? SECTIONS[0]!;

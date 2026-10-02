@@ -1,5 +1,6 @@
 import { addDays, todayIso } from '../shared/gst';
 import type { Api, Envelope } from '../shared/api';
+import type { AppUser, SessionState } from '../shared/types';
 import { discardPendingRestore, saveBackupSettings, snapshotTo } from './backup';
 import * as backupService from './backupService';
 import * as drive from './drive';
@@ -35,6 +36,7 @@ import * as receivables from './services/receivables';
 import * as reports from './services/reports';
 import { loadSampleData } from './services/seed';
 import * as settings from './services/settings';
+import * as users from './services/users';
 import * as weaverOrders from './services/weaverOrders';
 
 /** Things only the desktop shell can do. Absent in browser dev mode, where those calls explain themselves. */
@@ -74,22 +76,51 @@ function checkInvoiceIds(db: Db, ids: string[]): string[] {
 export function createApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backupService.DriveOverrides): Api {
   const api = buildApi(db, host, dataDir, driveOverrides);
   const logged = {} as Record<string, unknown>;
-  for (const [name, fn] of Object.entries(api)) {
-    if (!isAudited(name) || typeof fn !== 'function') {
+  // Who is signed in. Lives only as long as the program is open, so closing it signs everyone out.
+  let current: AppUser | null = null;
+  const state = (): SessionState => {
+    const enabled = users.authEnabled(db);
+    const still = enabled && current ? users.getUser(db, current.id) : null;
+    if (!still || !still.active) current = null;
+    else current = still;
+    return { enabled, current, people: enabled ? users.listUsers(db).filter((u) => u.active).map((u) => ({ id: u.id, name: u.name })) : [] };
+  };
+  /** Stops a call that the signed in person may not make. Without people set up, everything is allowed. */
+  const allowed = (name: string): void => {
+    if (users.OPEN_CALLS.has(name) || !users.authEnabled(db)) return;
+    state();
+    if (!current) throw new UserError('Sign in to continue.');
+    if (current.role !== 'owner' && users.OWNER_ONLY.has(name)) throw new UserError('Only an owner can do that. Ask an owner to sign in.');
+  };
+  const sessionCalls: Pick<Api, 'sessionState' | 'sessionLogin' | 'sessionLogout'> = {
+    sessionState: async () => state(),
+    sessionLogin: async (userId, pin) => {
+      current = users.checkLogin(db, userId, pin);
+      return state();
+    },
+    sessionLogout: async () => {
+      current = null;
+      return state();
+    },
+  };
+  for (const [name, fn] of Object.entries({ ...api, ...sessionCalls })) {
+    if (typeof fn !== 'function') {
       logged[name] = fn;
       continue;
     }
     logged[name] = async (...args: unknown[]) => {
+      allowed(name);
+      if (!isAudited(name)) return (fn as (...a: unknown[]) => Promise<unknown>)(...args);
       const before = auditBefore(db, name);
       const result = await (fn as (...a: unknown[]) => Promise<unknown>)(...args);
-      recordAudit(db, name, args, result, before);
+      recordAudit(db, name, args, result, before, current?.name ?? '');
       return result;
     };
   }
   return logged as unknown as Api;
 }
 
-function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backupService.DriveOverrides): Api {
+function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backupService.DriveOverrides): Omit<Api, 'sessionState' | 'sessionLogin' | 'sessionLogout'> {
   /** Backups and Google Drive need to know where the data folder is; the browser-only bridge passes one too. */
   const need = (): drive.DriveContext => {
     if (!dataDir) throw new UserError(DESKTOP_ONLY);
@@ -101,6 +132,13 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
     heldList: async (kind) => held.listHeld(db, kind ?? 'invoice'),
     heldHold: async (input) => held.holdBill(db, input),
     heldDiscard: async (id) => held.discardHeld(db, id),
+
+    // The session calls are bound in createApi, which holds who is signed in.
+    usersList: async () => users.listUsers(db),
+    userCreate: async (input) => users.createUser(db, input),
+    userUpdate: async (id, patch) => users.updateUser(db, id, patch ?? {}),
+    userSetPin: async (id, pin) => users.setPin(db, id, pin),
+    userRemove: async (id) => users.removeUser(db, id),
 
     getSettings: async () => settings.getSettings(db),
     saveSettings: async (patch) => settings.saveSettings(db, patch),
