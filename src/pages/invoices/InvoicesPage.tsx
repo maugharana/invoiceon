@@ -74,7 +74,7 @@ export function InvoicesPage({ initialStatus }: { initialStatus: Status }) {
               <Button onClick={() => navigate(paths.quickBill)} title="The counter screen: scan, press how they paid">
                 Quick bill
               </Button>
-              <Button onClick={() => navigate(paths.creditNotes)} title="Goods taken back and sales corrected">
+              <Button onClick={() => navigate(paths.creditNotes)} title="Goods taken back from invoices">
                 Credit notes
               </Button>
               {selected.size > 0 && (

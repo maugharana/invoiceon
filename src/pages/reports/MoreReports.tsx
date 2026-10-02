@@ -464,8 +464,8 @@ export function ReceivablesTab() {
 
 // ── Day book, cash book, bank book ──────────────────────────────────────────
 const BOOK_LABEL: Record<DayBookMode, string> = { all: 'Day book', cash: 'Cash book', bank: 'Bank book' };
-const KIND_LABEL = { sale: 'Sale', 'credit-note': 'Credit note', receipt: 'Received', refund: 'Refunded', expense: 'Paid' } as const;
-const KIND_TONE: Record<keyof typeof KIND_LABEL, PillTone> = { sale: 'b2b', 'credit-note': 'overdue', receipt: 'paid', refund: 'overdue', expense: 'partial' };
+const KIND_LABEL = { sale: 'Sale', receipt: 'Received', expense: 'Paid' } as const;
+const KIND_TONE: Record<keyof typeof KIND_LABEL, PillTone> = { sale: 'b2b', receipt: 'paid', expense: 'partial' };
 
 export function DayBookTab({ period }: { period: PeriodSpec }) {
   const exportCsv = useReportExport();
@@ -797,7 +797,7 @@ export function AccountBookTab({ period }: { period: PeriodSpec }) {
   const b = q.data;
   if (q.error && !b) return <ErrorNote>{q.error}</ErrorNote>;
   if (!b) return <Spinner />;
-  const kind = { receipt: 'Received', refund: 'Refunded', expense: 'Paid', 'transfer-in': 'Moved in', 'transfer-out': 'Moved out' } as const;
+  const kind = { receipt: 'Received', expense: 'Paid', 'transfer-in': 'Moved in', 'transfer-out': 'Moved out' } as const;
 
   return (
     <>

@@ -16,6 +16,7 @@ const KINDS: [string, string][] = [
   ['expense', 'Expenses'],
   ['purchase', 'Purchases'],
   ['material', 'Raw materials'],
+  ['weaver_order', 'Weaver orders'],
   ['settings', 'Settings'],
   ['data', 'Data and backups'],
 ];
@@ -32,6 +33,8 @@ function destination(e: AuditEntry): string | null {
       return paths.customer(e.entityId);
     case 'design':
       return paths.design(e.entityId);
+    case 'weaver_order':
+      return paths.weaverOrder(e.entityId);
     default:
       return null;
   }
@@ -95,8 +98,7 @@ export function ActivitySection() {
                     ) : (
                       e.label
                     )}
-                    {e.summary && <span className="block truncate text-xs text-ink-muted">{e.summary}</span>}
-                    {e.userName && <span className="block text-xs text-ink-muted">by {e.userName}</span>}
+                    {(e.summary || e.actor) && <span className="block truncate text-xs text-ink-muted">{[e.summary, e.actor && `by ${e.actor}`].filter(Boolean).join(' · ')}</span>}
                   </span>
                 </li>
               );

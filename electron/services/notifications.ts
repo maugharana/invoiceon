@@ -2,8 +2,6 @@ import { addDays, formatDate, todayIso } from '../../shared/gst';
 import { formatMoney } from '../../shared/money';
 import type { AttentionItem, Notification } from '../../shared/types';
 import { readyWishes } from './loyalty';
-import { listProformas } from './proformas';
-import { listWeaverOrders } from './weaverOrders';
 import { overdueOrders } from './production';
 import { OCCASION_WARNING_DAYS, belowCost, dueNotes, expiringQuotes, lowMargin, lowMaterials, occasions, reversedPayments } from './attention';
 import type { Db } from '../db/connection';
@@ -12,6 +10,8 @@ import { listDesigns } from './inventory';
 import { dueInstalments } from './instalments';
 import { listInvoices } from './invoices';
 import { listPayments } from './payments';
+import { listProformas } from './proformas';
+import { listWeaverOrders } from './weaverOrders';
 
 const money = (paise: number) => formatMoney(paise, { fractionDigits: 0 });
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -45,6 +45,15 @@ export function notifications(db: Db, today: string = todayIso()): Notification[
   }
   out.push(...fromAttention(reversedPayments(db, today)));
   out.push(...fromAttention(dueNotes(db, today)));
+  // Work that was due to come in.
+  const late = overdueOrders(db);
+  if (late.length > 0) {
+    out.push({ kind: 'production-late', id: 'production-late', severity: 'soon', title: `${plural(late.length, 'production order')} late`, detail: late.slice(0, 3).map((o) => `${o.designName} ${o.color}${o.vendorName ? ` (${o.vendorName})` : ''}`).join(', '), link: { to: 'path', path: '/inventory/production' } });
+  }
+
+  for (const w of readyWishes(db)) {
+    out.push({ kind: 'wishlist-ready', id: `wish:${w.id}`, severity: 'info', title: `${w.customerName} was waiting for ${w.designName}`, detail: 'It is in stock now. Let them know.', link: { to: 'path', path: `/customers/${w.customerId}` } });
+  }
   for (const n of dueInstalments(db, addDays(today, 3), today)) {
     out.push({
       kind: 'instalment-due',
@@ -81,16 +90,6 @@ export function notifications(db: Db, today: string = todayIso()): Notification[
       detail: `${money(b.spentPaise)} of ${money(b.budgetPaise)} spent this month`,
       link: { to: 'path', path: `/expenses?category=${encodeURIComponent(b.category)}` },
     });
-  }
-
-  // Work that was due to come in.
-  const late = overdueOrders(db);
-  if (late.length > 0) {
-    out.push({ kind: 'production-late', id: 'production-late', severity: 'soon', title: `${plural(late.length, 'production order')} late`, detail: late.slice(0, 3).map((o) => `${o.designName} ${o.color}${o.vendorName ? ` (${o.vendorName})` : ''}`).join(', '), link: { to: 'path', path: '/inventory/production' } });
-  }
-
-  for (const w of readyWishes(db)) {
-    out.push({ kind: 'wishlist-ready', id: `wish:${w.id}`, severity: 'info', title: `${w.customerName} was waiting for ${w.designName}`, detail: 'It is in stock now. Let them know.', link: { to: 'path', path: `/customers/${w.customerId}` } });
   }
 
   // Sarees ordered from weavers: ones that are late, and customers whose sarees have all arrived and can now be invoiced.

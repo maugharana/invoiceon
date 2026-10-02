@@ -2,7 +2,7 @@ import { computeInvoice, financialYear, formatInvoiceNumber, invoiceStatus, isIs
 import { matchesAll } from '../../shared/search';
 import { formatMoney } from '../../shared/money';
 import { sameState } from '../../shared/states';
-import { DELIVERY_STATUS_LABEL, type DashboardSummary, type DeliveryStatus, type DeliveryUpdate, type Invoice, type InvoiceBranding, type InvoiceCredit, type InvoiceInput, type InvoiceLine, type InvoiceQuery, type InvoiceSummary, type InvoiceType, type Party, type SaleVariant, type Settings, type ShipTo } from '../../shared/types';
+import { DELIVERY_STATUS_LABEL, type DashboardSummary, type DeliveryStatus, type DeliveryUpdate, type Invoice, type InvoiceBranding, type InvoiceInput, type InvoiceLine, type InvoiceQuery, type InvoiceSummary, type InvoiceType, type Party, type SaleVariant, type Settings, type ShipTo } from '../../shared/types';
 import { all, get, run, tx, type Db } from '../db/connection';
 import { UserError, isUniqueViolation, newId, nowIso, optionalText, requireInt } from './common';
 import { getCustomer } from './customers';
@@ -149,12 +149,11 @@ function toInvoice(db: Db, r: InvoiceRow): Invoice {
       taxPaise: l.tax_paise,
     }),
   );
-  const credits = all<{ id: string; number: string; issue_date: string; total_paise: number }>(db, 'SELECT id, number, issue_date, total_paise FROM credit_notes WHERE invoice_id = ? ORDER BY issue_date, seq', r.id).map(
-    (c): InvoiceCredit => ({ id: c.id, number: c.number, issueDate: c.issue_date, totalPaise: c.total_paise }),
-  );
   return {
     ...toSummary(r, paidFor(db, r.id)),
     payments: paymentsOnInvoice(db, r.id),
+    creditNotes: all<{ id: string; number: string; issue_date: string; total_paise: number; status: 'issued' | 'cancelled' }>(db, 'SELECT id, number, issue_date, total_paise, status FROM credit_notes WHERE invoice_id = ? ORDER BY issue_date, seq', r.id).map((c) => ({ id: c.id, number: c.number, issueDate: c.issue_date, totalPaise: c.total_paise, status: c.status })),
+    creditedPaise: get<{ s: number }>(db, "SELECT COALESCE(SUM(a.amount_paise), 0) AS s FROM credit_note_applications a JOIN credit_notes n ON n.id = a.credit_note_id WHERE a.invoice_id = ? AND a.released_at IS NULL AND n.status = 'issued'", r.id)?.s ?? 0,
     // Content is frozen at issue. Invoices from before "bank" and "footer" existed simply have none.
     seller: { bank: '', footer: '', upiId: '', ...JSON.parse(r.seller_json) },
     // Styling is not frozen: change the logo or colour and every invoice, old ones included, is redrawn with it.
@@ -173,8 +172,6 @@ function toInvoice(db: Db, r: InvoiceRow): Invoice {
     igstPaise: r.igst_paise,
     roundOffPaise: r.round_off_paise,
     taxByRate: taxByRate(r, lineRows),
-    credits,
-    creditedPaise: credits.reduce((s, c) => s + c.totalPaise, 0),
     notes: r.notes,
     lines,
     shipTo: r.ship_to_json ? (JSON.parse(r.ship_to_json) as ShipTo) : null,
@@ -501,8 +498,9 @@ export function applyAdvanceToInvoice(db: Db, invoiceId: string): Invoice {
 export function cancelInvoice(db: Db, id: string, reason: string): Invoice {
   const invoice = getInvoice(db, id);
   if (invoice.status === 'cancelled') throw new UserError('This invoice is already cancelled.');
+  const live = invoice.creditNotes.filter((c) => c.status === 'issued');
+  if (live.length > 0) throw new UserError(`${invoice.number} has ${live.length === 1 ? 'a credit note' : 'credit notes'} (${live.map((c) => c.number).join(', ')}). Cancel ${live.length === 1 ? 'it' : 'them'} first.`);
   const why = optionalText(reason, 'Reason', 200);
-  if (invoice.credits.length > 0) throw new UserError(`${invoice.number} has credit notes against it (${invoice.credits.map((c) => c.number).join(', ')}), so it can no longer be cancelled.`);
 
   tx(db, () => {
     onInvoiceCancelled(db, id, invoice.number);

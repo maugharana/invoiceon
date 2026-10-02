@@ -1,6 +1,6 @@
 import { localDateOf, todayIso } from '../../shared/gst';
-import { PAYMENT_METHOD_LABEL, type PaymentKind, type DuesBuckets, type DuesReport, type DuesRow, type Ledger, type LedgerEntry, type PaymentMethod, type PaymentsSummary } from '../../shared/types';
-import { all, get, type Db } from '../db/connection';
+import { PAYMENT_METHOD_LABEL, type DuesBuckets, type DuesReport, type DuesRow, type Ledger, type LedgerEntry, type PaymentMethod, type PaymentsSummary } from '../../shared/types';
+import { all, type Db } from '../db/connection';
 import { getCustomer, listCustomers } from './customers';
 import { listInvoices } from './invoices';
 import { openDueNotes } from './notes';
@@ -38,26 +38,28 @@ export function customerLedger(db: Db, customerId: string): Ledger {
     }
   }
 
-  const payments = all<{ id: string; voided_at: string | null; void_reason: string; received_on: string; created_at: string; amount_paise: number; method: PaymentMethod; reference: string; kind: PaymentKind; note: string }>(
+  const notes = all<{ id: string; number: string; total_paise: number; issue_date: string; created_at: string; status: string; cancelled_at: string | null; cancel_reason: string; invoice_number: string; invoice_id: string }>(
+    db,
+    'SELECT n.id, n.number, n.total_paise, n.issue_date, n.created_at, n.status, n.cancelled_at, n.cancel_reason, n.invoice_id, i.number AS invoice_number FROM credit_notes n JOIN invoices i ON i.id = n.invoice_id WHERE n.customer_id = ?',
+    customerId,
+  );
+  for (const n of notes) {
+    events.push({ date: n.issue_date, at: n.created_at, kind: 'credit-note', description: `Credit note ${n.number} — goods returned from ${n.invoice_number}`, invoiceId: n.invoice_id, debit: 0, credit: n.total_paise });
+    if (n.status === 'cancelled' && n.cancelled_at) events.push({ date: localDateOf(n.cancelled_at), at: n.cancelled_at, kind: 'credit-note-cancelled', description: `Credit note ${n.number} cancelled${n.cancel_reason ? ` — ${n.cancel_reason}` : ''}`, invoiceId: n.invoice_id, debit: n.total_paise, credit: 0 });
+  }
+  const refunds = all<{ amount_paise: number; paid_on: string; created_at: string; number: string; method: PaymentMethod }>(
+    db,
+    "SELECT f.amount_paise, f.paid_on, f.created_at, f.method, n.number FROM credit_note_refunds f JOIN credit_notes n ON n.id = f.credit_note_id WHERE n.customer_id = ? AND n.status = 'issued'",
+    customerId,
+  );
+  for (const f of refunds) events.push({ date: f.paid_on, at: f.created_at, kind: 'refund', description: `Refund paid (${PAYMENT_METHOD_LABEL[f.method]}) — ${f.number}`, debit: f.amount_paise, credit: 0 });
+
+  const payments = all<{ id: string; voided_at: string | null; void_reason: string; received_on: string; created_at: string; amount_paise: number; method: PaymentMethod; reference: string; kind: 'receipt' | 'writeoff'; note: string }>(
     db,
     'SELECT id, voided_at, void_reason, received_on, created_at, amount_paise, method, reference, kind, note FROM payments WHERE customer_id = ?',
     customerId,
   );
-  // A credit note reduces what the customer owes. It appears once, as the note itself; the credit it put toward an invoice is bookkeeping.
-  const notes = all<{ id: string; number: string; issue_date: string; created_at: string; total_paise: number; invoice_id: string; invoice_number: string }>(
-    db,
-    'SELECT n.id, n.number, n.issue_date, n.created_at, n.total_paise, n.invoice_id, i.number AS invoice_number FROM credit_notes n JOIN invoices i ON i.id = n.invoice_id WHERE n.customer_id = ?',
-    customerId,
-  );
-  for (const n of notes) events.push({ date: n.issue_date, at: n.created_at, kind: 'credit-note', description: `Credit note ${n.number} — against ${n.invoice_number}`, invoiceId: n.invoice_id, debit: 0, credit: n.total_paise });
-
   for (const p of payments) {
-    if (p.kind === 'credit') continue;
-    if (p.kind === 'refund') {
-      events.push({ date: p.received_on, at: p.created_at, kind: 'refund', description: `Refund paid (${[PAYMENT_METHOD_LABEL[p.method], p.reference].filter(Boolean).join(' · ')})`, debit: p.amount_paise, credit: 0 });
-      if (p.voided_at) events.push({ date: localDateOf(p.voided_at), at: p.voided_at, kind: 'refund-voided', description: `Refund reversed${p.void_reason ? ` — ${p.void_reason}` : ''}`, debit: 0, credit: p.amount_paise });
-      continue;
-    }
     if (p.kind === 'writeoff') {
       const on = getPayment(db, p.id).allocations.map((a) => a.invoiceNumber).join(', ');
       events.push({ date: p.received_on, at: p.created_at, kind: 'writeoff', description: `Written off${on ? ` — ${on}` : ''}${p.note.replace(/^Written off/, '') ? ` ${p.note.replace(/^Written off/, '').trim()}` : ''}`, debit: 0, credit: p.amount_paise });
@@ -84,9 +86,9 @@ export function customerLedger(db: Db, customerId: string): Ledger {
   const live = payments.filter((p) => !p.voided_at);
   const received = live.filter((p) => p.kind === 'receipt').reduce((s, p) => s + p.amount_paise, 0);
   const writtenOff = live.filter((p) => p.kind === 'writeoff').reduce((s, p) => s + p.amount_paise, 0);
-  const credited = notes.reduce((s, n) => s + n.total_paise, 0);
-  const refunded = live.filter((p) => p.kind === 'refund').reduce((s, p) => s + p.amount_paise, 0);
-  return { customer, entries, billedPaise: customer.billedPaise, receivedPaise: received, writtenOffPaise: writtenOff, creditedPaise: credited, refundedPaise: refunded, balancePaise: customer.billedPaise - received - writtenOff - credited + refunded };
+  const credited = notes.filter((n) => n.status === 'issued').reduce((s, n) => s + n.total_paise, 0);
+  const refunded = refunds.reduce((s, f) => s + f.amount_paise, 0);
+  return { customer, entries, billedPaise: customer.billedPaise, creditedPaise: credited, refundedPaise: refunded, receivedPaise: received, writtenOffPaise: writtenOff, balancePaise: customer.billedPaise - credited - received - writtenOff + refunded };
 }
 
 // ── Dues ────────────────────────────────────────────────────────────────────
@@ -151,11 +153,10 @@ export function duesReport(db: Db): DuesReport {
 export function paymentsSummary(db: Db): PaymentsSummary {
   const month = todayIso().slice(0, 7);
   const monthPayments = all<{ amount_paise: number }>(db, "SELECT amount_paise FROM payments WHERE voided_at IS NULL AND kind = 'receipt' AND received_on LIKE ? || '%'", month);
-  const monthRefunds = get<{ s: number }>(db, "SELECT COALESCE(SUM(amount_paise), 0) AS s FROM payments WHERE voided_at IS NULL AND kind = 'refund' AND received_on LIKE ? || '%'", month)?.s ?? 0;
   const dues = duesReport(db);
   const withAdvance = listCustomers(db).filter((c) => c.advancePaise > 0);
   return {
-    receivedThisMonthPaise: monthPayments.reduce((s, p) => s + p.amount_paise, 0) - monthRefunds,
+    receivedThisMonthPaise: monthPayments.reduce((s, p) => s + p.amount_paise, 0),
     paymentsThisMonth: monthPayments.length,
     advanceHeldPaise: dues.advanceHeldPaise,
     customersWithAdvance: withAdvance.length,
