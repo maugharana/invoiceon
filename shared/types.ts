@@ -297,6 +297,8 @@ export interface Variant {
   id: string;
   designId: string;
   sku: string;
+  /** A code printed by someone else on the piece's tag. Empty when the shop's own SKU label is used. */
+  barcode: string;
   color: string;
   size: string;
   stock: number;
@@ -405,6 +407,8 @@ export interface VariantInput {
   size: string;
   /** Left blank on create to auto-generate from design code + color + size. */
   sku?: string;
+  /** A code already printed on the piece. Leave out to keep what is there; empty clears it. */
+  barcode?: string;
   sellPricePaise: Paise;
   /** Optional. Left out or 0 means "not set". */
   mrpPaise?: Paise;
@@ -891,6 +895,8 @@ export interface SaleVariant {
   hsn: string;
   /** The design's own GST rate, when it has one. */
   gstRatePercent: number | null;
+  /** The code on the piece's tag, if it came with one. Scanning this or the SKU finds the piece. */
+  barcode: string;
   color: string;
   size: string;
   sku: string;

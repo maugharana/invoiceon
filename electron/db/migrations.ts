@@ -734,6 +734,13 @@ CREATE TABLE photos (
 CREATE INDEX ix_photos_owner ON photos (owner_type, owner_id, position) WHERE deleted_at IS NULL;
 `;
 
+// 17: an optional printed barcode on each colour and size (the number already on a bought-in saree's tag). Every colour and size can also
+//   be found by its SKU, which the labels the shop prints itself carry, so the barcode is only needed for codes printed by someone else.
+const V17 = `
+ALTER TABLE variants ADD COLUMN barcode TEXT NOT NULL DEFAULT '';
+CREATE UNIQUE INDEX ux_variants_barcode ON variants (barcode) WHERE barcode <> '' AND deleted_at IS NULL;
+`;
+
 // Append new migrations to the end; never edit one that has shipped.
 // `rebuilds` marks a migration that replaces a table other tables point at (SQLite's documented way of changing a CHECK). Foreign keys
 // are switched off around it, and checked before it is committed, as SQLite's own instructions for that say.
@@ -754,6 +761,7 @@ const MIGRATIONS: { version: number; sql: string; rebuilds?: boolean }[] = [
   { version: 14, sql: V14 },
   { version: 15, sql: V15, rebuilds: true },
   { version: 16, sql: V16 },
+  { version: 17, sql: V17 },
 ];
 
 /** Brings a database up to date. `upTo` stops early at a version, which only the tests use, to build an older database to upgrade. */

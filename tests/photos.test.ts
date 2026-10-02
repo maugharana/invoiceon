@@ -5,11 +5,13 @@ import { backupNow } from '../electron/backup';
 import * as expenses from '../electron/services/expenses';
 import * as inventory from '../electron/services/inventory';
 import * as photos from '../electron/services/photos';
+import { variantByCode } from '../electron/services/invoices';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const pic = (n: number, mime = 'image/jpeg') => `data:${mime};base64,${Buffer.alloc(n, 7).toString('base64')}`;
+const invoicesByCode = (code: string) => variantByCode(db, code);
 let db: Db;
 let designId: string;
 let variantId: string;
@@ -83,5 +85,34 @@ describe('pictures', () => {
     const copy = openDb(join(dir, name));
     expect(photos.getPhotoImage(copy, p.id)).toBe(pic(1500));
     expect((await api.auditList())[0]).toMatchObject({ label: 'Added a picture' });
+  });
+});
+
+describe('finding a piece by its code', () => {
+  it('matches the SKU or a printed barcode, ignoring case, and nothing else', () => {
+    const v = inventory.updateVariant(db, variantId, { color: 'Red', size: '6 m', barcode: '8901234567890', sellPricePaise: 100000, baseCostPaise: 0, reorderLevel: 0, bom: [] });
+    const sku = v.sku;
+    expect(invoicesByCode(sku.toLowerCase())?.variantId).toBe(variantId);
+    expect(invoicesByCode('8901234567890')?.variantId).toBe(variantId);
+    expect(invoicesByCode('  ' + sku + ' ')?.variantId).toBe(variantId);
+    expect(invoicesByCode('nope')).toBeNull();
+    expect(invoicesByCode('')).toBeNull();
+  });
+
+  it('keeps the barcode when a form that does not mention it saves the piece, and lets it be cleared', () => {
+    inventory.updateVariant(db, variantId, { color: 'Red', size: '6 m', barcode: 'ABC123', sellPricePaise: 100000, baseCostPaise: 0, reorderLevel: 0, bom: [] });
+    const kept = inventory.updateVariant(db, variantId, { color: 'Red', size: '6 m', sellPricePaise: 100000, baseCostPaise: 0, reorderLevel: 0, bom: [] });
+    expect(kept.barcode).toBe('ABC123');
+    expect(inventory.updateVariant(db, variantId, { color: 'Red', size: '6 m', barcode: '', sellPricePaise: 100000, baseCostPaise: 0, reorderLevel: 0, bom: [] }).barcode).toBe('');
+  });
+
+  it('never lets two pieces share a code, or a barcode copy another piece\'s SKU', () => {
+    const other = inventory.createVariant(db, designId, { color: 'Blue', size: '6 m', barcode: 'SAME-1', sellPricePaise: 1, baseCostPaise: 0, reorderLevel: 0, bom: [] });
+    const input = { color: 'Red', size: '6 m', sellPricePaise: 100000, baseCostPaise: 0, reorderLevel: 0, bom: [] };
+    expect(() => inventory.updateVariant(db, variantId, { ...input, barcode: 'same-1' })).toThrow(/already belongs to/);
+    expect(() => inventory.updateVariant(db, variantId, { ...input, barcode: other.sku })).toThrow(/already belongs to/);
+    expect(() => inventory.updateVariant(db, variantId, { ...input, barcode: 'has space' })).toThrow(/without spaces/);
+    // a new piece whose SKU is somebody's barcode is refused too
+    expect(() => inventory.createVariant(db, designId, { color: 'Green', size: '6 m', sku: 'SAME-1', sellPricePaise: 1, baseCostPaise: 0, reorderLevel: 0, bom: [] })).toThrow(/already used as a barcode/);
   });
 });

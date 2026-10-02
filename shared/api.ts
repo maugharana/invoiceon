@@ -220,6 +220,10 @@ export interface Api {
   notesDue(query?: { kind?: NoteKind; onOrBefore?: string }): Promise<DueNote[]>;
 
   variantsForSale(): Promise<SaleVariant[]>;
+  /** The piece a scanned or typed code belongs to (its barcode or SKU), or null. */
+  variantByCode(code: string): Promise<SaleVariant | null>;
+  /** Prints a sheet of price labels with barcodes, one entry per colour and size. */
+  labelsPrint(items: { variantId: string; copies: number }[]): Promise<void>;
 
   invoicesList(query?: InvoiceQuery): Promise<InvoiceSummary[]>;
   invoiceGet(id: string): Promise<Invoice>;

@@ -9,6 +9,8 @@ import { AddSareesPage } from './pages/inventory/AddSareesPage';
 import { MaterialsPage } from './pages/inventory/MaterialsPage';
 import { StockTakePage } from './pages/inventory/StockTakePage';
 import { CreditNotePage, CreditNotesPage } from './pages/invoices/CreditNotePages';
+import { PrintLabelsPage } from './pages/inventory/Labels';
+import { QuickBillPage } from './pages/invoices/QuickBillPage';
 import { InvoicePage } from './pages/invoices/InvoicePage';
 import { InvoicesPage } from './pages/invoices/InvoicesPage';
 import { NewInvoicePage } from './pages/invoices/NewInvoicePage';
@@ -55,6 +57,8 @@ function renderRoute(route: Route) {
       return <ReconcilePage />;
     case 'invoice':
       return <InvoicePage id={route.id} />;
+    case 'quick-bill':
+      return <QuickBillPage />;
     case 'credit-notes':
       return <CreditNotesPage />;
     case 'credit-note':
@@ -82,6 +86,7 @@ function renderRoute(route: Route) {
     case 'print-statement':
     case 'print-receipt':
     case 'print-credit-note':
+    case 'print-labels':
     case 'print-invoices':
       return null; // rendered outside the app shell, see App()
   }
@@ -124,10 +129,11 @@ export default function App() {
   if (route.name === 'print-proforma') return <PrintInvoicePage id={route.id} kind="proforma" />;
   if (route.name === 'print-statement') return <PrintStatementPage customerId={route.id} />;
   if (route.name === 'print-receipt') return <PrintReceiptPage paymentId={route.id} />;
+  if (route.name === 'print-labels') return <PrintLabelsPage items={route.items} />;
   if (route.name === 'print-credit-note') return <PrintCreditNotePage id={route.id} />;
   if (route.name === 'print-invoices') return <PrintInvoicesPage ids={route.ids} />;
   return (
-    <AppShell active={sectionOf(route)} pageKey={pageKey(route)} hideFab={route.name === 'invoice-new' || route.name === 'proforma-new' || route.name === 'proforma-edit' || route.name === 'inventory-add' || route.name === 'stock-take'}>
+    <AppShell active={sectionOf(route)} pageKey={pageKey(route)} hideFab={route.name === 'invoice-new' || route.name === 'quick-bill' || route.name === 'proforma-new' || route.name === 'proforma-edit' || route.name === 'inventory-add' || route.name === 'stock-take'}>
       {renderRoute(route)}
     </AppShell>
   );

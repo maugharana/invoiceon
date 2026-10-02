@@ -166,6 +166,14 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
     customerArchive: async (id) => customers.archiveCustomer(db, id),
 
     variantsForSale: async () => invoices.variantsForSale(db),
+    variantByCode: async (code) => invoices.variantByCode(db, code),
+    labelsPrint: async (items) => {
+      if (!host) throw new UserError(DESKTOP_ONLY);
+      const list = (Array.isArray(items) ? items : []).filter((i) => i && Number.isInteger(i.copies) && i.copies > 0).slice(0, 300);
+      if (list.length === 0) throw new UserError('Choose at least one label to print.');
+      for (const i of list) inventory.getVariant(db, i.variantId);
+      return host.printDocument(`/print/labels?items=${list.map((i) => encodeURIComponent(`${i.variantId}:${Math.min(200, i.copies)}`)).join(',')}`);
+    },
 
     invoicesList: async (query) => invoices.listInvoices(db, query ?? {}),
     invoiceGet: async (id) => invoices.getInvoice(db, id),

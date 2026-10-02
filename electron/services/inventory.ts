@@ -45,6 +45,7 @@ interface VariantRow {
   id: string;
   design_id: string;
   sku: string;
+  barcode: string;
   color: string;
   size: string;
   stock: number;
@@ -124,6 +125,7 @@ export function loadVariants(db: Db, filter: { designId?: string; variantId?: st
       id: r.id,
       designId: r.design_id,
       sku: r.sku,
+      barcode: r.barcode,
       color: r.color,
       size: r.size,
       stock: r.stock,
@@ -354,6 +356,20 @@ function generateSku(db: Db, designCode: string, color: string, size: string): s
   return sku;
 }
 
+/** What a scanner can read: printable characters with no spaces, so a scan is always one clean word. */
+function validateBarcode(value: unknown): string {
+  const code = optionalText(value, 'Barcode', 40);
+  if (code && !/^[!-~]+$/.test(code)) throw new UserError('A barcode can use letters, numbers and symbols, without spaces.');
+  return code;
+}
+
+/** A barcode must point at exactly one piece: it can't be another piece's barcode or SKU. */
+function checkBarcodeFree(db: Db, code: string, selfId: string | null): void {
+  if (!code) return;
+  const clash = get<{ sku: string }>(db, 'SELECT sku FROM variants WHERE id <> ? AND deleted_at IS NULL AND (barcode = ? COLLATE NOCASE OR sku = ? COLLATE NOCASE)', selfId ?? '', code, code);
+  if (clash) throw new UserError(`The code "${code}" already belongs to ${clash.sku}. Each piece needs its own.`);
+}
+
 function validateVariant(db: Db, input: VariantInput) {
   const bom = input.bom ?? [];
   const seen = new Set<string>();
@@ -371,6 +387,7 @@ function validateVariant(db: Db, input: VariantInput) {
     color: requireText(input.color, 'Color', 40),
     size: requireText(input.size, 'Size', 30),
     sku: optionalText(input.sku, 'SKU', 40),
+    barcode: input.barcode === undefined ? undefined : validateBarcode(input.barcode),
     sell: requireInt(input.sellPricePaise, 'Selling price', { max: MAX_PAISE }),
     base: requireInt(input.baseCostPaise, 'Making / purchase cost', { max: MAX_PAISE }),
     mrp: input.mrpPaise === undefined || input.mrpPaise === null ? 0 : requireInt(input.mrpPaise, 'MRP', { max: MAX_PAISE }),
@@ -406,7 +423,9 @@ export function createVariant(db: Db, designId: string, input: VariantInput): Va
     const now = nowIso();
     const sku = v.sku || generateSku(db, design.code, v.color, v.size);
     try {
-      run(db, 'INSERT INTO variants (id, design_id, sku, color, size, stock, reorder_level, base_cost_paise, sell_price_paise, mrp_paise, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)', id, designId, sku, v.color, v.size, v.reorder, v.base, v.sell, v.mrp, now, now);
+      checkBarcodeFree(db, v.barcode ?? '', null);
+      if (get(db, 'SELECT 1 AS x FROM variants WHERE deleted_at IS NULL AND barcode = ? COLLATE NOCASE AND barcode <> ?', sku, '')) throw new UserError(`SKU "${sku}" is already used as a barcode.`);
+      run(db, 'INSERT INTO variants (id, design_id, sku, barcode, color, size, stock, reorder_level, base_cost_paise, sell_price_paise, mrp_paise, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)', id, designId, sku, v.barcode ?? '', v.color, v.size, v.reorder, v.base, v.sell, v.mrp, now, now);
     } catch (err) {
       if (isUniqueViolation(err)) {
         if (/sku/i.test((err as Error).message)) throw new UserError(`SKU "${sku}" is already in use.`);
@@ -441,7 +460,10 @@ export function updateVariant(db: Db, id: string, input: VariantInput): Variant 
   const v = validateVariant(db, input);
   tx(db, () => {
     try {
-      run(db, 'UPDATE variants SET sku = ?, color = ?, size = ?, reorder_level = ?, base_cost_paise = ?, sell_price_paise = ?, mrp_paise = ?, updated_at = ? WHERE id = ?', v.sku || existing.sku, v.color, v.size, v.reorder, v.base, v.sell, v.mrp, nowIso(), id);
+      const barcode = v.barcode ?? existing.barcode;
+      checkBarcodeFree(db, barcode, id);
+      checkBarcodeFree(db, v.sku || existing.sku, id);
+      run(db, 'UPDATE variants SET sku = ?, barcode = ?, color = ?, size = ?, reorder_level = ?, base_cost_paise = ?, sell_price_paise = ?, mrp_paise = ?, updated_at = ? WHERE id = ?', v.sku || existing.sku, barcode, v.color, v.size, v.reorder, v.base, v.sell, v.mrp, nowIso(), id);
     } catch (err) {
       if (isUniqueViolation(err)) {
         if (/sku/i.test((err as Error).message)) throw new UserError(`SKU "${v.sku}" is already in use.`);

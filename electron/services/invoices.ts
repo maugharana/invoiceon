@@ -243,11 +243,12 @@ export function variantsForSale(db: Db): SaleVariant[] {
     color: string;
     size: string;
     sku: string;
+    barcode: string;
     stock: number;
     sell_price_paise: number;
   }>(
     db,
-    `SELECT v.id, v.design_id, d.code, d.name AS design_name, d.nickname AS design_nickname, d.hsn_code, d.gst_rate_percent, v.color, v.size, v.sku, v.stock, v.sell_price_paise
+    `SELECT v.id, v.design_id, d.code, d.name AS design_name, d.nickname AS design_nickname, d.hsn_code, d.gst_rate_percent, v.color, v.size, v.sku, v.barcode, v.stock, v.sell_price_paise
      FROM variants v JOIN designs d ON d.id = v.design_id
      WHERE v.deleted_at IS NULL AND d.deleted_at IS NULL
      ORDER BY d.name COLLATE NOCASE, v.color COLLATE NOCASE, v.size COLLATE NOCASE`,
@@ -262,9 +263,17 @@ export function variantsForSale(db: Db): SaleVariant[] {
     color: r.color,
     size: r.size,
     sku: r.sku,
+    barcode: r.barcode,
     stock: r.stock,
     sellPricePaise: r.sell_price_paise,
   }));
+}
+
+/** The piece a scanned or typed code belongs to: its barcode or its SKU, ignoring case. Null when nothing matches. */
+export function variantByCode(db: Db, code: string): SaleVariant | null {
+  const c = String(code ?? '').trim().toLowerCase();
+  if (!c) return null;
+  return variantsForSale(db).find((v) => v.barcode.toLowerCase() === c || v.sku.toLowerCase() === c) ?? null;
 }
 
 function nextSequence(db: Db, fy: string, series: string): number {

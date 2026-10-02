@@ -235,6 +235,15 @@ Code: `electron/services/photos.ts`, `src/components/PhotoStrip.tsx`, `src/lib/i
 - **Inventory** has a List / Pictures switch (remembered per computer).
 - Pictures are not part of the spreadsheet export.
 
+## Barcodes, labels and the quick bill
+
+Code: `shared/code128.ts`, `src/components/Barcode.tsx`, `src/pages/inventory/Labels.tsx`, `src/pages/invoices/QuickBillPage.tsx`, migration 17, tests in `tests/code128.test.ts` and `tests/photos.test.ts`.
+
+- **Every colour and size is scannable by its SKU.** The labels the shop prints carry the SKU as a Code 128 barcode (drawn as vector bars, so any size and any scanner works). A piece that came with a printed barcode can store it too (`variants.barcode`, optional). A code can belong to only one piece, and a barcode may not equal another piece's SKU, so a scan never finds two.
+- **Scanners are keyboards.** They type the code and press Enter, so no driver is needed: the item box on the invoice screen and the quick bill take an exact SKU or barcode (any case) and add that piece, ahead of whatever else matches the text.
+- **Labels.** On a design: Print labels, a count for each colour and size (stock on hand to start with), three across, name, colour and size, price and barcode. In the browser it opens a page to Save as PDF; in the desktop app it prints.
+- **Quick bill** (Invoices > Quick bill): scan or type, change quantities with + and −, press Cash, UPI or Card. One walk-in bill is issued, paid in full, in one step, then the next customer. Ctrl+Enter takes cash. Named customers, item discounts and part payment use the full invoice screen. The maths is the same `computeInvoice` the invoice uses.
+
 ## Brand
 
 Tokens live in `tailwind.config.js` (teal `#0F6E56`, gold `#D9A94E` for one figure per screen, status pairs, ink).

@@ -145,7 +145,7 @@ function ItemPicker({ variants, taken, onPick, allowOutOfStock = false }: { vari
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
 
-  const results = useMemo(() => variants.filter((v) => matchesAll(`${v.designName} ${v.designNickname} ${v.designCode} ${v.color} ${v.size} ${v.sku}`, q)).slice(0, 50), [variants, q]);
+  const results = useMemo(() => variants.filter((v) => matchesAll(`${v.designName} ${v.designNickname} ${v.designCode} ${v.color} ${v.size} ${v.sku} ${v.barcode}`, q)).slice(0, 50), [variants, q]);
 
   const pick = (v: SaleVariant) => {
     if (v.stock <= 0 && !allowOutOfStock) return;
@@ -163,7 +163,7 @@ function ItemPicker({ variants, taken, onPick, allowOutOfStock = false }: { vari
         role="combobox"
         aria-expanded={open}
         aria-label="Add item"
-        placeholder="Add an item — search design, color or SKU"
+        placeholder="Add an item — search, or scan its barcode"
         onChange={(e) => {
           setQ(e.target.value);
           setOpen(true);
@@ -180,7 +180,10 @@ function ItemPicker({ variants, taken, onPick, allowOutOfStock = false }: { vari
             setActive((a) => Math.max(a - 1, 0));
           } else if (e.key === 'Enter') {
             e.preventDefault();
-            const v = results[active];
+            // A scanner types the whole code and presses Enter: an exact barcode or SKU wins over the highlighted row.
+            const code = q.trim().toLowerCase();
+            const scanned = code ? variants.find((x) => x.sku.toLowerCase() === code || (x.barcode !== '' && x.barcode.toLowerCase() === code)) : undefined;
+            const v = scanned ?? results[active];
             if (v) pick(v);
           } else if (e.key === 'Escape') setOpen(false);
         }}
