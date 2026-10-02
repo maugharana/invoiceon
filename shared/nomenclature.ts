@@ -70,3 +70,32 @@ export function buildPieceTitle(p: NameParts, colour: string): string {
   const c = clean(colour);
   return name && c ? `${c} ${name}` : name;
 }
+
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Whether a whole word or phrase (not part of a longer word) appears in the text, ignoring case. */
+function hasPhrase(text: string, phrase: string): boolean {
+  return new RegExp(`(^|[^a-z])${escapeRegExp(phrase.toLowerCase())}($|[^a-z])`).test(text.toLowerCase());
+}
+
+export interface GuessedChoices {
+  weaveStyle: string;
+  technique: string;
+  pattern: string;
+  work: string;
+}
+
+/**
+ * Reads the choices out of a name that was typed by hand ("Banarasi Katan Kadhua Butidar"): a choice counts only when its whole label
+ * appears as a word or phrase. A word already taken as the weave style is not taken again as the technique (Jamdani is both).
+ * It only suggests: the person confirms before anything is saved.
+ */
+export function guessChoices(name: string, options: Pick<Record<CatalogueKind, readonly string[]>, 'weaveStyle' | 'technique' | 'pattern' | 'work'>): GuessedChoices {
+  const found = (list: readonly string[], skip: string[] = []) => list.filter((o) => hasPhrase(name, o) && !skip.some((s) => s.toLowerCase() === o.toLowerCase()));
+  const weaveStyle = found(options.weaveStyle)[0] ?? '';
+  const taken = weaveStyle ? [weaveStyle] : [];
+  const technique = found(options.technique, taken)[0] ?? '';
+  const pattern = found(options.pattern, [...taken, technique])[0] ?? '';
+  const work = found(options.work).join(', ');
+  return { weaveStyle, technique, pattern, work };
+}

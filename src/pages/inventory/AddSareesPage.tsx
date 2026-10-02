@@ -1,6 +1,7 @@
 import { AlertTriangle, ArrowLeft, ClipboardPaste, Copy, Plus, Trash2 } from 'lucide-react';
 import { useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react';
 import { parseMoney } from '../../../shared/money';
+import { buildDesignName, buildPieceTitle, DEFAULT_OPTIONS, splitWorks } from '../../../shared/nomenclature';
 import type { BulkSareeRow } from '../../../shared/types';
 import { useToast } from '../../components/Toast';
 import { Button, Card, ErrorNote, Money, PageHeader } from '../../components/ui';
@@ -8,20 +9,25 @@ import { api, errorMessage } from '../../lib/api';
 import { useQuery, useRefresh } from '../../lib/data';
 import { plural, toNumber } from '../../lib/format';
 import { navigate, paths } from '../../lib/router';
-import { COMMON_COLORS, COMMON_FABRICS, COMMON_SIZES } from '../../lib/sarees';
+import { COMMON_SIZES } from '../../lib/sarees';
 
 // ── The sheet ───────────────────────────────────────────────────────────────
 // One row is one piece: a saree in one colour and size. Everything is held as text while it's being typed.
-type Field = 'name' | 'nickname' | 'sku' | 'color' | 'size' | 'fabric' | 'hsn' | 'mrp' | 'sp' | 'cp' | 'stock' | 'reorder';
+type Field = 'weaveStyle' | 'fabric' | 'technique' | 'pattern' | 'work' | 'color' | 'nickname' | 'size' | 'name' | 'sku' | 'hsn' | 'mrp' | 'sp' | 'cp' | 'stock' | 'reorder';
 
 interface SheetRow {
   id: number;
-  name: string;
-  nickname: string;
-  sku: string;
-  color: string;
-  size: string;
+  weaveStyle: string;
   fabric: string;
+  technique: string;
+  pattern: string;
+  work: string;
+  color: string;
+  nickname: string;
+  size: string;
+  /** Only when the name is typed by hand instead of built from the choices. */
+  name: string;
+  sku: string;
   hsn: string;
   mrp: string;
   sp: string;
@@ -45,27 +51,35 @@ interface Column {
 }
 
 const COLUMNS: Column[] = [
-  { field: 'name', label: 'Saree name', title: 'Rows with the same name become one design with several colours', width: 'min-w-[10rem]', placeholder: 'e.g. Mau Silk Butidar', list: 'saree-names', required: true },
-  { field: 'nickname', label: 'Special name', title: 'Your own name for the saree, a word or a short phrase, like Lalima or Rang Bahar. Taken from the first row that has one in each design.', width: 'w-[6rem]', placeholder: 'Kadhua' },
-  { field: 'sku', label: 'Saree ID', title: 'The SKU: your own code for this piece. Leave blank and one is made for you.', width: 'w-[5.75rem]', placeholder: 'auto' },
-  { field: 'color', label: 'Colour', title: 'Colour', width: 'w-[5.75rem]', placeholder: 'Maroon', list: 'saree-colors', required: true },
+  { field: 'weaveStyle', label: 'Weave style', title: 'Banarasi, Kanjivaram, Chanderi… It starts the saree\'s full name.', width: 'w-[9rem]', placeholder: 'Banarasi', list: 'sheet-weave', required: true },
+  { field: 'fabric', label: 'Fabric', title: 'Katan Silk, Georgette…', width: 'w-[7.5rem]', placeholder: 'Katan Silk', list: 'sheet-fabric' },
+  { field: 'technique', label: 'Technique', title: 'How it is woven: Kadhua, Phekua…', width: 'w-[6.5rem]', placeholder: 'Kadhua', list: 'sheet-technique' },
+  { field: 'pattern', label: 'Pattern', title: 'One only: Butidar or Jaal…', width: 'w-[6rem]', placeholder: 'Butidar', list: 'sheet-pattern' },
+  { field: 'work', label: 'Special work', title: 'Zardozi Work, Aari Work… More than one: separate them with a comma.', width: 'w-[8rem]', placeholder: 'Zardozi Work', list: 'sheet-work' },
+  { field: 'color', label: 'Colour', title: 'Colour', width: 'w-[6.5rem]', placeholder: 'Maroon', list: 'sheet-colour', required: true },
+  { field: 'nickname', label: 'Special name', title: 'Your own name for the saree, a word or a short phrase, like Lalima or Rang Bahar. It goes last in the full name. Rows with the same choices and special name become one design with several colours.', width: 'w-[7rem]', placeholder: 'Lalima' },
   { field: 'size', label: 'Size', title: 'Length', width: 'w-[5rem]', placeholder: '6.3 m', list: 'saree-sizes', required: true },
-  { field: 'fabric', label: 'Fabric', title: 'Taken from the first row of each design', width: 'w-[8rem]', placeholder: 'Pure silk', list: 'saree-fabrics', extra: true },
-  { field: 'hsn', label: 'HSN', title: 'Taken from the first row of each design', width: 'w-[5.5rem]', placeholder: '5007', inputMode: 'numeric', extra: true },
   { field: 'mrp', label: 'MRP ₹', title: 'The printed maximum retail price, GST included', width: 'w-[5.5rem]', align: 'right', placeholder: '0', inputMode: 'decimal' },
   { field: 'sp', label: 'SP ₹', title: 'Selling price: what you charge, before GST', width: 'w-[5.5rem]', align: 'right', placeholder: '0', inputMode: 'decimal', required: true },
   { field: 'cp', label: 'CP ₹', title: 'Cost price: what it costs you to make or buy', width: 'w-[5.5rem]', align: 'right', placeholder: '0', inputMode: 'decimal' },
   { field: 'stock', label: 'Stock', title: 'Pieces on the shelf today', width: 'w-[4rem]', align: 'right', placeholder: '0', inputMode: 'numeric' },
+  { field: 'name', label: 'Own name', title: 'Only to name the saree yourself instead of letting the choices build its name. Rows with the same name become one design.', width: 'min-w-[10rem]', placeholder: 'leave empty', list: 'saree-names', extra: true },
+  { field: 'sku', label: 'Saree ID', title: 'The SKU: your own code for this piece. Leave blank and one is made for you.', width: 'w-[5.75rem]', placeholder: 'auto', extra: true },
+  { field: 'hsn', label: 'HSN', title: 'Taken from the first row of each design', width: 'w-[5.5rem]', placeholder: '5007', inputMode: 'numeric', extra: true },
   { field: 'reorder', label: 'Reorder at', title: 'Warn when stock falls to this many', width: 'w-[5rem]', align: 'right', placeholder: '2', inputMode: 'numeric', extra: true },
 ];
 
 let nextId = 1;
-const blankRow = (size = '6.3 m', reorder = '2'): SheetRow => ({ id: nextId++, name: '', nickname: '', sku: '', color: '', size, fabric: '', hsn: '', mrp: '', sp: '', cp: '', stock: '', reorder });
+const blankRow = (size = '6.3 m', reorder = '2'): SheetRow => ({ id: nextId++, weaveStyle: '', fabric: '', technique: '', pattern: '', work: '', color: '', nickname: '', size, name: '', sku: '', hsn: '', mrp: '', sp: '', cp: '', stock: '', reorder });
 
 /** Size and reorder level are defaults, so a row counts as empty until something else is typed in it. */
-const isBlank = (r: SheetRow) => !(r.name || r.nickname || r.sku || r.color || r.fabric || r.hsn || r.mrp || r.sp || r.cp || r.stock);
+const isBlank = (r: SheetRow) => !(r.weaveStyle || r.fabric || r.technique || r.pattern || r.work || r.color || r.nickname || r.name || r.sku || r.hsn || r.mrp || r.sp || r.cp || r.stock);
 
 const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+
+/** The name a row gives its design: the one typed by hand, otherwise the one its choices build. Empty when it has neither. */
+// Like the server, a fabric or special name alone is not enough to build a name from.
+const designNameOf = (r: SheetRow) => r.name.trim() || (r.weaveStyle.trim() || r.technique.trim() || r.pattern.trim() || splitWorks(r.work).length ? buildDesignName({ weaveStyle: r.weaveStyle, fabric: r.fabric, technique: r.technique, pattern: r.pattern, work: r.work, specialName: r.nickname }) : '');
 
 /** Money typed in a cell ("1,250", "₹ 9800") → paise. Blank is 0. Null when it isn't an amount. */
 function toPaise(text: string): number | null {
@@ -80,7 +94,7 @@ function toCount(text: string): number | null {
 
 /** What is wrong with a row before it is even sent, in words. */
 function problemsOf(r: SheetRow): string | null {
-  if (!r.name.trim()) return 'Saree name is required.';
+  if (!designNameOf(r)) return 'Choose a weave style (or technique, pattern or work), or type an own name.';
   if (!r.color.trim()) return 'Colour is required.';
   if (!r.size.trim()) return 'Size is required.';
   if (toPaise(r.mrp) === null) return "MRP isn't a valid amount.";
@@ -108,6 +122,8 @@ export function AddSareesPage() {
   const refresh = useRefresh();
   const settings = useQuery(() => api.getSettings());
   const designs = useQuery(() => api.designsList());
+  const choices = useQuery(() => api.catalogueOptions());
+  const lists = choices.data ?? DEFAULT_OPTIONS;
   const defaultReorder = String(settings.data?.defaultReorderLevel ?? 2);
 
   const [rows, setRows] = useState<SheetRow[]>(() => Array.from({ length: START_ROWS }, () => blankRow()));
@@ -169,7 +185,7 @@ export function AddSareesPage() {
     e.preventDefault();
     let lines = text.replace(/\r/g, '').replace(/\n+$/, '').split('\n').map((l) => l.split('\t'));
     // A header row copied along with the data isn't data.
-    if (lines[0] && /^(saree\s*)?(name|design)$/i.test(lines[0][0]?.trim() ?? '')) lines = lines.slice(1);
+    if (lines[0] && /^((saree\s*)?(name|design)|weave(\s*style)?)$/i.test(lines[0][0]?.trim() ?? '')) lines = lines.slice(1);
     if (lines.length === 0) return;
     const startCol = columns.findIndex((c) => c.field === field);
     setRows((rs) => {
@@ -198,7 +214,7 @@ export function AddSareesPage() {
     let costValue = 0;
     let saleValue = 0;
     for (const r of filled) {
-      const key = norm(r.name);
+      const key = norm(designNameOf(r));
       if (key && !names.has(key)) names.set(key, { isNew: !existing.has(key) });
       const stock = toCount(r.stock) ?? 0;
       pieces += stock;
@@ -227,7 +243,11 @@ export function AddSareesPage() {
     }
 
     const payload: BulkSareeRow[] = filled.map((r) => ({
-      name: r.name,
+      name: r.name.trim(),
+      weaveStyle: r.weaveStyle.trim(),
+      technique: r.technique.trim(),
+      pattern: r.pattern.trim(),
+      work: splitWorks(r.work).join(', '),
       nickname: r.nickname.trim(),
       sku: r.sku,
       color: r.color,
@@ -274,7 +294,7 @@ export function AddSareesPage() {
           </a>
         }
         title="Add sarees"
-        subtitle="One row per piece. Type across, or paste a block straight from Excel."
+        subtitle="One row per piece. Pick the choices, and the full name is built for you. Type across, or paste a block straight from Excel."
         actions={
           <Button variant="primary" loading={saving} disabled={filled.length === 0} onClick={() => void save()}>
             {saveLabel}
@@ -289,7 +309,7 @@ export function AddSareesPage() {
       )}
 
       <Card className="overflow-x-auto">
-        <table className="w-full min-w-[58rem] table-fixed border-collapse">
+        <table className="w-full min-w-[78rem] table-fixed border-collapse">
           <thead>
             <tr className="border-b border-line bg-canvas/60">
               <th className="w-9 px-2 py-2.5 text-center text-xs font-normal text-ink-muted">#</th>
@@ -306,9 +326,10 @@ export function AddSareesPage() {
             {rows.map((r, index) => {
               const error = errors[r.id];
               const warning = !error ? warningOf(r) : null;
-              const key = norm(r.name);
+              const key = norm(designNameOf(r));
+              const title = buildPieceTitle({ weaveStyle: r.weaveStyle, fabric: r.fabric, technique: r.technique, pattern: r.pattern, work: r.work, specialName: r.nickname }, r.color);
               const match = key ? existing.get(key) : undefined;
-              const firstOfName = key ? rows.findIndex((x) => norm(x.name) === key) === index : false;
+              const firstOfName = key ? rows.findIndex((x) => norm(designNameOf(x)) === key) === index : false;
               return (
                 <RowFragment key={r.id}>
                   <tr id={`sheet-row-${r.id}`} className={`group border-b border-line/70 transition-colors ${error ? 'bg-status-overdue-bg/50' : 'hover:bg-canvas/70'}`}>
@@ -340,9 +361,10 @@ export function AddSareesPage() {
                           aria-invalid={!!error && (problemFieldOf(r, error) === c.field || undefined)}
                           className={`h-10 w-full bg-transparent px-2.5 text-sm placeholder:text-ink-muted/40 focus:bg-surface focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand/40 ${c.align === 'right' ? 'num text-right' : ''}`}
                         />
-                        {c.field === 'name' && key && (
-                          <div className="-mt-1 px-2.5 pb-1.5 text-[11px] leading-none text-ink-muted">
+                        {c.field === 'weaveStyle' && key && (
+                          <div className="px-2.5 pb-1.5 text-[11px] leading-tight text-ink-muted">
                             {match ? <span className="text-brand">Adds to {match.code}</span> : firstOfName ? 'New saree' : 'Same saree as above'}
+                            {!r.name.trim() && title && <span className="block truncate" title={title}>{title}</span>}
                           </div>
                         )}
                       </td>
@@ -371,23 +393,29 @@ export function AddSareesPage() {
           </tbody>
         </table>
 
+        {(
+          [
+            ['sheet-weave', lists.weaveStyle],
+            ['sheet-fabric', lists.fabric],
+            ['sheet-technique', lists.technique],
+            ['sheet-pattern', lists.pattern],
+            ['sheet-work', lists.work],
+            ['sheet-colour', lists.colour],
+          ] as const
+        ).map(([id, options]) => (
+          <datalist key={id} id={id}>
+            {options.map((o) => (
+              <option key={o} value={o} />
+            ))}
+          </datalist>
+        ))}
         <datalist id="saree-names">
           {(designs.data ?? []).map((d) => (
             <option key={d.id} value={d.name} />
           ))}
         </datalist>
-        <datalist id="saree-colors">
-          {COMMON_COLORS.map((c) => (
-            <option key={c} value={c} />
-          ))}
-        </datalist>
         <datalist id="saree-sizes">
           {COMMON_SIZES.map((c) => (
-            <option key={c} value={c} />
-          ))}
-        </datalist>
-        <datalist id="saree-fabrics">
-          {COMMON_FABRICS.map((c) => (
             <option key={c} value={c} />
           ))}
         </datalist>
@@ -398,7 +426,7 @@ export function AddSareesPage() {
           </Button>
           <Button onClick={() => addRows(5)}>Add 5 rows</Button>
           <button type="button" aria-pressed={more} onClick={() => setMore((m) => !m)} className="rounded-lg px-3 py-1.5 text-xs text-ink-muted transition-colors hover:bg-ink/5 hover:text-ink">
-            {more ? 'Fewer columns' : 'More columns: fabric, HSN, reorder level'}
+            {more ? 'Fewer columns' : 'More columns: own name, Saree ID, HSN, reorder level'}
           </button>
           <span className="ml-auto flex items-center gap-1.5 text-xs text-ink-muted">
             <ClipboardPaste className="h-3.5 w-3.5" aria-hidden /> Copy cells in Excel, click a cell here, paste
@@ -449,7 +477,12 @@ function RowFragment({ children }: { children: React.ReactNode }) {
 /** Which cell an error message is about, so that cell can be marked. */
 function problemFieldOf(r: SheetRow, message: string): Field | null {
   if (/special name/i.test(message)) return 'nickname';
-  if (/name/i.test(message) && !r.name.trim()) return 'name';
+  if (/weave style/i.test(message)) return 'weaveStyle';
+  if (/technique/i.test(message)) return 'technique';
+  if (/pattern/i.test(message)) return 'pattern';
+  if (/\bwork\b/i.test(message)) return 'work';
+  if (/fabric/i.test(message)) return 'fabric';
+  if (/name/i.test(message) && !designNameOf(r)) return 'weaveStyle';
   if (/colour/i.test(message)) return 'color';
   if (/size/i.test(message)) return 'size';
   if (/selling price|SP/.test(message)) return 'sp';

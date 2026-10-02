@@ -7,6 +7,7 @@ import type {
   StockTakeLine,
   StockTakeResult,
   BulkSareeRow,
+  CatalogueEntry,
   CatalogueOptions,
   Customer,
   AuditEntry,
@@ -99,6 +100,8 @@ import type {
   InvoiceQuery,
   InvoiceSummary,
   SaleVariant,
+  TidyResult,
+  TidyRow,
   DesignDetail,
   DesignInput,
   DesignQuery,
@@ -153,6 +156,14 @@ export interface Api {
   inventoryQuickAdd(row: BulkSareeRow): Promise<SaleVariant>;
   /** The choices for weave style, fabric, technique, work and colour. */
   catalogueOptions(): Promise<CatalogueOptions>;
+  /** Every choice with how many designs use it, for the screen that manages them. */
+  catalogueEntries(): Promise<CatalogueEntry[]>;
+  /** Renames a choice everywhere it is used. Renaming to a choice that already exists merges the two. Built in choices can't be renamed. */
+  catalogueRename(input: { kind: CatalogueEntry['kind']; from: string; to: string }): Promise<{ changed: number }>;
+  /** Removes a choice nobody uses. A choice in use, or a built in one, is refused. */
+  catalogueDelete(input: { kind: CatalogueEntry['kind']; label: string }): Promise<void>;
+  /** Sets the choices on several designs and, where asked, renames each to the name they build. All or nothing. */
+  designsTidy(rows: TidyRow[]): Promise<TidyResult>;
   variantCreate(designId: string, input: VariantInput): Promise<Variant>;
   variantUpdate(id: string, input: VariantInput): Promise<Variant>;
   variantArchive(id: string): Promise<void>;

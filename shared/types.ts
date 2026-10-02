@@ -1831,3 +1831,29 @@ export interface Notification {
 
 /** The pick lists for entering a saree: what every shop starts with, plus what this shop added or already uses. */
 export type CatalogueOptions = Record<'weaveStyle' | 'fabric' | 'technique' | 'pattern' | 'work' | 'colour', string[]>;
+
+/** One choice in a pick list, for the screen that manages them. */
+export interface CatalogueEntry {
+  kind: 'weaveStyle' | 'fabric' | 'technique' | 'pattern' | 'work' | 'colour';
+  label: string;
+  /** Part of the starting set every shop gets: it can't be renamed or removed. */
+  builtIn: boolean;
+  /** How many designs use it (pieces, for colours). */
+  uses: number;
+}
+
+/** What to change on one design when its name is tidied: its choices, and whether to rename it to the name they build. */
+export interface TidyRow {
+  id: string;
+  weaveStyle: string;
+  fabric: string;
+  technique: string;
+  pattern: string;
+  work: string;
+  nickname: string;
+  rename: boolean;
+}
+export interface TidyResult {
+  updated: number;
+  renamed: number;
+}

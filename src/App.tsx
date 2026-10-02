@@ -6,6 +6,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { DesignPage } from './pages/inventory/DesignPage';
 import { InventoryPage } from './pages/inventory/InventoryPage';
 import { AddSareesPage } from './pages/inventory/AddSareesPage';
+import { TidyNamesPage } from './pages/inventory/TidyNamesPage';
 import { MaterialsPage } from './pages/inventory/MaterialsPage';
 import { StockTakePage } from './pages/inventory/StockTakePage';
 import { InvoicePage } from './pages/invoices/InvoicePage';
@@ -32,6 +33,8 @@ function renderRoute(route: Route) {
       return <MaterialsPage />;
     case 'inventory-add':
       return <AddSareesPage />;
+    case 'inventory-names':
+      return <TidyNamesPage />;
     case 'stock-take':
       return <StockTakePage />;
     case 'design':
@@ -119,7 +122,7 @@ export default function App() {
   if (route.name === 'print-receipt') return <PrintReceiptPage paymentId={route.id} />;
   if (route.name === 'print-invoices') return <PrintInvoicesPage ids={route.ids} />;
   return (
-    <AppShell active={sectionOf(route)} pageKey={pageKey(route)} hideFab={route.name === 'invoice-new' || route.name === 'proforma-new' || route.name === 'proforma-edit' || route.name === 'inventory-add' || route.name === 'stock-take'}>
+    <AppShell active={sectionOf(route)} pageKey={pageKey(route)} hideFab={route.name === 'invoice-new' || route.name === 'proforma-new' || route.name === 'proforma-edit' || route.name === 'inventory-add' || route.name === 'inventory-names' || route.name === 'stock-take'}>
       {renderRoute(route)}
     </AppShell>
   );

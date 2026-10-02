@@ -257,7 +257,7 @@ export function nextDesignCode(db: Db, prefix = 'MG'): string {
 
 // ── Pick lists ──────────────────────────────────────────────────────────────
 /** Keeps a choice the shop typed (a new technique, a colour) so it is in the pick list next time. Quietly ignores what is already there. */
-function rememberOption(db: Db, kind: CatalogueKind, label: string): void {
+export function rememberOption(db: Db, kind: CatalogueKind, label: string): void {
   const text = label.replace(/\s+/g, ' ').trim();
   if (!text || text.length > 60) return;
   if (DEFAULT_OPTIONS[kind].some((o) => o.toLowerCase() === text.toLowerCase())) return;

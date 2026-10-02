@@ -6,7 +6,7 @@ import { PAYMENT_METHODS, type PaymentMethod, type ProformaStatus } from '../../
 
 export type Section = 'dashboard' | 'inventory' | 'invoices' | 'proformas' | 'customers' | 'payments' | 'expenses' | 'reports' | 'settings';
 
-export const SETTINGS_SECTIONS = ['business', 'tax', 'invoice', 'proforma', 'expenses', 'accounts', 'instructions', 'notifications', 'messages', 'data', 'backup', 'preferences', 'activity', 'plus'] as const;
+export const SETTINGS_SECTIONS = ['business', 'tax', 'invoice', 'proforma', 'expenses', 'accounts', 'instructions', 'notifications', 'messages', 'data', 'backup', 'catalogue', 'preferences', 'activity', 'plus'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 export type Route =
@@ -14,6 +14,7 @@ export type Route =
   | { name: 'inventory'; status: 'all' | 'low' | 'out' }
   | { name: 'materials' }
   | { name: 'inventory-add' }
+  | { name: 'inventory-names' }
   | { name: 'stock-take' }
   | { name: 'design'; id: string }
   | { name: 'invoices'; status: 'all' | 'open' | 'overdue' | 'cancelled' }
@@ -61,6 +62,7 @@ export function parseHash(hash: string): Route {
     case 'inventory': {
       if (parts[1] === 'materials') return { name: 'materials' };
       if (parts[1] === 'add') return { name: 'inventory-add' };
+      if (parts[1] === 'names') return { name: 'inventory-names' };
       if (parts[1] === 'stock-take') return { name: 'stock-take' };
       if (parts[1] === 'designs' && id) return { name: 'design', id };
       const status = params.get('status');
@@ -132,6 +134,7 @@ export const sectionOf = (route: Route): Section => {
     case 'inventory':
     case 'materials':
     case 'inventory-add':
+    case 'inventory-names':
     case 'stock-take':
     case 'design':
       return 'inventory';
@@ -171,6 +174,7 @@ export const paths = {
   inventory: (status?: 'low' | 'out') => (status ? `/inventory?status=${status}` : '/inventory'),
   materials: '/inventory/materials',
   addSarees: '/inventory/add',
+  tidyNames: '/inventory/names',
   stockTake: '/inventory/stock-take',
   design: (id: string) => `/inventory/designs/${encodeURIComponent(id)}`,
   invoices: (status?: 'open' | 'overdue' | 'cancelled') => (status ? `/invoices?status=${status}` : '/invoices'),

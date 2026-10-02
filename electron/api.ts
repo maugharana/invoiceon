@@ -14,6 +14,7 @@ import * as instalments from './services/instalments';
 import { dashboardNow, dashboardOverview } from './services/dashboard';
 import { festivalComparison } from './services/festival';
 import * as bulk from './services/bulk';
+import * as catalogue from './services/catalogue';
 import { exportEverything } from './services/exportAll';
 import * as moreReports from './services/moreReports';
 import { reorderList } from './services/deadstock';
@@ -121,6 +122,10 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
 
     inventoryBulkAdd: async (rows) => inventory.bulkAddSarees(db, rows),
     catalogueOptions: async () => inventory.catalogueOptions(db),
+    catalogueEntries: async () => catalogue.catalogueEntries(db),
+    catalogueRename: async (input) => catalogue.renameChoice(db, input),
+    catalogueDelete: async (input) => catalogue.deleteChoice(db, input),
+    designsTidy: async (rows) => catalogue.tidyDesigns(db, rows),
     inventoryQuickAdd: async (row) => {
       const id = inventory.quickAddSaree(db, row);
       const made = invoices.variantsForSale(db).find((v) => v.variantId === id);

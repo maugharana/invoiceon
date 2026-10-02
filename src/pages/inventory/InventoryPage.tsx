@@ -18,6 +18,7 @@ import { BulkDesignModal, type BulkKind } from './BulkDesignModal';
 import { PlacesModal } from './Places';
 import { DesignFormModal } from './DesignFormModal';
 import { InventoryShell } from './InventoryTabs';
+import { isUntidy } from './TidyNamesPage';
 
 type Filter = 'all' | 'low' | 'out';
 type SortKey = 'name' | 'stock' | 'value' | 'price' | 'margin' | 'sold' | 'cover';
@@ -50,6 +51,9 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
 
   const s = summary.data;
   const isEmptyInventory = s?.designCount === 0;
+  // Counted over every design, whatever the search and filters on this screen are showing.
+  const everyDesign = useQuery(() => api.designsList());
+  const untidyCount = (everyDesign.data ?? []).filter(isUntidy).length;
   const fabrics = useMemo(() => fabricsOf(everything.data ?? []), [everything.data]);
   const tagList = useMemo(() => tagCounts((everything.data ?? []).map((d) => d.tags)), [everything.data]);
 
@@ -147,6 +151,15 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
       )}
 
       {designs.error && <ErrorNote>{designs.error}</ErrorNote>}
+
+      {!isEmptyInventory && untidyCount > 0 && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-surface px-4 py-3">
+          <p className="text-sm text-ink-muted">
+            {untidyCount === 1 ? '1 design was' : `${untidyCount} designs were`} named by hand, before names were built from choices. Pick their choices and they get the same name style as every new saree.
+          </p>
+          <Button onClick={() => navigate(paths.tidyNames)}>Fix names</Button>
+        </div>
+      )}
 
       {isEmptyInventory ? (
         <Card>

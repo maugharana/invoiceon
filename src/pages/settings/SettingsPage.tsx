@@ -1,4 +1,4 @@
-import { Bell, Building2, CloudUpload, History, MessageSquare, ClipboardList, CreditCard, Database, FileText, Percent, Settings2, Sparkles, Tag, Wallet, type LucideIcon } from 'lucide-react';
+import { Bell, Building2, Tags, CloudUpload, History, MessageSquare, ClipboardList, CreditCard, Database, FileText, Percent, Settings2, Sparkles, Tag, Wallet, type LucideIcon } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useToast } from '../../components/Toast';
 import { Button, Card, ErrorNote, PageHeader, Spinner } from '../../components/ui';
@@ -9,6 +9,7 @@ import { paths } from '../../lib/router';
 import { ActivitySection } from './ActivitySection';
 import { BackupSection } from './BackupSection';
 import { BusinessProfileSection } from './BusinessProfileSection';
+import { CatalogueSection } from './CatalogueSection';
 import { DataManagementSection } from './DataManagementSection';
 import { fromDraft, toDraft, type Draft, type SetDraft } from './draft';
 import { ExpenseCategoriesSection } from './ExpenseCategoriesSection';
@@ -44,6 +45,7 @@ const SECTIONS: SectionInfo[] = [
   { id: 'messages', label: 'Message Templates', icon: MessageSquare, title: 'Message Templates', subtitle: 'Your own wording for the messages you send to customers.', saves: true },
   { id: 'data', label: 'Data Management', icon: Database, title: 'Data Management', subtitle: 'Where your data is, and keeping it safe.', saves: false },
   { id: 'backup', label: 'Backup & Restore', icon: CloudUpload, title: 'Backup & Restore', subtitle: 'Copies of your book on this computer, on a second disk and in Google Drive.', saves: false },
+  { id: 'catalogue', label: 'Saree Choices', icon: Tags, title: 'Saree Choices', subtitle: 'The lists you pick from when adding a saree: fix a typo, merge two spellings, remove what you do not use.', saves: false },
   { id: 'preferences', label: 'Preferences', icon: Settings2, title: 'Preferences', subtitle: 'Defaults used across the app.', saves: true },
   { id: 'activity', label: 'Activity', icon: History, title: 'Activity', subtitle: 'A record of what was done in InvoiceOn and when.', saves: false },
   { id: 'plus', label: 'InvoiceOn Plus', icon: Sparkles, title: 'InvoiceOn Plus', subtitle: 'Sync, teams and access from anywhere: what is planned.', saves: false },
@@ -73,6 +75,8 @@ function renderSection(id: SettingsSection, draft: Draft, set: SetDraft): ReactN
       return <DataManagementSection />;
     case 'backup':
       return <BackupSection />;
+    case 'catalogue':
+      return <CatalogueSection />;
     case 'preferences':
       return <PreferencesSection draft={draft} set={set} />;
     case 'activity':
