@@ -178,4 +178,10 @@ describe('upgrading a book from before raw-material stock and places', () => {
     expect(db.prepare('SELECT COUNT(*) AS n FROM catalogue_options').get()).toEqual({ n: 0 });
     expect({ ...db.prepare("SELECT pattern FROM designs WHERE id = 'd1'").get() }).toEqual({ pattern: '' });
   });
+  it('adds the weaver order tables without touching what is already there', () => {
+    const db = bookAtVersion11();
+    migrate(db);
+    for (const t of ['weaver_orders', 'weaver_order_lines', 'weaver_receipts', 'weaver_payments']) expect(db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get()).toEqual({ n: 0 });
+    expect({ ...db.prepare("SELECT stock FROM variants WHERE id = 'v1'").get() }).toEqual({ stock: 7 });
+  });
 });

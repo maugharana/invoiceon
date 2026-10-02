@@ -102,6 +102,13 @@ import type {
   SaleVariant,
   TidyResult,
   TidyRow,
+  WeaverOrder,
+  WeaverOrderDraft,
+  WeaverOrderInput,
+  WeaverOrderQuery,
+  WeaverOrderSummary,
+  WeaverPayInput,
+  WeaverReceiveInput,
   DesignDetail,
   DesignInput,
   DesignQuery,
@@ -226,6 +233,22 @@ export interface Api {
   notesDue(query?: { kind?: NoteKind; onOrBefore?: string }): Promise<DueNote[]>;
 
   variantsForSale(): Promise<SaleVariant[]>;
+
+  weaverOrdersList(query?: WeaverOrderQuery): Promise<WeaverOrderSummary[]>;
+  weaverOrderGet(id: string): Promise<WeaverOrder>;
+  weaverOrderCreate(input: WeaverOrderInput): Promise<WeaverOrder>;
+  /** Changes an order. A line that has pieces received can't go below what has arrived or be removed. */
+  weaverOrderUpdate(id: string, input: WeaverOrderInput): Promise<WeaverOrder>;
+  /** Marks pieces as arrived: they go into stock, through the stock ledger, and the order moves to part received or received. */
+  weaverOrderReceive(id: string, input: WeaverReceiveInput): Promise<WeaverOrder>;
+  /** Records money paid to the weaver. It is also entered as an expense. */
+  weaverOrderPay(id: string, input: WeaverPayInput): Promise<WeaverOrder>;
+  /** Takes a payment back (entered by mistake). Its expense is removed too. */
+  weaverPaymentVoid(id: string): Promise<WeaverOrder>;
+  /** Cancels an order nothing has arrived for and nothing is paid on. */
+  weaverOrderCancel(id: string, reason: string): Promise<WeaverOrder>;
+  /** What is short for a quote's items, as a starting point for an order to a weaver. */
+  weaverOrderDraft(proformaId: string): Promise<WeaverOrderDraft>;
 
   invoicesList(query?: InvoiceQuery): Promise<InvoiceSummary[]>;
   invoiceGet(id: string): Promise<Invoice>;

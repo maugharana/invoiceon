@@ -1816,7 +1816,9 @@ export type NotificationKind =
   | 'recurring-due'
   | 'bill-due'
   | 'budget'
-  | 'instalment-due';
+  | 'instalment-due'
+  | 'weaver-late'
+  | 'weaver-arrived';
 export type NotificationLink = AttentionItem['link'] | { to: 'path'; path: string };
 export interface Notification {
   kind: NotificationKind;
@@ -1856,4 +1858,117 @@ export interface TidyRow {
 export interface TidyResult {
   updated: number;
   renamed: number;
+}
+
+// ── Weaver orders ───────────────────────────────────────────────────────────
+export type WeaverOrderStatus = 'open' | 'partial' | 'received' | 'cancelled';
+export const WEAVER_ORDER_STATUS_LABEL: Record<WeaverOrderStatus, string> = { open: 'Ordered', partial: 'Part received', received: 'Received', cancelled: 'Cancelled' };
+
+export interface WeaverOrderLineInput {
+  /** Present when changing a line that already exists. */
+  id?: string;
+  variantId: string;
+  qty: number;
+  /** What the weaver charges for one piece, before any GST. 0 when not agreed yet. */
+  unitCostPaise: Paise;
+}
+
+export interface WeaverOrderInput {
+  vendorId: string;
+  orderedOn: string;
+  expectedOn?: string | null;
+  note: string;
+  /** The customer quote this order is for, if any. */
+  proformaId?: string | null;
+  lines: WeaverOrderLineInput[];
+}
+
+export interface WeaverOrderLine {
+  id: string;
+  variantId: string;
+  designName: string;
+  color: string;
+  size: string;
+  sku: string;
+  qty: number;
+  receivedQty: number;
+  unitCostPaise: Paise;
+  amountPaise: Paise;
+}
+
+export interface WeaverPayment {
+  id: string;
+  paidOn: string;
+  amountPaise: Paise;
+  method: PaymentMethod;
+  accountId: string;
+  reference: string;
+  /** Set when the payment was taken back; it no longer counts. */
+  voidedAt: string | null;
+}
+
+export interface WeaverReceipt {
+  id: string;
+  lineId: string;
+  qty: number;
+  receivedOn: string;
+}
+
+export interface WeaverOrderSummary {
+  id: string;
+  number: string;
+  vendorId: string;
+  vendorName: string;
+  orderedOn: string;
+  expectedOn: string | null;
+  status: WeaverOrderStatus;
+  /** Expected day has passed and pieces are still to come. */
+  late: boolean;
+  pieces: number;
+  receivedPieces: number;
+  /** What the lines add up to at the agreed prices. */
+  totalPaise: Paise;
+  /** Paid so far, not counting payments taken back. */
+  paidPaise: Paise;
+  proformaId: string | null;
+  proformaNumber: string | null;
+}
+
+export interface WeaverOrder extends WeaverOrderSummary {
+  note: string;
+  cancelledAt: string | null;
+  cancelReason: string;
+  lines: WeaverOrderLine[];
+  payments: WeaverPayment[];
+  receipts: WeaverReceipt[];
+}
+
+export interface WeaverOrderQuery {
+  /** 'open' is anything still to arrive. Left out, every order. */
+  status?: 'open' | 'received' | 'cancelled';
+  vendorId?: string;
+  proformaId?: string;
+  search?: string;
+}
+
+export interface WeaverReceiveInput {
+  receivedOn: string;
+  lines: { lineId: string; qty: number }[];
+}
+
+export interface WeaverPayInput {
+  paidOn: string;
+  amountPaise: Paise;
+  method: PaymentMethod;
+  accountId?: string;
+  reference?: string;
+}
+
+/** A starting point for an order made from a quote: what is short, and who usually supplies it. */
+export interface WeaverOrderDraft {
+  proformaId: string;
+  proformaNumber: string;
+  vendorId: string | null;
+  note: string;
+  lines: WeaverOrderLineInput[];
 }

@@ -13,7 +13,7 @@ import { toNumber } from '../../lib/format';
  * in Inventory straight away. The name is built from the choices (see shared/nomenclature.ts), so every saree is named the same way.
  * `stock` is how many pieces to receive: the invoice takes its pieces out again when it is issued.
  */
-export function QuickAddItemModal({ initialName, quote, onClose, onAdded }: { initialName: string; quote: boolean; onClose: () => void; onAdded: (v: SaleVariant) => void }) {
+export function QuickAddItemModal({ initialName, quote, noStockNote = 'A quote takes no stock, so pieces start at 0.', onClose, onAdded }: { initialName: string; /** The piece is not in hand yet (a quote, or an order to a weaver), so it starts with no stock. */ quote: boolean; noStockNote?: string; onClose: () => void; onAdded: (v: SaleVariant) => void }) {
   const options = useQuery(() => api.catalogueOptions());
   const designs = useQuery(() => api.designsList());
   const lists = options.data ?? DEFAULT_OPTIONS;
@@ -152,7 +152,7 @@ export function QuickAddItemModal({ initialName, quote, onClose, onAdded }: { in
             <Input value={stock} inputMode="numeric" onChange={(e) => setStock(e.target.value.replace(/\D/g, '').slice(0, 6))} className="num" />
           </Field>
         </div>
-        {quote && <p className="-mt-2 text-xs text-ink-muted">A quote takes no stock, so pieces start at 0.</p>}
+        {quote && <p className="-mt-2 text-xs text-ink-muted">{noStockNote}</p>}
         <button type="button" onClick={() => setMore((m) => !m)} className="text-xs text-brand hover:underline" aria-expanded={more}>
           {more ? 'Hide other details' : 'Other details: MRP, HSN, Saree ID'}
         </button>

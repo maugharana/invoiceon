@@ -644,6 +644,67 @@ const V16 = `
 ALTER TABLE designs ADD COLUMN pattern TEXT NOT NULL DEFAULT '';
 `;
 
+const V17 = `
+-- Orders placed with weavers for sarees you do not have yet: what was asked for, what has arrived, and what has been paid.
+CREATE TABLE weaver_orders (
+  id             TEXT PRIMARY KEY,
+  number         TEXT NOT NULL,
+  fy             TEXT NOT NULL,
+  seq            INTEGER NOT NULL,
+  vendor_id      TEXT NOT NULL REFERENCES vendors (id),
+  ordered_on     TEXT NOT NULL,
+  expected_on    TEXT,
+  note           TEXT NOT NULL DEFAULT '',
+  proforma_id    TEXT REFERENCES proformas (id),
+  cancelled_at   TEXT,
+  cancel_reason  TEXT NOT NULL DEFAULT '',
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL
+);
+CREATE UNIQUE INDEX ux_weaver_orders_number ON weaver_orders (number);
+CREATE INDEX ix_weaver_orders_proforma ON weaver_orders (proforma_id);
+
+CREATE TABLE weaver_order_lines (
+  id              TEXT PRIMARY KEY,
+  order_id        TEXT NOT NULL REFERENCES weaver_orders (id),
+  variant_id      TEXT NOT NULL REFERENCES variants (id),
+  position        INTEGER NOT NULL,
+  qty             INTEGER NOT NULL CHECK (qty > 0),
+  received_qty    INTEGER NOT NULL DEFAULT 0 CHECK (received_qty >= 0 AND received_qty <= qty),
+  unit_cost_paise INTEGER NOT NULL DEFAULT 0 CHECK (unit_cost_paise >= 0),
+  design_name     TEXT NOT NULL,
+  color           TEXT NOT NULL,
+  size            TEXT NOT NULL,
+  sku             TEXT NOT NULL
+);
+CREATE INDEX ix_weaver_order_lines_order ON weaver_order_lines (order_id);
+
+-- Each delivery, so a part delivery can be seen as it happened.
+CREATE TABLE weaver_receipts (
+  id          TEXT PRIMARY KEY,
+  order_id    TEXT NOT NULL REFERENCES weaver_orders (id),
+  line_id     TEXT NOT NULL REFERENCES weaver_order_lines (id),
+  qty         INTEGER NOT NULL CHECK (qty > 0),
+  received_on TEXT NOT NULL,
+  created_at  TEXT NOT NULL
+);
+
+-- Money paid to the weaver. Each payment is also an expense, so it counts in profit and in the account it was paid from.
+CREATE TABLE weaver_payments (
+  id           TEXT PRIMARY KEY,
+  order_id     TEXT NOT NULL REFERENCES weaver_orders (id),
+  paid_on      TEXT NOT NULL,
+  amount_paise INTEGER NOT NULL CHECK (amount_paise > 0),
+  method       TEXT NOT NULL,
+  account_id   TEXT NOT NULL DEFAULT '',
+  reference    TEXT NOT NULL DEFAULT '',
+  expense_id   TEXT,
+  voided_at    TEXT,
+  created_at   TEXT NOT NULL
+);
+CREATE INDEX ix_weaver_payments_order ON weaver_payments (order_id);
+`;
+
 const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 1, sql: V1 },
   { version: 2, sql: V2 },
@@ -661,6 +722,7 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 14, sql: V14 },
   { version: 15, sql: V15 },
   { version: 16, sql: V16 },
+  { version: 17, sql: V17 },
 ];
 
 /** Brings a database up to date. `upTo` stops early at a version, which only the tests use, to build an older database to upgrade. */

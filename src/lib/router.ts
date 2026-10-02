@@ -15,6 +15,10 @@ export type Route =
   | { name: 'materials' }
   | { name: 'inventory-add' }
   | { name: 'inventory-names' }
+  | { name: 'weaver-orders' }
+  | { name: 'weaver-order-new'; /** The customer quote the order is for. */ quoteId: string | null }
+  | { name: 'weaver-order-edit'; id: string }
+  | { name: 'weaver-order'; id: string }
   | { name: 'stock-take' }
   | { name: 'design'; id: string }
   | { name: 'invoices'; status: 'all' | 'open' | 'overdue' | 'cancelled' }
@@ -63,6 +67,12 @@ export function parseHash(hash: string): Route {
       if (parts[1] === 'materials') return { name: 'materials' };
       if (parts[1] === 'add') return { name: 'inventory-add' };
       if (parts[1] === 'names') return { name: 'inventory-names' };
+      if (parts[1] === 'weaver-orders') {
+        if (parts[2] === 'new') return { name: 'weaver-order-new', quoteId: params.get('quote') };
+        if (parts[2] && parts[3] === 'edit') return { name: 'weaver-order-edit', id };
+        if (parts[2]) return { name: 'weaver-order', id };
+        return { name: 'weaver-orders' };
+      }
       if (parts[1] === 'stock-take') return { name: 'stock-take' };
       if (parts[1] === 'designs' && id) return { name: 'design', id };
       const status = params.get('status');
@@ -135,6 +145,10 @@ export const sectionOf = (route: Route): Section => {
     case 'materials':
     case 'inventory-add':
     case 'inventory-names':
+    case 'weaver-orders':
+    case 'weaver-order-new':
+    case 'weaver-order-edit':
+    case 'weaver-order':
     case 'stock-take':
     case 'design':
       return 'inventory';
@@ -175,6 +189,10 @@ export const paths = {
   materials: '/inventory/materials',
   addSarees: '/inventory/add',
   tidyNames: '/inventory/names',
+  weaverOrders: '/inventory/weaver-orders',
+  newWeaverOrder: (quoteId?: string) => (quoteId ? `/inventory/weaver-orders/new?quote=${encodeURIComponent(quoteId)}` : '/inventory/weaver-orders/new'),
+  weaverOrder: (id: string) => `/inventory/weaver-orders/${encodeURIComponent(id)}`,
+  editWeaverOrder: (id: string) => `/inventory/weaver-orders/${encodeURIComponent(id)}/edit`,
   stockTake: '/inventory/stock-take',
   design: (id: string) => `/inventory/designs/${encodeURIComponent(id)}`,
   invoices: (status?: 'open' | 'overdue' | 'cancelled') => (status ? `/invoices?status=${status}` : '/invoices'),

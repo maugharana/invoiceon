@@ -31,6 +31,7 @@ import * as receivables from './services/receivables';
 import * as reports from './services/reports';
 import { loadSampleData } from './services/seed';
 import * as settings from './services/settings';
+import * as weaverOrders from './services/weaverOrders';
 
 /** Things only the desktop shell can do. Absent in browser dev mode, where those calls explain themselves. */
 export interface Host {
@@ -176,6 +177,16 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
     customerArchive: async (id) => customers.archiveCustomer(db, id),
 
     variantsForSale: async () => invoices.variantsForSale(db),
+
+    weaverOrdersList: async (query) => weaverOrders.listWeaverOrders(db, query ?? {}),
+    weaverOrderGet: async (id) => weaverOrders.getWeaverOrder(db, id),
+    weaverOrderCreate: async (input) => weaverOrders.createWeaverOrder(db, input),
+    weaverOrderUpdate: async (id, input) => weaverOrders.updateWeaverOrder(db, id, input),
+    weaverOrderReceive: async (id, input) => weaverOrders.receiveWeaverOrder(db, id, input),
+    weaverOrderPay: async (id, input) => weaverOrders.payWeaverOrder(db, id, input),
+    weaverPaymentVoid: async (id) => weaverOrders.voidWeaverPayment(db, id),
+    weaverOrderCancel: async (id, reason) => weaverOrders.cancelWeaverOrder(db, id, reason),
+    weaverOrderDraft: async (proformaId) => weaverOrders.draftFromQuote(db, proformaId),
 
     invoicesList: async (query) => invoices.listInvoices(db, query ?? {}),
     invoiceGet: async (id) => invoices.getInvoice(db, id),

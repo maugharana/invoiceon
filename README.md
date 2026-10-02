@@ -216,7 +216,21 @@ Migrations 8 to 13. Each has an upgrade test (`tests/upgrade.test.ts`) that buil
 - **Raw materials (12).** `stock_qty` is a cached balance with a ledger (`material_movements`), like finished stock; quantities are rounded to a thousandth. A purchase adds stock, makes the price just paid the material's price (history in `material_prices`), and can create the matching expense in the same transaction. A costing line's cost includes its wastage percent. The what-if simulator (`simulateMaterialPrices`) changes nothing. Places: the shop is the default; `stock_locations` holds only what is kept elsewhere, and sales and write-offs draw only on the shop's share.
 - **The shell (13).** Every API call that changes something writes one line to `audit_log` from `createApi` (a description, never the data; a log that can't be written never fails the change). Notifications are derived on every call from the books (`electron/services/notifications.ts`), nothing is stored; "read" is remembered per computer in the browser. Held bills are rows in `held_bills` and touch no stock or money.
 
-Not built, on purpose: photos, barcodes/QR labels, credit notes and returns, per-line discounts, multi-rate GST, e-invoice/e-way bill, users and roles, auto-update, production orders and job work. Sync/teams are planned for InvoiceOn Plus.
+Not built, on purpose: photos, barcodes/QR labels, credit notes and returns, per-line discounts, multi-rate GST, e-invoice/e-way bill, users and roles, auto-update, production orders and job work (orders to a weaver for finished sarees are built, see Weaver orders). Sync/teams are planned for InvoiceOn Plus.
+
+## Weaver orders (made to order sarees)
+
+Code: `electron/services/weaverOrders.ts`, migration 17, `src/pages/inventory/WeaverOrder*Page.tsx`, `src/pages/proformas/WeaverCard.tsx`, `tests/weaver-orders.test.ts`. Inventory has a third tab, **Weaver orders**.
+
+The flow for a saree you don't have: customer quote (with a deposit if they pay one) → **Order from weaver** on the quote → **Mark received** when it arrives → **Convert to invoice**.
+
+- **An order** (`WO/2026-27/0001`, numbered by financial year) has a weaver (a vendor), the ordered and expected days, a note, an optional quote it is for, and lines: a piece, how many, and the agreed price each. A saree not in the inventory is added from the order screen (same dialog as on invoices) with no stock until it arrives. An order can be changed, but never to fewer than has arrived or with an arrived line removed, and the weaver can't change once money has been paid.
+- **From a quote.** `weaverOrderDraft` works out what is short: for each item still to invoice, the pieces needed minus what is in stock minus what is already on order for that quote. Prices start at the piece's cost today, and the weaver is filled in when every short saree has the same usual supplier. Quotes reserve no stock, so two quotes asking for the same piece both see the same stock.
+- **Receiving** puts the pieces into stock through the stock ledger (a `purchase` movement pointing back at the order), part by part, and keeps each delivery. **Cost prices are not changed** (a choice: the agreed price lives on the order, for what you owe, not on the piece).
+- **Money.** An order's total is its lines at the agreed prices; payments can't pass it, and none can be recorded until a price is set. Each payment is also entered as an expense in the category *Weaver payments* in the same step (like a raw material purchase), so it counts in profit and in the payment account it came from. Taking a payment back removes that expense. Nothing is deleted: a payment is marked taken back.
+- **Cancelling** needs nothing received and no payments standing.
+- **Notifications** (derived, nothing stored): an order that is past its expected day with pieces to come, and a quote whose ordered sarees have all arrived and is ready to invoice. The quote page shows its orders, what is still short, and an Order from weaver button.
+- Not built: weaver price lists, quality returns to a weaver, and raw materials issued to a weaver for job work.
 
 ## Backup, restore and Google Drive
 

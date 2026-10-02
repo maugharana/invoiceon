@@ -14,6 +14,7 @@ import { useRecent } from '../../lib/recent';
 import { navigate, paths } from '../../lib/router';
 import { proformaAsInvoice } from '../../lib/proforma';
 import { ConvertQuoteModal, DepositModal, LostModal, RevisionsModal, SaveTemplateModal } from './QuoteModals';
+import { WeaverCard } from './WeaverCard';
 
 export function ProformaPage({ id }: { id: string }) {
   const toast = useToast();
@@ -178,6 +179,8 @@ export function ProformaPage({ id }: { id: string }) {
           </div>
         )}
       </Card>
+
+      <WeaverCard quote={p} live={live} />
 
       <NotesPanel subjectType="proforma" subjectId={p.id} kinds={['followup', 'call', 'visit', 'note']} title="Follow-ups" />
 

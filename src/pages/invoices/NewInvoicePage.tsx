@@ -141,7 +141,7 @@ function CustomerPicker({ customers, type, value, onChange, onCreate }: { custom
 }
 
 // ── Item picker ─────────────────────────────────────────────────────────────
-function ItemPicker({ variants, taken, onPick, onCreate, allowOutOfStock = false }: { variants: SaleVariant[]; taken: Set<string>; onPick: (v: SaleVariant) => void; onCreate: (name: string) => void; allowOutOfStock?: boolean }) {
+export function ItemPicker({ variants, taken, onPick, onCreate, allowOutOfStock = false }: { variants: SaleVariant[]; taken: Set<string>; onPick: (v: SaleVariant) => void; onCreate: (name: string) => void; allowOutOfStock?: boolean }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);

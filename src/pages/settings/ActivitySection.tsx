@@ -16,6 +16,7 @@ const KINDS: [string, string][] = [
   ['expense', 'Expenses'],
   ['purchase', 'Purchases'],
   ['material', 'Raw materials'],
+  ['weaver_order', 'Weaver orders'],
   ['settings', 'Settings'],
   ['data', 'Data and backups'],
 ];
@@ -32,6 +33,8 @@ function destination(e: AuditEntry): string | null {
       return paths.customer(e.entityId);
     case 'design':
       return paths.design(e.entityId);
+    case 'weaver_order':
+      return paths.weaverOrder(e.entityId);
     default:
       return null;
   }

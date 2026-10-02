@@ -8,6 +8,8 @@ import { listDesigns } from './inventory';
 import { dueInstalments } from './instalments';
 import { listInvoices } from './invoices';
 import { listPayments } from './payments';
+import { listProformas } from './proformas';
+import { listWeaverOrders } from './weaverOrders';
 
 const money = (paise: number) => formatMoney(paise, { fractionDigits: 0 });
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -77,6 +79,21 @@ export function notifications(db: Db, today: string = todayIso()): Notification[
       detail: `${money(b.spentPaise)} of ${money(b.budgetPaise)} spent this month`,
       link: { to: 'path', path: `/expenses?category=${encodeURIComponent(b.category)}` },
     });
+  }
+
+  // Sarees ordered from weavers: ones that are late, and customers whose sarees have all arrived and can now be invoiced.
+  const weaverOrders = listWeaverOrders(db, {}, today);
+  const lateOrders = weaverOrders.filter((o) => o.late);
+  if (lateOrders.length > 0) {
+    out.push({ kind: 'weaver-late', id: 'weaver-late', severity: 'soon', title: `${plural(lateOrders.length, 'weaver order')} late`, detail: lateOrders.slice(0, 3).map((o) => `${o.vendorName} (${o.number}, expected ${formatDate(o.expectedOn!)})`).join(', ') + (lateOrders.length > 3 ? ` and ${lateOrders.length - 3} more` : ''), link: { to: 'path', path: '/inventory/weaver-orders' } });
+  }
+  const forQuote = new Map<string, typeof weaverOrders>();
+  for (const o of weaverOrders) if (o.proformaId && o.status !== 'cancelled') forQuote.set(o.proformaId, [...(forQuote.get(o.proformaId) ?? []), o]);
+  for (const q of listProformas(db)) {
+    const orders = forQuote.get(q.id);
+    if (!orders || !(q.status === 'open' || q.status === 'expired' || q.status === 'partial')) continue;
+    if (orders.some((o) => o.status !== 'received')) continue;
+    out.push({ kind: 'weaver-arrived', id: `weaver-arrived:${q.id}`, severity: 'soon', title: `The sarees for ${q.number} have arrived`, detail: `${q.buyerName}: ready to invoice`, link: { to: 'path', path: `/proformas/${encodeURIComponent(q.id)}` } });
   }
 
   // Stock and prices.
