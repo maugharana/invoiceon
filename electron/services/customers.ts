@@ -28,6 +28,7 @@ interface CustomerRow {
   contacts_json: string;
   invoice_count: number;
   billed: number;
+  loyalty_points: number;
   paid_on_invoices: number;
   received: number;
   credited: number;
@@ -41,6 +42,7 @@ interface CustomerRow {
 //   advance     = everything they've paid − the part of it that's sitting on invoices, plus credit kept from credit notes
 const SELECT = `
   SELECT c.*,
+    (SELECT COALESCE(SUM(points), 0) FROM loyalty_points lp WHERE lp.customer_id = c.id) AS loyalty_points,
     (SELECT COUNT(*) FROM invoices i WHERE i.customer_id = c.id AND i.status = 'issued') AS invoice_count,
     (SELECT COALESCE(SUM(i.total_paise), 0) FROM invoices i WHERE i.customer_id = c.id AND i.status = 'issued') AS billed,
     (SELECT COALESCE(SUM(a.amount_paise), 0) FROM payment_allocations a JOIN payments p ON p.id = a.payment_id JOIN invoices i ON i.id = a.invoice_id
@@ -80,6 +82,7 @@ const toCustomer = (r: CustomerRow): Customer => ({
   addresses: parseList<CustomerAddress>(r.addresses_json),
   contacts: parseList<CustomerContact>(r.contacts_json),
   invoiceCount: r.invoice_count,
+  loyaltyPoints: r.loyalty_points,
   billedPaise: r.billed,
   creditedPaise: r.credited,
   outstandingPaise: r.billed - r.paid_on_invoices - r.credit_applied,

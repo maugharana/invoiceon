@@ -22,6 +22,7 @@ export const GO_SHORTCUTS: GoShortcut[] = [
 export const OTHER_SHORTCUTS: { keys: string; label: string }[] = [
   { keys: 'Ctrl K', label: 'Search anything, or create something' },
   { keys: 'Ctrl N', label: 'New invoice' },
+  { keys: 'Ctrl Shift N', label: 'Open a second window (desktop app)' },
   { keys: '?', label: 'Show this list' },
   { keys: 'Esc', label: 'Close a window or the search' },
 ];

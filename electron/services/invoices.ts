@@ -2,12 +2,14 @@ import { computeInvoice, financialYear, formatInvoiceNumber, invoiceStatus, isIs
 import { matchesAll } from '../../shared/search';
 import { formatMoney } from '../../shared/money';
 import { sameState } from '../../shared/states';
-import { DELIVERY_STATUS_LABEL, type DashboardSummary, type DeliveryStatus, type DeliveryUpdate, type Invoice, type InvoiceBranding, type InvoiceInput, type InvoiceLine, type InvoiceQuery, type InvoiceSummary, type InvoiceType, type Party, type SaleVariant, type Settings, type ShipTo } from '../../shared/types';
+import { DELIVERY_STATUS_LABEL, type DashboardSummary, type DeliveryStatus, type DeliveryUpdate, type Invoice, type InvoiceBranding, type InvoiceCredit, type InvoiceInput, type InvoiceLine, type InvoiceQuery, type InvoiceSummary, type InvoiceType, type Party, type SaleVariant, type Settings, type ShipTo } from '../../shared/types';
 import { all, get, run, tx, type Db } from '../db/connection';
 import { UserError, isUniqueViolation, newId, nowIso, optionalText, requireInt } from './common';
 import { getCustomer } from './customers';
 import { getVariant, recordMovement } from './inventory';
 import { advanceHeld, applyAdvance, loadPaid, paidFor, paymentsOnInvoice, recordPaymentTx, releaseInvoicePayments } from './payments';
+import { fulfilWishes, onInvoiceCancelled, onInvoiceIssued } from './loyalty';
+import { heldByQuotes } from './reservations';
 import { getSettings } from './settings';
 
 const MAX_PAISE = 100_000_000_00;
@@ -147,6 +149,9 @@ function toInvoice(db: Db, r: InvoiceRow): Invoice {
       taxPaise: l.tax_paise,
     }),
   );
+  const credits = all<{ id: string; number: string; issue_date: string; total_paise: number }>(db, 'SELECT id, number, issue_date, total_paise FROM credit_notes WHERE invoice_id = ? ORDER BY issue_date, seq', r.id).map(
+    (c): InvoiceCredit => ({ id: c.id, number: c.number, issueDate: c.issue_date, totalPaise: c.total_paise }),
+  );
   return {
     ...toSummary(r, paidFor(db, r.id)),
     payments: paymentsOnInvoice(db, r.id),
@@ -170,6 +175,8 @@ function toInvoice(db: Db, r: InvoiceRow): Invoice {
     igstPaise: r.igst_paise,
     roundOffPaise: r.round_off_paise,
     taxByRate: taxByRate(r, lineRows),
+    credits,
+    creditedPaise: credits.reduce((s, c) => s + c.totalPaise, 0),
     notes: r.notes,
     lines,
     shipTo: r.ship_to_json ? (JSON.parse(r.ship_to_json) as ShipTo) : null,
@@ -229,6 +236,7 @@ export function listInvoices(db: Db, query: InvoiceQuery = {}): InvoiceSummary[]
 }
 
 export function variantsForSale(db: Db): SaleVariant[] {
+  const held = heldByQuotes(db);
   return all<{
     id: string;
     design_id: string;
@@ -240,11 +248,12 @@ export function variantsForSale(db: Db): SaleVariant[] {
     color: string;
     size: string;
     sku: string;
+    barcode: string;
     stock: number;
     sell_price_paise: number;
   }>(
     db,
-    `SELECT v.id, v.design_id, d.code, d.name AS design_name, d.nickname AS design_nickname, d.hsn_code, d.gst_rate_percent, v.color, v.size, v.sku, v.stock, v.sell_price_paise
+    `SELECT v.id, v.design_id, d.code, d.name AS design_name, d.nickname AS design_nickname, d.hsn_code, d.gst_rate_percent, v.color, v.size, v.sku, v.barcode, v.stock, v.sell_price_paise
      FROM variants v JOIN designs d ON d.id = v.design_id
      WHERE v.deleted_at IS NULL AND d.deleted_at IS NULL
      ORDER BY d.name COLLATE NOCASE, v.color COLLATE NOCASE, v.size COLLATE NOCASE`,
@@ -259,9 +268,18 @@ export function variantsForSale(db: Db): SaleVariant[] {
     color: r.color,
     size: r.size,
     sku: r.sku,
+    barcode: r.barcode,
+    held: held.get(r.id)?.qty ?? 0,
     stock: r.stock,
     sellPricePaise: r.sell_price_paise,
   }));
+}
+
+/** The piece a scanned or typed code belongs to: its barcode or its SKU, ignoring case. Null when nothing matches. */
+export function variantByCode(db: Db, code: string): SaleVariant | null {
+  const c = String(code ?? '').trim().toLowerCase();
+  if (!c) return null;
+  return variantsForSale(db).find((v) => v.barcode.toLowerCase() === c || v.sku.toLowerCase() === c) ?? null;
 }
 
 function nextSequence(db: Db, fy: string, series: string): number {
@@ -381,7 +399,11 @@ export function priceLines(db: Db, settings: Settings, lines: DocumentInput['lin
   return { items, totals };
 }
 
-export function createInvoice(db: Db, input: InvoiceInput): Invoice {
+/**
+ * Issues an invoice. `exceptQuoteId` is the quote this invoice is being made from: pieces held by that quote are its own to take,
+ * while pieces held by any other live quote are not for sale.
+ */
+export function createInvoice(db: Db, input: InvoiceInput, opts: { exceptQuoteId?: string } = {}): Invoice {
   const settings = getSettings(db);
 
   if (input.dueDate !== null && !isIsoDate(input.dueDate)) throw new UserError('Enter a valid due date.');
@@ -422,7 +444,13 @@ export function createInvoice(db: Db, input: InvoiceInput): Invoice {
       throw err;
     }
 
+    const held = heldByQuotes(db, opts.exceptQuoteId ?? '');
     for (const i of items) {
+      const h = held.get(i.variant.id);
+      if (h && i.variant.stock - i.l.qty < h.qty) {
+        const free = Math.max(0, i.variant.stock - h.qty);
+        throw new UserError(`Only ${free} of ${i.variant.sku} can be sold: ${h.qty} ${h.qty === 1 ? 'is' : 'are'} being held for ${h.quotes.length === 1 ? 'quote' : 'quotes'} ${h.quotes.join(', ')}.`);
+      }
       run(
         db,
         'INSERT INTO invoice_lines (id, invoice_id, variant_id, position, design_name, color, size, sku, hsn, qty, unit_price_paise, amount_paise, unit_cost_paise, gst_rate_percent, line_discount_paise, note, taxable_paise, tax_paise) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -431,6 +459,9 @@ export function createInvoice(db: Db, input: InvoiceInput): Invoice {
       // Throws "Not enough stock" if short, which rolls back the whole invoice.
       recordMovement(db, i.variant.id, -i.l.qty, 'sale', `Invoice ${number}`, { type: 'invoice', id });
     }
+
+    onInvoiceIssued(db, { customerId: customer?.id ?? null, invoiceId: id, number, totalPaise: totals.totalPaise, discountPaise: totals.discountPaise, redeemPoints: input.redeemPoints ? requireInt(input.redeemPoints, 'Loyalty points', { max: 1_000_000 }) : 0 });
+    fulfilWishes(db, customer?.id ?? null, items.map((i) => i.variant.designId));
 
     // Money handed over as the invoice is made is recorded in this same step, so an invoice and its advance can never get out of sync.
     let due = totals.totalPaise;
@@ -475,8 +506,10 @@ export function cancelInvoice(db: Db, id: string, reason: string): Invoice {
   const live = invoice.creditNotes.filter((c) => c.status === 'issued');
   if (live.length > 0) throw new UserError(`${invoice.number} has ${live.length === 1 ? 'a credit note' : 'credit notes'} (${live.map((c) => c.number).join(', ')}). Cancel ${live.length === 1 ? 'it' : 'them'} first.`);
   const why = optionalText(reason, 'Reason', 200);
+  if (invoice.credits.length > 0) throw new UserError(`${invoice.number} has credit notes against it (${invoice.credits.map((c) => c.number).join(', ')}), so it can no longer be cancelled.`);
 
   tx(db, () => {
+    onInvoiceCancelled(db, id, invoice.number);
     releaseInvoicePayments(db, id, `Invoice ${invoice.number} cancelled`);
     for (const line of invoice.lines) {
       // If the variant has since been archived there is no shelf to put the pieces back on.

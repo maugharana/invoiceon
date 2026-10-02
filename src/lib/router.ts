@@ -13,6 +13,7 @@ export type Route =
   | { name: 'dashboard' }
   | { name: 'inventory'; status: 'all' | 'low' | 'out' }
   | { name: 'materials' }
+  | { name: 'production' }
   | { name: 'inventory-add' }
   | { name: 'inventory-names' }
   | { name: 'weaver-orders' }
@@ -30,6 +31,9 @@ export type Route =
   | { name: 'accounts' }
   | { name: 'reconcile' }
   | { name: 'invoice'; id: string }
+  | { name: 'quick-bill' }
+  | { name: 'credit-notes' }
+  | { name: 'credit-note'; id: string }
   | { name: 'proformas'; status: 'all' | ProformaStatus }
   | { name: 'proforma-new'; customerId: string | null; /** An earlier quote to start from (Duplicate). */ copyFrom: string | null }
   | { name: 'proforma-edit'; id: string }
@@ -47,6 +51,9 @@ export type Route =
   | { name: 'print-proforma'; id: string }
   | { name: 'print-statement'; id: string }
   | { name: 'print-receipt'; id: string }
+  | { name: 'print-credit-note'; id: string }
+  | { name: 'print-slip'; id: string }
+  | { name: 'print-labels'; items: { variantId: string; copies: number }[] }
   | { name: 'print-invoices'; ids: string[] }
   | { name: 'reports'; tab: ReportTab; period: PeriodSpec; /** Stock valuation date; null means today. */ asOf: string | null };
 
@@ -69,6 +76,7 @@ export function parseHash(hash: string): Route {
   switch (parts[0]) {
     case 'inventory': {
       if (parts[1] === 'materials') return { name: 'materials' };
+      if (parts[1] === 'production') return { name: 'production' };
       if (parts[1] === 'add') return { name: 'inventory-add' };
       if (parts[1] === 'names') return { name: 'inventory-names' };
       if (parts[1] === 'weaver-orders') {
@@ -89,6 +97,8 @@ export function parseHash(hash: string): Route {
         const advance: AdvancePreset | null = Number.isInteger(amount) && amount > 0 ? { amountPaise: amount, method: (PAYMENT_METHODS as readonly string[]).includes(method) ? method : 'cash', reference: params.get('ref') ?? '' } : null;
         return { name: 'invoice-new', customerId: params.get('customer'), advance, copyFrom: params.get('copy') };
       }
+      if (parts[1] === 'quick') return { name: 'quick-bill' };
+      if (parts[1] === 'credit-notes') return parts[2] ? { name: 'credit-note', id } : { name: 'credit-notes' };
       if (parts[1]) return { name: 'invoice', id: decodeURIComponent(parts[1]) };
       const status = params.get('status');
       return { name: 'invoices', status: status === 'open' || status === 'overdue' || status === 'cancelled' ? status : 'all' };
@@ -123,6 +133,17 @@ export function parseHash(hash: string): Route {
       if (parts[1] === 'proforma' && id) return { name: 'print-proforma', id };
       if (parts[1] === 'statement' && id) return { name: 'print-statement', id };
       if (parts[1] === 'receipt' && id) return { name: 'print-receipt', id };
+      if (parts[1] === 'credit-note' && id) return { name: 'print-credit-note', id };
+      if (parts[1] === 'slip' && id) return { name: 'print-slip', id };
+      if (parts[1] === 'labels') {
+        const items = (params.get('items') ?? '')
+          .split(',')
+          .map((s) => s.split(':'))
+          .map(([v, c]) => ({ variantId: decodeURIComponent(v ?? ''), copies: Math.min(200, Math.max(0, Math.floor(Number(c)) || 0)) }))
+          .filter((i) => i.variantId && i.copies > 0)
+          .slice(0, 300);
+        return { name: 'print-labels', items };
+      }
       if (parts[1] === 'invoices') return { name: 'print-invoices', ids: (params.get('ids') ?? '').split(',').map(decodeURIComponent).filter(Boolean) };
       return { name: 'dashboard' };
     case 'notifications':
@@ -159,6 +180,7 @@ export const sectionOf = (route: Route): Section => {
       return 'dashboard';
     case 'inventory':
     case 'materials':
+    case 'production':
     case 'inventory-add':
     case 'inventory-names':
     case 'weaver-orders':
@@ -208,6 +230,7 @@ export const paths = {
   dashboard: '/dashboard',
   inventory: (status?: 'low' | 'out') => (status ? `/inventory?status=${status}` : '/inventory'),
   materials: '/inventory/materials',
+  production: '/inventory/production',
   addSarees: '/inventory/add',
   tidyNames: '/inventory/names',
   printLabels: (items: { variantId: string; copies: number }[], layout: LabelLayout) => `/print/labels?items=${items.map((i) => `${encodeURIComponent(i.variantId)}:${i.copies}`).join(',')}&layout=${layout}`,
@@ -256,6 +279,12 @@ export const paths = {
     return `/reports/${tab}${q.size ? `?${q}` : ''}`;
   },
   invoice: (id: string) => `/invoices/${encodeURIComponent(id)}`,
+  quickBill: '/invoices/quick',
+  printLabels: (pairs: string[]) => `/print/labels?items=${pairs.map(encodeURIComponent).join(',')}`,
+  creditNotes: '/invoices/credit-notes',
+  creditNote: (id: string) => `/invoices/credit-notes/${encodeURIComponent(id)}`,
+  printSlip: (id: string) => `/print/slip/${encodeURIComponent(id)}`,
+  printCreditNote: (id: string) => `/print/credit-note/${encodeURIComponent(id)}`,
   printStatement: (customerId: string) => `/print/statement/${encodeURIComponent(customerId)}`,
   printReceipt: (paymentId: string) => `/print/receipt/${encodeURIComponent(paymentId)}`,
   printInvoices: (ids: string[]) => `/print/invoices?ids=${ids.map(encodeURIComponent).join(',')}`,

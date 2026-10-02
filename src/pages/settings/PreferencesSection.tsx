@@ -1,5 +1,5 @@
 import { DATE_FORMATS, DATE_FORMAT_LABEL, LANGUAGES, LANGUAGE_LABEL, PAPER_LABEL, PAPER_SIZES } from '../../../shared/prefs';
-import { Field, Input, Select } from '../../components/ui';
+import { Field, Input, MoneyInput, Select } from '../../components/ui';
 import type { SectionProps } from './draft';
 
 export function PreferencesSection({ draft, set }: SectionProps) {
@@ -36,6 +36,18 @@ export function PreferencesSection({ draft, set }: SectionProps) {
             ))}
           </Select>
         </Field>
+      </div>
+      <div className="max-w-2xl rounded-lg border border-line p-4">
+        <h3 className="text-base">Loyalty points</h3>
+        <p className="mb-3 text-xs text-ink-muted">A saved customer earns points on what they are billed, and can spend them as a discount on a later bill. Leave the first box empty (zero) to keep loyalty switched off.</p>
+        <div className="grid grid-cols-2 gap-6">
+          <Field label="One point for every" hint="Rupees billed. For example ₹100 gives 1 point on a ₹1,000 bill: 10 points.">
+            <MoneyInput value={draft.loyaltySpendPaise} onChange={(p) => set('loyaltySpendPaise', p)} />
+          </Field>
+          <Field label="One point is worth" hint="Taken off the bill when points are spent.">
+            <MoneyInput value={draft.loyaltyPointValuePaise} onChange={(p) => set('loyaltyPointValuePaise', p)} />
+          </Field>
+        </div>
       </div>
       <dl className="divide-y divide-line/70 rounded-lg border border-line">
         {[

@@ -84,6 +84,7 @@ export function InvoicePage({ id }: { id: string }) {
   };
   const exportPdf = () => (window.invoiceon ? run('pdf', async () => ((await api.invoiceExportPdf(id)).saved ? toast.success('PDF saved') : undefined)) : openPrintView());
   const print = () => (window.invoiceon ? run('print', () => api.invoicePrint(id)) : openPrintView());
+  const printSlip = () => (window.invoiceon ? run('print', () => api.invoiceSlipPrint(id)) : void window.open(`${location.origin}${location.pathname}#${paths.printSlip(id)}`, '_blank'));
   // Sharing: a ready-written message. WhatsApp and email can't take the PDF from us, so the person attaches the one they save.
   const message = invoiceMessage(inv, { name: inv.seller.name, upiId: inv.seller.upiId }, settings.data?.msgInvoice ?? '');
   const phone = whatsappPhone(inv.buyer.phone ?? '');
@@ -127,6 +128,9 @@ ${message.body}`)) ? toast.success('Message copied — paste it anywhere') : toa
             </Button>
             <Button icon={<Printer className="h-4 w-4" />} loading={busy === 'print'} disabled={busy !== null} onClick={() => void print()}>
               Print
+            </Button>
+            <Button icon={<Receipt className="h-4 w-4" />} disabled={busy !== null} onClick={() => void printSlip()} title="A short receipt for an 80 mm thermal printer">
+              Receipt
             </Button>
             {!cancelled && (
               <Menu
@@ -245,6 +249,29 @@ ${message.body}`)) ? toast.success('Message copied — paste it anywhere') : toa
               )}
             </div>
           </div>
+        </Card>
+      )}
+
+      {inv.credits.length > 0 && (
+        <Card className="mb-6 p-6">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="text-base">Credit notes</h2>
+            <span className="text-ink-muted">
+              <Money paise={inv.creditedPaise} /> taken back in all
+            </span>
+          </div>
+          <ul className="divide-y divide-line/70">
+            {inv.credits.map((c) => (
+              <li key={c.id} className="flex items-center justify-between py-1.5">
+                <span>
+                  <a href={`#${paths.creditNote(c.id)}`} className="num transition-colors hover:text-brand">{c.number}</a>
+                  <span className="num ml-3 text-ink-muted">{formatDate(c.issueDate)}</span>
+                </span>
+                <Money paise={c.totalPaise} />
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-ink-muted">The invoice stays as it was issued; its balance already allows for the credit notes. It can no longer be cancelled.</p>
         </Card>
       )}
 

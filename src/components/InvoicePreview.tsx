@@ -41,6 +41,8 @@ export function sampleInvoice(s: Settings): Invoice {
     intraState: true,
     subtotalPaise: t.subtotalPaise,
     lineDiscountPaise: 0,
+    credits: [],
+    creditedPaise: 0,
     taxByRate: t.byRate,
     discountPaise: 0,
     taxablePaise: t.taxablePaise,

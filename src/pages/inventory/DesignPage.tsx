@@ -2,7 +2,8 @@ import { Archive, ArrowLeft, ArrowRightLeft, Copy, Globe, History, Tag, LineChar
 import { useState } from 'react';
 import { formatMoney } from '../../../shared/money';
 import type { Variant } from '../../../shared/types';
-import { ConfirmDialog } from '../../components/Modal';
+import { ConfirmDialog, Modal } from '../../components/Modal';
+import { PhotoStrip } from '../../components/PhotoStrip';
 import { TagChips } from '../../components/TagInput';
 import { useToast } from '../../components/Toast';
 import { Button, Card, EmptyState, ErrorNote, Figure, IconButton, Money, PageHeader, Spinner, StockPill } from '../../components/ui';
@@ -12,6 +13,7 @@ import { useRecent } from '../../lib/recent';
 import { plural } from '../../lib/format';
 import { navigate, paths } from '../../lib/router';
 import { DesignFormModal } from './DesignFormModal';
+import { LabelsModal } from './Labels';
 import { AdjustStockModal, PriceHistoryModal, StockHistoryModal } from './StockModals';
 import { TransferStockModal } from './Places';
 import { VariantFormModal } from './VariantFormModal';
@@ -29,6 +31,8 @@ type Dialog =
   | { kind: 'history'; variant: Variant }
   | { kind: 'prices'; variant: Variant }
   | { kind: 'move'; variant: Variant }
+  | { kind: 'photos'; variant: Variant }
+  | { kind: 'labels' }
   | { kind: 'archive-variant'; variant: Variant };
 
 function Margin({ variant }: { variant: Variant }) {
@@ -139,9 +143,16 @@ export function DesignPage({ id }: { id: string }) {
 
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-base">Variants</h2>
-        <Button icon={<Plus className="h-4 w-4" />} onClick={() => setDialog({ kind: 'variant' })}>
-          Add variant
-        </Button>
+        <div className="flex gap-2">
+          {d.variants.length > 0 && (
+            <Button icon={<Tag className="h-4 w-4" />} onClick={() => setDialog({ kind: 'labels' })} title="Print price labels with barcodes">
+              Print labels
+            </Button>
+          )}
+          <Button icon={<Plus className="h-4 w-4" />} onClick={() => setDialog({ kind: 'variant' })}>
+            Add variant
+          </Button>
+        </div>
       </div>
 
       <Card className="overflow-x-auto">
@@ -166,7 +177,7 @@ export function DesignPage({ id }: { id: string }) {
                 <th className="th text-right">Cost</th>
                 <th className="th text-right">Price</th>
                 <th className="th">Status</th>
-                <th className="w-[9.5rem]" />
+                <th className="w-[11.5rem]" />
               </tr>
             </thead>
             <tbody>
@@ -201,6 +212,9 @@ export function DesignPage({ id }: { id: string }) {
                     <div className="flex justify-end gap-0.5">
                       <IconButton label={`Adjust stock, ${v.color} ${v.size}`} onClick={() => setDialog({ kind: 'adjust', variant: v })}>
                         <PackagePlus className="h-4 w-4" />
+                      </IconButton>
+                      <IconButton label={`Pictures, ${v.color} ${v.size}`} onClick={() => setDialog({ kind: 'photos', variant: v })}>
+                        <Camera className="h-4 w-4" />
                       </IconButton>
                       <IconButton label={`Stock history, ${v.color} ${v.size}`} onClick={() => setDialog({ kind: 'history', variant: v })}>
                         <History className="h-4 w-4" />
@@ -241,6 +255,13 @@ export function DesignPage({ id }: { id: string }) {
       {dialog?.kind === 'website' && <WebsiteTextModal design={d} onClose={close} />}
       {dialog?.kind === 'labels' && <LabelsModal variantIds={d.variants.map((v) => v.id)} stock={Object.fromEntries(d.variants.map((v) => [v.id, v.stock]))} onClose={close} />}
       {dialog?.kind === 'variant' && <VariantFormModal design={d} variant={dialog.variant} onClose={close} />}
+      {dialog?.kind === 'photos' && (
+        <Modal title={`Pictures — ${dialog.variant.color}, ${dialog.variant.size}`} onClose={close}>
+          <PhotoStrip ownerType="variant" ownerId={dialog.variant.id} noun="picture" max={6} />
+          <p className="mt-3 text-xs text-ink-muted">Pictures of this exact colour. The design's own pictures are shown on top of the page.</p>
+        </Modal>
+      )}
+      {dialog?.kind === 'labels' && <LabelsModal title={`Print labels — ${d.name}`} variants={d.variants} onClose={close} />}
       {dialog?.kind === 'adjust' && <AdjustStockModal variant={dialog.variant} onClose={close} />}
       {dialog?.kind === 'history' && <StockHistoryModal variant={dialog.variant} onClose={close} />}
       {dialog?.kind === 'prices' && <PriceHistoryModal variant={dialog.variant} onClose={close} />}
