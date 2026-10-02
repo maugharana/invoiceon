@@ -480,6 +480,97 @@ CREATE TABLE recurring_expenses (
 );
 `;
 
+// Stage 14: raw materials as stock you can run short of (quantities, a ledger, categories, a usual supplier, price history),
+// buying them (purchases), wastage in the costing, designs with a usual supplier, and more than one place to keep sarees.
+const V12 = `
+ALTER TABLE raw_materials ADD COLUMN category TEXT NOT NULL DEFAULT '';
+ALTER TABLE raw_materials ADD COLUMN stock_qty REAL NOT NULL DEFAULT 0 CHECK (stock_qty >= 0);
+ALTER TABLE raw_materials ADD COLUMN reorder_qty REAL NOT NULL DEFAULT 0 CHECK (reorder_qty >= 0);
+ALTER TABLE raw_materials ADD COLUMN supplier_id TEXT REFERENCES vendors (id);
+-- Extra material that is lost in making a piece (cut ends, spoilage), as a share of the quantity in the costing.
+ALTER TABLE variant_materials ADD COLUMN wastage_percent REAL NOT NULL DEFAULT 0 CHECK (wastage_percent >= 0 AND wastage_percent <= 100);
+ALTER TABLE designs ADD COLUMN supplier_id TEXT REFERENCES vendors (id);
+
+-- What a material has cost over time. Every material starts its history with the price it has now.
+CREATE TABLE material_prices (
+  id              TEXT PRIMARY KEY,
+  material_id     TEXT NOT NULL REFERENCES raw_materials (id),
+  unit_cost_paise INTEGER NOT NULL CHECK (unit_cost_paise >= 0),
+  source          TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('opening','manual','purchase')),
+  changed_at      TEXT NOT NULL
+);
+CREATE INDEX ix_material_prices_material ON material_prices (material_id, changed_at);
+INSERT INTO material_prices (id, material_id, unit_cost_paise, source, changed_at)
+  SELECT lower(hex(randomblob(16))), id, unit_cost_paise, 'opening', created_at FROM raw_materials;
+
+-- A ledger for raw-material stock, like the one for sarees: stock_qty is the balance, this says why it moved.
+CREATE TABLE material_movements (
+  id            TEXT PRIMARY KEY,
+  material_id   TEXT NOT NULL REFERENCES raw_materials (id),
+  delta         REAL NOT NULL CHECK (delta <> 0),
+  balance_after REAL NOT NULL,
+  reason        TEXT NOT NULL CHECK (reason IN ('opening','purchase','used','wastage','adjustment')),
+  note          TEXT NOT NULL DEFAULT '',
+  ref_type      TEXT,
+  ref_id        TEXT,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX ix_material_movements_material ON material_movements (material_id, created_at);
+
+-- Buying raw material: what came in from whom, at what price. It can also be entered as an expense (expense_id).
+CREATE TABLE purchases (
+  id            TEXT PRIMARY KEY,
+  supplier_id   TEXT REFERENCES vendors (id),
+  purchase_date TEXT NOT NULL,
+  bill_no       TEXT NOT NULL DEFAULT '',
+  note          TEXT NOT NULL DEFAULT '',
+  total_paise   INTEGER NOT NULL CHECK (total_paise >= 0),
+  gst_paise     INTEGER NOT NULL DEFAULT 0 CHECK (gst_paise >= 0),
+  expense_id    TEXT REFERENCES expenses (id),
+  created_at    TEXT NOT NULL,
+  deleted_at    TEXT
+);
+CREATE INDEX ix_purchases_date ON purchases (purchase_date);
+CREATE TABLE purchase_lines (
+  id              TEXT PRIMARY KEY,
+  purchase_id     TEXT NOT NULL REFERENCES purchases (id),
+  material_id     TEXT NOT NULL REFERENCES raw_materials (id),
+  position        INTEGER NOT NULL,
+  qty             REAL NOT NULL CHECK (qty > 0),
+  unit_cost_paise INTEGER NOT NULL CHECK (unit_cost_paise >= 0),
+  amount_paise    INTEGER NOT NULL CHECK (amount_paise >= 0)
+);
+CREATE INDEX ix_purchase_lines_purchase ON purchase_lines (purchase_id);
+
+-- Where finished sarees are kept. "Shop" is where they are sold from; other places (a godown) hold stock until it is moved.
+-- variants.stock stays the total; stock_locations holds only what is kept somewhere other than the shop.
+CREATE TABLE locations (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0,1)),
+  created_at TEXT NOT NULL,
+  deleted_at TEXT
+);
+CREATE UNIQUE INDEX ux_locations_name ON locations (name COLLATE NOCASE) WHERE deleted_at IS NULL;
+INSERT INTO locations (id, name, is_default, created_at) VALUES ('shop', 'Shop', 1, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
+CREATE TABLE stock_locations (
+  variant_id  TEXT NOT NULL REFERENCES variants (id),
+  location_id TEXT NOT NULL REFERENCES locations (id),
+  qty         INTEGER NOT NULL CHECK (qty >= 0),
+  PRIMARY KEY (variant_id, location_id)
+);
+CREATE TABLE stock_transfers (
+  id               TEXT PRIMARY KEY,
+  variant_id       TEXT NOT NULL REFERENCES variants (id),
+  from_location_id TEXT NOT NULL REFERENCES locations (id),
+  to_location_id   TEXT NOT NULL REFERENCES locations (id),
+  qty              INTEGER NOT NULL CHECK (qty > 0),
+  note             TEXT NOT NULL DEFAULT '',
+  created_at       TEXT NOT NULL
+);
+CREATE INDEX ix_stock_transfers_variant ON stock_transfers (variant_id, created_at);
+`;
+
 // Append new migrations to the end; never edit one that has shipped.
 const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 1, sql: V1 },
@@ -493,6 +584,7 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 9, sql: V9 },
   { version: 10, sql: V10 },
   { version: 11, sql: V11 },
+  { version: 12, sql: V12 },
 ];
 
 /** Brings a database up to date. `upTo` stops early at a version, which only the tests use, to build an older database to upgrade. */

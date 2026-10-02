@@ -3,6 +3,7 @@ import type { DesignDetail, DesignSummary } from '../../../shared/types';
 import { Modal } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { TagInput } from '../../components/TagInput';
+import { SupplierSelect } from './MaterialModals';
 import { Button, ErrorNote, Field, Input, MoneyInput, Textarea } from '../../components/ui';
 import { api, errorMessage } from '../../lib/api';
 import { useQuery, useRefresh } from '../../lib/data';
@@ -30,6 +31,7 @@ export function DesignFormModal({ design, suggestedCode = '', onClose, onSaved }
   const [price, setPrice] = useState(design?.defaultPricePaise ?? 0);
   const [description, setDescription] = useState(design?.description ?? '');
   const [tags, setTags] = useState(design?.tags ?? '');
+  const [supplierId, setSupplierId] = useState(design?.supplierId ?? '');
   const everything = useQuery(() => api.designsList());
   const suggestions = tagCounts((everything.data ?? []).map((d) => d.tags)).map((t) => t.tag);
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +41,7 @@ export function DesignFormModal({ design, suggestedCode = '', onClose, onSaved }
     e.preventDefault();
     setSaving(true);
     setError(null);
-    const input = { code, name, nickname: nickname.trim(), fabric, hsnCode: hsn, description, defaultPricePaise: price, tags };
+    const input = { code, name, nickname: nickname.trim(), fabric, hsnCode: hsn, description, defaultPricePaise: price, tags, supplierId: supplierId || null };
     try {
       const saved = design ? await api.designUpdate(design.id, input) : await api.designCreate(input);
       refresh();
@@ -92,6 +94,7 @@ export function DesignFormModal({ design, suggestedCode = '', onClose, onSaved }
         <Field label="Default selling price" hint="Before GST. Prefilled for each new variant; every variant can override it.">
           <MoneyInput value={price} onChange={setPrice} />
         </Field>
+        <SupplierSelect value={supplierId} onChange={setSupplierId} label="Usually made or bought from" hint="Used to split your reorder list by who to order from" />
         <Field label="Tags" hint="Collection, occasion or season: bridal, festive, summer…">
           <TagInput value={tags} onChange={setTags} suggestions={suggestions} placeholder="bridal, festive" />
         </Field>

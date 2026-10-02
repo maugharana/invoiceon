@@ -103,7 +103,7 @@ const toInput = (v: Variant, over: Partial<VariantInput> = {}): VariantInput => 
   mrpPaise: v.mrpPaise,
   baseCostPaise: v.baseCostPaise,
   reorderLevel: v.reorderLevel,
-  bom: v.bom.map((b) => ({ materialId: b.materialId, qty: b.qty })),
+  bom: v.bom.map((b) => ({ materialId: b.materialId, qty: b.qty, wastagePercent: b.wastagePercent })),
   ...over,
 });
 

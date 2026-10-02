@@ -66,6 +66,7 @@ const FIELDS: { [K in keyof Settings]: Field<K> } = {
   expenseCategories: json<string[]>('expense_categories', DEFAULT_EXPENSE_CATEGORIES),
   paymentAccounts: json<PaymentAccount[]>('payment_accounts', []),
   expenseBudgets: json<Record<string, number>>('expense_budgets', {}),
+  marginAlertPercent: num('margin_alert_percent', 15),
   notifyLowStock: bool('notify_low_stock', true),
   notifyOverdue: bool('notify_overdue', true),
   paperSize: text('paper_size', 'A4'),
@@ -184,6 +185,7 @@ function validate(patch: Partial<Settings>): Partial<Settings> {
       return { id: requireText(a.id, 'Account id', 60), name, kind: a.kind, details: optionalText(a.details ?? '', 'Account details', 200), openingPaise: opening };
     });
   }
+  if (patch.marginAlertPercent !== undefined) v.marginAlertPercent = requireInt(patch.marginAlertPercent, 'The margin to watch', { max: 99 });
   if (patch.expenseBudgets !== undefined) {
     const raw = patch.expenseBudgets;
     if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw new UserError('Budgets must be a list of categories with an amount each.');

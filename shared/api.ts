@@ -8,6 +8,17 @@ import type {
   StockTakeResult,
   BulkSareeRow,
   Customer,
+  MaterialMovement,
+  MaterialMovementReason,
+  MaterialPricePoint,
+  Purchase,
+  PurchaseInput,
+  PurchaseResult,
+  PurchaseSummary,
+  Simulation,
+  StockLocation,
+  StockTransfer,
+  StockTransferInput,
   AccountBook,
   AccountTransfer,
   AccountTransferInput,
@@ -137,6 +148,23 @@ export interface Api {
   stockMovements(variantId: string): Promise<StockMovement[]>;
 
   materialsList(): Promise<Material[]>;
+  materialMovements(materialId: string): Promise<MaterialMovement[]>;
+  materialPriceHistory(materialId: string): Promise<MaterialPricePoint[]>;
+  /** A correction, or material used up or wasted. Buying goes through a purchase. */
+  materialAdjust(input: { materialId: string; delta: number; reason: MaterialMovementReason; note?: string }): Promise<Material>;
+  /** What the sarees would cost and earn if materials cost something else. Changes nothing. */
+  materialsSimulate(changes: { materialId: string; unitCostPaise: Paise }[]): Promise<Simulation>;
+  purchasesList(query?: { from?: string; to?: string; supplierId?: string; search?: string }): Promise<PurchaseSummary[]>;
+  purchaseGet(id: string): Promise<Purchase>;
+  purchaseCreate(input: PurchaseInput): Promise<PurchaseResult>;
+  purchaseDelete(id: string): Promise<void>;
+
+  locationsList(): Promise<StockLocation[]>;
+  locationCreate(name: string): Promise<StockLocation>;
+  locationRename(id: string, name: string): Promise<StockLocation>;
+  locationArchive(id: string): Promise<void>;
+  stockTransfer(input: StockTransferInput): Promise<StockTransfer>;
+  stockTransfers(variantId?: string): Promise<StockTransfer[]>;
   materialCreate(input: MaterialInput): Promise<Material>;
   materialUpdate(id: string, input: MaterialInput): Promise<Material>;
   materialDelete(id: string): Promise<void>;

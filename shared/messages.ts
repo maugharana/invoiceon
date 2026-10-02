@@ -33,15 +33,27 @@ export function quoteReminder(q: { number: string; buyerName: string; totalPaise
 /** What to order, grouped by saree, ready to paste into a message to the supplier or weaver. */
 export function reorderNote(rows: ReorderRow[], businessName: string, today: string): string {
   if (rows.length === 0) return 'Nothing needs reordering.';
-  const byDesign = new Map<string, ReorderRow[]>();
-  for (const r of rows) byDesign.set(r.designId, [...(byDesign.get(r.designId) ?? []), r]);
-  const lines = [...byDesign.values()].map((variants) => {
-    const first = variants[0]!;
-    const title = first.nickname ? `${first.designName} (${first.nickname})` : first.designName;
-    const items = variants.map((v) => `  - ${v.color}, ${v.size}: ${v.stock <= 0 ? 'out of stock' : `${v.stock} left`}${v.reorderLevel > 0 ? ` (reorder at ${v.reorderLevel})` : ''}`);
-    return [title, ...items].join('\n');
-  });
-  return [`Reorder list${businessName ? ` — ${businessName}` : ''} — ${formatDate(today)}`, ...lines].join('\n\n');
+  const heading = `Reorder list${businessName ? ` — ${businessName}` : ''} — ${formatDate(today)}`;
+  const forDesigns = (list: ReorderRow[]) => {
+    const byDesign = new Map<string, ReorderRow[]>();
+    for (const r of list) byDesign.set(r.designId, [...(byDesign.get(r.designId) ?? []), r]);
+    return [...byDesign.values()].map((variants) => {
+      const first = variants[0]!;
+      const title = first.nickname ? `${first.designName} (${first.nickname})` : first.designName;
+      const items = variants.map((v) => `  - ${v.color}, ${v.size}: ${v.stock <= 0 ? 'out of stock' : `${v.stock} left`}${v.reorderLevel > 0 ? ` (reorder at ${v.reorderLevel})` : ''}`);
+      return [title, ...items].join('\n');
+    });
+  };
+  // With suppliers set, the list is split by who to order from, so each one can be sent their own part.
+  if (rows.some((r) => r.supplierName)) {
+    const bySupplier = new Map<string, ReorderRow[]>();
+    for (const r of rows) bySupplier.set(r.supplierName, [...(bySupplier.get(r.supplierName) ?? []), r]);
+    const groups = [...bySupplier.entries()]
+      .sort(([a], [b]) => (a === '' ? 1 : b === '' ? -1 : a.localeCompare(b)))
+      .map(([supplier, list]) => [`== ${supplier || 'No supplier set'} ==`, ...forDesigns(list)].join('\n\n'));
+    return [heading, ...groups].join('\n\n');
+  }
+  return [heading, ...forDesigns(rows)].join('\n\n');
 }
 
 /** A friendly message to send with an invoice: what it's for, what is still owed and by when, and where to pay. */

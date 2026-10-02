@@ -53,12 +53,12 @@ export function loadSampleData(db: Db): void {
       });
     }
 
-    const silk = createMaterial(db, { name: 'Pure silk yarn', unit: 'kg', unitCostPaise: rupees(4600) });
-    const cotton = createMaterial(db, { name: 'Cotton yarn', unit: 'kg', unitCostPaise: rupees(380) });
-    const zari = createMaterial(db, { name: 'Zari thread', unit: 'kg', unitCostPaise: rupees(9000) });
-    const dye = createMaterial(db, { name: 'Dyeing & finishing', unit: 'pc', unitCostPaise: rupees(180) });
-    const blouse = createMaterial(db, { name: 'Blouse piece fabric', unit: 'm', unitCostPaise: rupees(350) });
-    const pack = createMaterial(db, { name: 'Packaging', unit: 'pc', unitCostPaise: rupees(40) });
+    const silk = createMaterial(db, { name: 'Pure silk yarn', unit: 'kg', unitCostPaise: rupees(4600), category: 'Yarn', openingQty: 14, reorderQty: 5 });
+    const cotton = createMaterial(db, { name: 'Cotton yarn', unit: 'kg', unitCostPaise: rupees(380), category: 'Yarn', openingQty: 30, reorderQty: 10 });
+    const zari = createMaterial(db, { name: 'Zari thread', unit: 'kg', unitCostPaise: rupees(9000), category: 'Yarn', openingQty: 1.2, reorderQty: 2 });
+    const dye = createMaterial(db, { name: 'Dyeing & finishing', unit: 'pc', unitCostPaise: rupees(180), category: 'Finishing', openingQty: 60, reorderQty: 20 });
+    const blouse = createMaterial(db, { name: 'Blouse piece fabric', unit: 'm', unitCostPaise: rupees(350), category: 'Fabric', openingQty: 40, reorderQty: 15 });
+    const pack = createMaterial(db, { name: 'Packaging', unit: 'pc', unitCostPaise: rupees(40), category: 'Packing', openingQty: 120, reorderQty: 50 });
 
     const designs = [
       {
@@ -141,6 +141,13 @@ function addSampleDetails(db: Db): void {
   run(db, "UPDATE customers SET tags = 'regular' WHERE id = ?", idOf('Sunita'));
   run(db, "UPDATE designs SET tags = 'bridal, festive' WHERE name LIKE 'Banarasi Katan%' OR name LIKE '%Kadhua%'");
   run(db, "UPDATE designs SET tags = 'daily wear' WHERE name LIKE '%Chanderi%'");
+
+  // Usual suppliers, and a little wastage on the pricey materials (from the vendors the expenses created).
+  run(db, "UPDATE raw_materials SET supplier_id = (SELECT id FROM vendors WHERE name = 'Varanasi Silk Traders') WHERE name IN ('Pure silk yarn', 'Cotton yarn')");
+  run(db, "UPDATE raw_materials SET supplier_id = (SELECT id FROM vendors WHERE name = 'Kanpur Zari House') WHERE name = 'Zari thread'");
+  run(db, "UPDATE raw_materials SET supplier_id = (SELECT id FROM vendors WHERE name = 'Shree Packaging') WHERE name = 'Packaging'");
+  run(db, "UPDATE variant_materials SET wastage_percent = 5 WHERE material_id IN (SELECT id FROM raw_materials WHERE name IN ('Pure silk yarn', 'Zari thread'))");
+  run(db, "UPDATE designs SET supplier_id = (SELECT id FROM vendors WHERE name = 'Varanasi Silk Traders') WHERE name LIKE '%Katan%' OR name LIKE '%Butidar%' OR name LIKE '%Tanchoi%'");
 
   addNote(db, { subjectType: 'customer', subjectId: idOf('Meera'), kind: 'promise', body: 'Said the balance goes out with the next lorry', dueDate: day(4), amountPaise: rupees(15000) });
   addNote(db, { subjectType: 'customer', subjectId: idOf('Anjali'), kind: 'followup', body: 'Show the new Katan Kadhua colours', dueDate: day(1) });

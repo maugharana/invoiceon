@@ -1,4 +1,4 @@
-import { Archive, ArrowLeft, Copy, History, LineChart, Package, Pencil, PackagePlus, Plus } from 'lucide-react';
+import { Archive, ArrowLeft, ArrowRightLeft, Copy, History, LineChart, Package, Pencil, PackagePlus, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { formatMoney } from '../../../shared/money';
 import type { Variant } from '../../../shared/types';
@@ -13,6 +13,7 @@ import { plural } from '../../lib/format';
 import { navigate, paths } from '../../lib/router';
 import { DesignFormModal } from './DesignFormModal';
 import { AdjustStockModal, PriceHistoryModal, StockHistoryModal } from './StockModals';
+import { TransferStockModal } from './Places';
 import { VariantFormModal } from './VariantFormModal';
 
 type Dialog =
@@ -22,6 +23,7 @@ type Dialog =
   | { kind: 'adjust'; variant: Variant }
   | { kind: 'history'; variant: Variant }
   | { kind: 'prices'; variant: Variant }
+  | { kind: 'move'; variant: Variant }
   | { kind: 'archive-variant'; variant: Variant };
 
 function Margin({ variant }: { variant: Variant }) {
@@ -35,6 +37,7 @@ export function DesignPage({ id }: { id: string }) {
   const refresh = useRefresh();
   const design = useQuery(() => api.designGet(id), [id]);
   const [dialog, setDialog] = useState<Dialog | null>(null);
+  const places = useQuery(() => api.locationsList());
   const d = design.data;
   useRecent(d ? { kind: 'design', id: d.id, title: d.name, hint: [d.nickname, d.code].filter(Boolean).join(' · ') } : null);
   const close = () => setDialog(null);
@@ -165,6 +168,9 @@ export function DesignPage({ id }: { id: string }) {
                     <span key={v.stock} className="animate-tick inline-block">
                       {v.stock}
                     </span>
+                    {v.locations.length > 1 && (
+                      <div className="text-xs text-ink-muted">{v.locations.map((l) => `${l.name} ${l.qty}`).join(' · ')}</div>
+                    )}
                   </td>
                   <td className="td text-right">
                     <Money paise={v.unitCostPaise} />
@@ -186,6 +192,11 @@ export function DesignPage({ id }: { id: string }) {
                       <IconButton label={`Stock history, ${v.color} ${v.size}`} onClick={() => setDialog({ kind: 'history', variant: v })}>
                         <History className="h-4 w-4" />
                       </IconButton>
+                      {(places.data?.length ?? 0) > 1 && (
+                        <IconButton label={`Move stock between places, ${v.color} ${v.size}`} onClick={() => setDialog({ kind: 'move', variant: v })}>
+                          <ArrowRightLeft className="h-4 w-4" />
+                        </IconButton>
+                      )}
                       <IconButton label={`Price history, ${v.color} ${v.size}`} onClick={() => setDialog({ kind: 'prices', variant: v })}>
                         <LineChart className="h-4 w-4" />
                       </IconButton>
@@ -218,6 +229,7 @@ export function DesignPage({ id }: { id: string }) {
       {dialog?.kind === 'adjust' && <AdjustStockModal variant={dialog.variant} onClose={close} />}
       {dialog?.kind === 'history' && <StockHistoryModal variant={dialog.variant} onClose={close} />}
       {dialog?.kind === 'prices' && <PriceHistoryModal variant={dialog.variant} onClose={close} />}
+      {dialog?.kind === 'move' && places.data && <TransferStockModal variant={dialog.variant} places={places.data} onClose={close} />}
       {dialog?.kind === 'archive-variant' && (
         <ConfirmDialog
           title="Archive this variant?"

@@ -1,4 +1,4 @@
-import { Boxes, ChevronRight, ClipboardCheck, Download, Plus, SearchX, SlidersHorizontal } from 'lucide-react';
+import { Boxes, ChevronRight, ClipboardCheck, Download, MapPin, Plus, SearchX, SlidersHorizontal } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { designsCsv } from '../../../shared/csv';
 import { MARGIN_LABEL, NO_FILTERS, SOLD_LABEL, applyDesignFilters, fabricsOf, filtersActive, type DesignFilters, type MarginBand, type SoldBand } from '../../../shared/designFilters';
@@ -15,6 +15,7 @@ import { useCsvExport } from '../../lib/exportCsv';
 import { plural } from '../../lib/format';
 import { navigate, paths } from '../../lib/router';
 import { BulkDesignModal, type BulkKind } from './BulkDesignModal';
+import { PlacesModal } from './Places';
 import { DesignFormModal } from './DesignFormModal';
 import { InventoryShell } from './InventoryTabs';
 
@@ -31,6 +32,7 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
   const [adding, setAdding] = useState(false);
   const [loadingSample, setLoadingSample] = useState(false);
   const [columns, setColumns] = useState<DesignFilters>(NO_FILTERS);
+  const [places, setPlaces] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const sort = useSort<SortKey>('name', 'asc');
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -114,6 +116,11 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
           {!isEmptyInventory && (
             <Button icon={<ClipboardCheck className="h-4 w-4" />} onClick={() => navigate(paths.stockTake)} title="Count what is on the shelf and fix the differences">
               Stock-take
+            </Button>
+          )}
+          {!isEmptyInventory && (
+            <Button icon={<MapPin className="h-4 w-4" />} onClick={() => setPlaces(true)} title="Add a godown or showroom to keep stock in">
+              Places
             </Button>
           )}
           {!isEmptyInventory && (
@@ -355,6 +362,7 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
 
       {bulk && <BulkDesignModal ids={[...picked]} kind={bulk} onClose={() => setBulk(null)} onDone={() => setPicked(new Set())} />}
       {adding && <DesignFormModal suggestedCode={suggestedCode.data} onClose={() => setAdding(false)} onSaved={(d) => navigate(paths.design(d.id))} />}
+      {places && <PlacesModal onClose={() => setPlaces(false)} />}
     </InventoryShell>
   );
 }

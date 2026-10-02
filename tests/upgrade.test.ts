@@ -140,3 +140,35 @@ describe('upgrading a book from before accounts, vendors and input GST', () => {
     expect({ ...p }).toEqual({ kind: 'receipt', account_id: '', cheque_status: null, reconciled_on: null });
   });
 });
+
+describe('upgrading a book from before raw-material stock and places', () => {
+  function bookAtVersion11() {
+    const db = new DatabaseSync(':memory:');
+    db.exec('PRAGMA foreign_keys = ON');
+    migrate(db, 11);
+    const now = '2026-09-01T10:00:00.000Z';
+    db.exec(`
+      INSERT INTO raw_materials (id, name, unit, unit_cost_paise, created_at, updated_at) VALUES ('m1', 'Silk yarn', 'kg', 460000, '${now}', '${now}');
+      INSERT INTO designs (id, code, name, created_at, updated_at) VALUES ('d1', 'MG-001', 'Butidar', '${now}', '${now}');
+      INSERT INTO variants (id, design_id, sku, color, size, stock, created_at, updated_at) VALUES ('v1', 'd1', 'MG-001-RED', 'Red', '6 m', 7, '${now}', '${now}');
+      INSERT INTO variant_materials (variant_id, material_id, qty) VALUES ('v1', 'm1', 0.62);
+    `);
+    return db;
+  }
+
+  it('starts each material with its current price in the history, no stock, and no wastage on existing costings', () => {
+    const db = bookAtVersion11();
+    migrate(db);
+    expect({ ...db.prepare("SELECT unit_cost_paise, source FROM material_prices WHERE material_id = 'm1'").get() }).toEqual({ unit_cost_paise: 460000, source: 'opening' });
+    expect({ ...db.prepare("SELECT stock_qty, reorder_qty, category, supplier_id FROM raw_materials WHERE id = 'm1'").get() }).toEqual({ stock_qty: 0, reorder_qty: 0, category: '', supplier_id: null });
+    expect({ ...db.prepare("SELECT qty, wastage_percent FROM variant_materials WHERE variant_id = 'v1'").get() }).toEqual({ qty: 0.62, wastage_percent: 0 });
+  });
+
+  it('gives the book a shop to sell from, with every existing piece in it', () => {
+    const db = bookAtVersion11();
+    migrate(db);
+    expect({ ...db.prepare('SELECT id, name, is_default FROM locations').get() }).toEqual({ id: 'shop', name: 'Shop', is_default: 1 });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM stock_locations').get()).toEqual({ n: 0 }); // nothing is recorded elsewhere
+    expect({ ...db.prepare("SELECT stock FROM variants WHERE id = 'v1'").get() }).toEqual({ stock: 7 });
+  });
+});

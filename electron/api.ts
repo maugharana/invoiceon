@@ -17,10 +17,12 @@ import { reorderList } from './services/deadstock';
 import * as expenses from './services/expenses';
 import * as inventory from './services/inventory';
 import * as invoices from './services/invoices';
+import * as locations from './services/locations';
 import * as materials from './services/materials';
 import * as notes from './services/notes';
 import * as payments from './services/payments';
 import * as proformas from './services/proformas';
+import * as purchases from './services/purchases';
 import * as receivables from './services/receivables';
 import * as reports from './services/reports';
 import { loadSampleData } from './services/seed';
@@ -86,6 +88,20 @@ export function createApi(db: Db, host?: Host, dataDir?: string): Api {
     materialCreate: async (input) => materials.createMaterial(db, input),
     materialUpdate: async (id, input) => materials.updateMaterial(db, id, input),
     materialDelete: async (id) => materials.deleteMaterial(db, id),
+    materialMovements: async (id) => materials.listMaterialMovements(db, id),
+    materialPriceHistory: async (id) => materials.materialPriceHistory(db, id),
+    materialAdjust: async (input) => materials.adjustMaterial(db, input),
+    materialsSimulate: async (changes) => materials.simulateMaterialPrices(db, changes),
+    purchasesList: async (query) => purchases.listPurchases(db, query ?? {}),
+    purchaseGet: async (id) => purchases.getPurchase(db, id),
+    purchaseCreate: async (input) => purchases.createPurchase(db, input),
+    purchaseDelete: async (id) => purchases.deletePurchase(db, id),
+    locationsList: async () => locations.listLocations(db),
+    locationCreate: async (name) => locations.createLocation(db, name),
+    locationRename: async (id, name) => locations.renameLocation(db, id, name),
+    locationArchive: async (id) => locations.archiveLocation(db, id),
+    stockTransfer: async (input) => locations.transferStock(db, input),
+    stockTransfers: async (variantId) => locations.listTransfers(db, variantId ?? undefined),
 
     customersList: async (query) => customers.listCustomers(db, query ?? {}),
     customerGet: async (id) => customers.getCustomer(db, id),

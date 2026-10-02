@@ -72,6 +72,8 @@ export interface Settings {
   paymentAccounts: PaymentAccount[];
   /** A monthly limit for each expense category, in paise. A category not listed has no limit. */
   expenseBudgets: Record<string, Paise>;
+  /** You are warned about a saree whose profit margin falls below this. 0 turns the warning off. */
+  marginAlertPercent: number;
   // ── Notifications: badges in the sidebar ──
   notifyLowStock: boolean;
   notifyOverdue: boolean;
@@ -113,11 +115,101 @@ export interface Material {
   unitCostPaise: Paise;
   /** Number of active variants whose costing uses this material. */
   usedInCount: number;
+  /** A group to sort materials into (yarn, dye, packing…). Empty when none. */
+  category: string;
+  /** How much is in hand, in the material's unit. */
+  stockQty: number;
+  /** Order more when the stock falls to this. 0 means don't watch it. */
+  reorderQty: number;
+  /** ok = fine or not watched, low = at or below the reorder quantity, out = none left (and watched). */
+  status: 'ok' | 'low' | 'out';
+  /** Who it is usually bought from. */
+  supplierId: string | null;
+  supplierName: string;
 }
 export interface MaterialInput {
   name: string;
   unit: string;
   unitCostPaise: Paise;
+  category?: string;
+  reorderQty?: number;
+  supplierId?: string | null;
+  /** On create only: what is in hand now. Later changes go through purchases and adjustments so the history stays. */
+  openingQty?: number;
+}
+
+export type MaterialMovementReason = 'opening' | 'purchase' | 'used' | 'wastage' | 'adjustment';
+export const MATERIAL_REASON_LABEL: Record<MaterialMovementReason, string> = { opening: 'Opening stock', purchase: 'Bought', used: 'Used', wastage: 'Wasted', adjustment: 'Count correction' };
+export interface MaterialMovement {
+  id: string;
+  delta: number;
+  balanceAfter: number;
+  reason: MaterialMovementReason;
+  note: string;
+  createdAt: string;
+}
+export interface MaterialPricePoint {
+  changedAt: string;
+  unitCostPaise: Paise;
+  source: 'opening' | 'manual' | 'purchase';
+}
+
+export interface PurchaseLineInput {
+  materialId: string;
+  qty: number;
+  unitCostPaise: Paise;
+}
+export interface PurchaseInput {
+  supplierId: string | null;
+  date: string;
+  billNo: string;
+  note: string;
+  lines: PurchaseLineInput[];
+  /** GST on the bill (included in the line prices), claimable as input tax. */
+  gstPaise?: Paise;
+  /** Also enter it as an expense (category Raw materials) so it counts in profit and in the account it was paid from. */
+  expense?: { method: PaymentMethod; accountId?: string; status: ExpenseStatus; dueDate?: string | null } | null;
+}
+export interface PurchaseSummary {
+  id: string;
+  date: string;
+  supplierId: string | null;
+  supplierName: string;
+  billNo: string;
+  totalPaise: Paise;
+  gstPaise: Paise;
+  lineCount: number;
+  expenseId: string | null;
+}
+export interface Purchase extends PurchaseSummary {
+  note: string;
+  lines: { materialId: string; materialName: string; unit: string; qty: number; unitCostPaise: Paise; amountPaise: Paise }[];
+}
+
+/** One variant whose cost would change if the materials cost what is asked in a what-if. */
+export interface SimulationRow {
+  variantId: string;
+  designId: string;
+  designName: string;
+  color: string;
+  size: string;
+  stock: number;
+  sellPricePaise: Paise;
+  costNowPaise: Paise;
+  costThenPaise: Paise;
+  /** Profit as a share of the selling price. Null when it has no selling price. */
+  marginNowPercent: number | null;
+  marginThenPercent: number | null;
+}
+export interface Simulation {
+  rows: SimulationRow[];
+  /** What the stock in hand would be worth at cost, now and then. */
+  stockCostNowPaise: Paise;
+  stockCostThenPaise: Paise;
+  /** How many of the affected variants would end up selling below what they cost. */
+  belowCostCount: number;
+  /** How many would fall below the margin you want to keep (Settings). */
+  lowMarginCount: number;
 }
 
 // ── Designs & variants ──────────────────────────────────────────────────────
@@ -125,8 +217,11 @@ export interface BomLine {
   materialId: string;
   materialName: string;
   unit: string;
+  /** The quantity for one piece, before wastage. */
   qty: number;
   unitCostPaise: Paise;
+  /** Extra material lost in making it, as a share of qty. The cost counts qty plus this. */
+  wastagePercent: number;
   lineCostPaise: Paise;
 }
 
@@ -149,6 +244,8 @@ export interface Variant {
   /** The printed maximum retail price, GST included. 0 when not set. */
   mrpPaise: Paise;
   status: Exclude<StockStatus, 'empty'>;
+  /** Where the pieces are kept: the shop (where they are sold from) and any other place. Quantities add up to `stock`. */
+  locations: { locationId: string; name: string; qty: number }[];
 }
 
 export interface DesignSummary {
@@ -162,6 +259,9 @@ export interface DesignSummary {
   description: string;
   defaultPricePaise: Paise;
   tags: string;
+  /** Who it is usually bought or made by, for the reorder list. */
+  supplierId: string | null;
+  supplierName: string;
   variantCount: number;
   totalStock: number;
   stockValuePaise: Paise;
@@ -193,6 +293,31 @@ export interface DesignInput {
   defaultPricePaise: Paise;
   /** Comma separated labels (collection, occasion, season…) for grouping and filtering. */
   tags?: string;
+  supplierId?: string | null;
+}
+
+export interface StockLocation {
+  id: string;
+  name: string;
+  isDefault: boolean;
+  /** Pieces kept there, across all designs. */
+  pieces: number;
+}
+export interface StockTransferInput {
+  variantId: string;
+  fromLocationId: string;
+  toLocationId: string;
+  qty: number;
+  note?: string;
+}
+export interface StockTransfer {
+  id: string;
+  variantId: string;
+  fromName: string;
+  toName: string;
+  qty: number;
+  note: string;
+  createdAt: string;
 }
 
 /** One entry in a variant's price history: the prices it had from that moment. */
@@ -215,7 +340,7 @@ export interface VariantInput {
   reorderLevel: number;
   /** Create only. Later changes go through stock adjustments so history stays intact. */
   openingStock?: number;
-  bom: { materialId: string; qty: number }[];
+  bom: { materialId: string; qty: number; wastagePercent?: number }[];
 }
 
 /**
@@ -1142,6 +1267,9 @@ export interface ReorderRow {
   size: string;
   stock: number;
   reorderLevel: number;
+  /** Who it is usually bought from; '' when no supplier is set. */
+  supplierId: string | null;
+  supplierName: string;
 }
 
 /** What a festival's shopping season brought in. */
@@ -1174,7 +1302,7 @@ export interface FestivalComparison {
   lastSeason: FestivalFigures | null;
 }
 
-export type AttentionKind = 'payment-reversed' | 'quote-expiring' | 'below-cost' | 'follow-up' | 'promise' | 'occasion';
+export type AttentionKind = 'payment-reversed' | 'quote-expiring' | 'below-cost' | 'follow-up' | 'promise' | 'occasion' | 'low-margin' | 'low-material';
 
 /** Something on the dashboard's "needs attention" list. `link` says where to go to deal with it. */
 export interface AttentionItem {
@@ -1183,7 +1311,7 @@ export interface AttentionItem {
   id: string;
   title: string;
   detail: string;
-  link: { to: 'customer' | 'proforma' | 'design'; id: string } | { to: 'payments' };
+  link: { to: 'customer' | 'proforma' | 'design'; id: string } | { to: 'payments' } | { to: 'materials' };
 }
 
 /** The dashboard's "right now" figures: they ignore the period menu because they are about today, not a stretch of time. */
@@ -1520,4 +1648,9 @@ export interface ReconcilePreview {
   skippedDebits: number;
   /** Payments still without a statement line. */
   unmatchedPayments: Payment[];
+}
+
+/** A purchase, plus any material whose price changed because of what was paid. */
+export interface PurchaseResult extends Purchase {
+  priceChanges: { materialId: string; materialName: string; fromPaise: Paise; toPaise: Paise }[];
 }

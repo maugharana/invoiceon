@@ -5,8 +5,10 @@ import type { AttentionItem } from '../../shared/types';
 import { all, type Db } from '../db/connection';
 import { listDesigns, loadVariants } from './inventory';
 import { listCustomers } from './customers';
+import { listMaterials } from './materials';
 import { openDueNotes } from './notes';
 import { listProformas } from './proformas';
+import { getSettings } from './settings';
 
 /** A payment reversed within this many days still needs a look: the invoice it paid owes the money again. */
 export const REVERSED_WITHIN_DAYS = 30;
@@ -77,6 +79,48 @@ function belowCost(db: Db): AttentionItem[] {
     .sort((a, b) => a.title.localeCompare(b.title));
 }
 
+/** A saree still priced above its cost but earning less than the margin you want to keep. (Below cost has its own, louder, item.) */
+function lowMargin(db: Db): AttentionItem[] {
+  const floor = getSettings(db).marginAlertPercent;
+  if (floor <= 0) return [];
+  const names = new Map(listDesigns(db).map((d) => [d.id, d.name]));
+  const worst = new Map<string, { color: string; size: string; margin: number; count: number }>();
+  for (const v of loadVariants(db)) {
+    if (!names.has(v.designId) || v.sellPricePaise <= 0 || v.unitCostPaise > v.sellPricePaise) continue;
+    const margin = ((v.sellPricePaise - v.unitCostPaise) / v.sellPricePaise) * 100;
+    if (margin >= floor) continue;
+    const w = worst.get(v.designId);
+    if (!w) worst.set(v.designId, { color: v.color, size: v.size, margin, count: 1 });
+    else {
+      w.count++;
+      if (margin < w.margin) Object.assign(w, { color: v.color, size: v.size, margin });
+    }
+  }
+  return [...worst.entries()]
+    .map(([designId, w]) => ({
+      kind: 'low-margin' as const,
+      id: `low-margin:${designId}`,
+      title: `${names.get(designId)} earns only ${w.margin.toFixed(0)}%`,
+      detail: `${w.color} ${w.size}${w.count > 1 ? ` and ${w.count - 1} more` : ''} · you want at least ${floor}%`,
+      link: { to: 'design' as const, id: designId },
+    }))
+    .sort((a, b) => a.title.localeCompare(b.title));
+}
+
+/** Raw material that has run low, so the weaver or shop can be called before work stops. */
+function lowMaterials(db: Db): AttentionItem[] {
+  return listMaterials(db)
+    .filter((m) => m.status !== 'ok')
+    .map((m) => ({
+      kind: 'low-material' as const,
+      id: `low-material:${m.id}`,
+      title: m.status === 'out' ? `${m.name} has run out` : `${m.name} is running low`,
+      detail: `${m.stockQty} ${m.unit} left, reorder at ${m.reorderQty}${m.supplierName ? ` · usually from ${m.supplierName}` : ''}`,
+      link: { to: 'materials' as const },
+    }))
+    .sort((a, b) => a.title.localeCompare(b.title));
+}
+
 /** Follow-ups due and promises to pay that have come round (or been missed). */
 function dueNotes(db: Db, today: string): AttentionItem[] {
   return openDueNotes(db, { onOrBefore: today }).map((n) => {
@@ -113,5 +157,5 @@ function occasions(db: Db, today: string): AttentionItem[] {
 
 /** What the owner should look at today, most urgent first, capped so the list stays a glance rather than a chore. */
 export function attentionItems(db: Db, today: string): AttentionItem[] {
-  return [...reversedPayments(db, today), ...dueNotes(db, today), ...expiringQuotes(db, today), ...occasions(db, today), ...belowCost(db)].slice(0, MAX_ITEMS);
+  return [...reversedPayments(db, today), ...dueNotes(db, today), ...expiringQuotes(db, today), ...occasions(db, today), ...belowCost(db), ...lowMaterials(db), ...lowMargin(db)].slice(0, MAX_ITEMS);
 }
