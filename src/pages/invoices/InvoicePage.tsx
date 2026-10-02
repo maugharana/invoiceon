@@ -1,4 +1,4 @@
-import { ArrowLeft, Ban, ClipboardCopy, Copy, Download, HandCoins, Mail, MessageCircle, Printer, Send } from 'lucide-react';
+import { ArrowLeft, Ban, ClipboardCopy, Copy, Download, HandCoins, Mail, MessageCircle, PackageMinus, Printer, Send } from 'lucide-react';
 import { useState } from 'react';
 import { formatDate } from '../../../shared/gst';
 import { invoiceMessage, mailtoLink, whatsappLink, whatsappPhone } from '../../../shared/messages';
@@ -16,6 +16,7 @@ import { useRecent } from '../../lib/recent';
 import { useQuery, useRefresh } from '../../lib/data';
 import { navigate, paths } from '../../lib/router';
 import { RecordPaymentModal } from '../payments/RecordPaymentModal';
+import { CreditNoteModal } from './CreditNoteModal';
 import { DeliveryCard } from './DeliveryCard';
 import { InstalmentsCard } from './InstalmentsCard';
 import { WriteOffModal } from './WriteOffModal';
@@ -31,6 +32,7 @@ export function InvoicePage({ id }: { id: string }) {
   const [busy, setBusy] = useState<'pdf' | 'print' | 'advance' | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [writingOff, setWritingOff] = useState(false);
+  const [takingBack, setTakingBack] = useState(false);
   const [paying, setPaying] = useState(false);
   const [reason, setReason] = useState('');
 
@@ -139,6 +141,11 @@ ${message.body}`)) ? toast.success('Message copied — paste it anywhere') : toa
               Duplicate
             </Button>
             {!cancelled && (
+              <Button icon={<PackageMinus className="h-4 w-4" />} onClick={() => setTakingBack(true)} title="A customer returns pieces: make a credit note, put them back in stock and settle the money">
+                Take goods back
+              </Button>
+            )}
+            {!cancelled && (
               <Button variant="danger" icon={<Ban className="h-4 w-4" />} onClick={() => setCancelling(true)}>
                 Cancel invoice
               </Button>
@@ -151,12 +158,17 @@ ${message.body}`)) ? toast.success('Message copied — paste it anywhere') : toa
       {!cancelled && (
         <Card className="mb-6 p-6">
           <div className="grid grid-cols-[auto_1fr] gap-10">
-            <div className="grid grid-cols-3 gap-8">
+            <div className={`grid gap-8 ${inv.creditedPaise > 0 ? 'grid-cols-4' : 'grid-cols-3'}`}>
               <Figure label="Invoice total">
                 <Money paise={inv.totalPaise} fractionDigits={0} />
               </Figure>
+              {inv.creditedPaise > 0 && (
+                <Figure label="Credit notes" sub={inv.creditNotes.filter((c) => c.status === 'issued').map((c) => c.number.split('/').pop()).join(', ')}>
+                  <Money paise={inv.creditedPaise} fractionDigits={0} />
+                </Figure>
+              )}
               <Figure label="Received">
-                <Money paise={inv.paidPaise} fractionDigits={0} />
+                <Money paise={inv.paidPaise - inv.creditedPaise} fractionDigits={0} />
               </Figure>
               <Figure label="Balance due" highlight={balance > 0} sub={balance > 0 && inv.dueDate ? `Due ${formatDate(inv.dueDate)}` : balance === 0 ? 'Paid in full' : undefined}>
                 <Money paise={balance} fractionDigits={0} />
@@ -192,6 +204,25 @@ ${message.body}`)) ? toast.success('Message copied — paste it anywhere') : toa
                   ))}
                 </ul>
               )}
+              {inv.creditNotes.length > 0 && (
+                <div className="mb-3">
+                  <div className="mb-1 text-xs font-medium text-ink-muted">Credit notes</div>
+                  <ul className="divide-y divide-line/70">
+                    {inv.creditNotes.map((c) => (
+                      <li key={c.id} className="flex items-center justify-between py-1.5">
+                        <span>
+                          <span className="num text-ink-muted">{formatDate(c.issueDate)}</span>
+                          <a href={`#${paths.creditNote(c.id)}`} className="num ml-3 text-brand transition-colors hover:text-brand-hover">
+                            {c.number}
+                          </a>
+                          {c.status === 'cancelled' && <span className="ml-2 text-xs text-ink-muted">Cancelled</span>}
+                        </span>
+                        <Money paise={c.totalPaise} className={c.status === 'cancelled' ? 'text-ink-muted line-through' : ''} />
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               {balance > 0 && advance > 0 && (
                 <div className="mt-3 flex items-center justify-between rounded-lg bg-status-partial-bg px-3 py-2 text-status-partial-fg">
                   <span>{inv.buyerName} is holding <Money paise={advance} /> in advance.</span>
@@ -216,6 +247,7 @@ ${message.body}`)) ? toast.success('Message copied — paste it anywhere') : toa
         </div>
       </div>
 
+      {takingBack && <CreditNoteModal invoice={inv} customer={customer.data} onClose={() => setTakingBack(false)} />}
       {writingOff && <WriteOffModal invoice={inv} onClose={() => setWritingOff(false)} />}
       {paying && <RecordPaymentModal invoice={inv} customer={customer.data} onClose={() => setPaying(false)} />}
       {cancelling && (

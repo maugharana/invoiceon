@@ -1,3 +1,4 @@
+import { CreditNoteDocument } from '../../components/CreditNoteDocument';
 import { InvoiceDocument } from '../../components/InvoiceDocument';
 import { PrintShell } from '../../components/PrintShell';
 import { api } from '../../lib/api';
@@ -33,6 +34,19 @@ export function PrintInvoicesPage({ ids }: { ids: string[] }) {
           <InvoiceDocument invoice={inv} />
         </div>
       ))}
+    </PrintShell>
+  );
+}
+
+/** The bare credit note, with no app chrome, for PDF export and printing. */
+export function PrintCreditNotePage({ id }: { id: string }) {
+  const query = useQuery(() => api.creditNoteGet(id), [id]);
+  const note = query.data;
+  if (query.error) return <p className="p-8 text-status-overdue-fg">{query.error}</p>;
+  if (!note) return null;
+  return (
+    <PrintShell ready title={`Credit note ${note.number.replaceAll('/', '-')}`} noun="credit note">
+      <CreditNoteDocument note={note} />
     </PrintShell>
   );
 }

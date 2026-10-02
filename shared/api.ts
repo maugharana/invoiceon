@@ -293,6 +293,8 @@ export interface Api {
   invoiceExportPdf(id: string): Promise<{ saved: boolean; path?: string }>;
   /** Desktop app only: opens the system print dialog for the invoice. */
   invoicePrint(id: string): Promise<void>;
+  creditNoteExportPdf(id: string): Promise<{ saved: boolean; path?: string }>;
+  creditNotePrint(id: string): Promise<void>;
 
   paymentsList(query?: PaymentQuery): Promise<Payment[]>;
   /** Records money received. Each part goes to the invoices named in `allocations`; any remainder is held as the customer's advance. */

@@ -244,6 +244,17 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
       return host.printDocument(`/print/invoice/${encodeURIComponent(id)}`);
     },
 
+    creditNoteExportPdf: async (id) => {
+      if (!host) throw new UserError(DESKTOP_ONLY);
+      const note = creditNotes.getCreditNote(db, id);
+      return host.exportDocumentPdf(`/print/credit-note/${encodeURIComponent(id)}`, `Credit note ${note.number.replace(/[\\/:*?"<>|]/g, '-')}.pdf`);
+    },
+    creditNotePrint: async (id) => {
+      if (!host) throw new UserError(DESKTOP_ONLY);
+      creditNotes.getCreditNote(db, id);
+      return host.printDocument(`/print/credit-note/${encodeURIComponent(id)}`);
+    },
+
     paymentsList: async (query) => payments.listPayments(db, query ?? {}),
     paymentRecord: async (input) => payments.recordPayment(db, input),
     paymentVoid: async (id, reason) => payments.voidPayment(db, id, reason),

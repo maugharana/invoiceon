@@ -15,7 +15,9 @@ import { StockTakePage } from './pages/inventory/StockTakePage';
 import { InvoicePage } from './pages/invoices/InvoicePage';
 import { InvoicesPage } from './pages/invoices/InvoicesPage';
 import { NewInvoicePage } from './pages/invoices/NewInvoicePage';
-import { PrintInvoicePage, PrintInvoicesPage } from './pages/invoices/PrintInvoicePage';
+import { CreditNotePage } from './pages/invoices/CreditNotePage';
+import { CreditNotesPage } from './pages/invoices/CreditNotesPage';
+import { PrintCreditNotePage, PrintInvoicePage, PrintInvoicesPage } from './pages/invoices/PrintInvoicePage';
 import { PrintReceiptPage, PrintStatementPage } from './pages/PrintOtherPages';
 import { ExpensesPage } from './pages/expenses/ExpensesPage';
 import { NotificationsPage } from './pages/NotificationsPage';
@@ -86,7 +88,12 @@ function renderRoute(route: Route) {
       return <SettingsPage section={route.section} />;
     case 'reports':
       return <ReportsPage tab={route.tab} period={route.period} asOf={route.asOf} />;
+    case 'credit-notes':
+      return <CreditNotesPage />;
+    case 'credit-note':
+      return <CreditNotePage id={route.id} />;
     case 'print-invoice':
+    case 'print-credit-note':
     case 'print-proforma':
     case 'print-statement':
     case 'print-receipt':
@@ -100,8 +107,10 @@ const pageKey = (r: Route): string => {
   switch (r.name) {
     case 'design':
     case 'invoice':
+    case 'credit-note':
     case 'proforma':
     case 'customer':
+    case 'print-credit-note':
     case 'print-invoice':
     case 'print-proforma':
       return `${r.name}:${r.id}`;
@@ -133,6 +142,7 @@ export default function App() {
   const route = useRoute();
   // Print/PDF export render just the paper, with none of the app around it.
   if (route.name === 'print-invoice') return <PrintInvoicePage id={route.id} />;
+  if (route.name === 'print-credit-note') return <PrintCreditNotePage id={route.id} />;
   if (route.name === 'print-proforma') return <PrintInvoicePage id={route.id} kind="proforma" />;
   if (route.name === 'print-statement') return <PrintStatementPage customerId={route.id} />;
   if (route.name === 'print-receipt') return <PrintReceiptPage paymentId={route.id} />;

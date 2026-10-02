@@ -39,6 +39,9 @@ export type Route =
   | { name: 'customer'; id: string }
   | { name: 'settings'; section: SettingsSection }
   /** Bare invoice document with no app chrome — what PDF export and printing render. */
+  | { name: 'credit-notes' }
+  | { name: 'credit-note'; id: string }
+  | { name: 'print-credit-note'; id: string }
   | { name: 'print-invoice'; id: string }
   | { name: 'print-proforma'; id: string }
   | { name: 'print-statement'; id: string }
@@ -96,6 +99,8 @@ export function parseHash(hash: string): Route {
       const status = params.get('status');
       return { name: 'proformas', status: status === 'open' || status === 'expired' || status === 'partial' || status === 'converted' || status === 'lost' || status === 'cancelled' ? status : 'all' };
     }
+    case 'credit-notes':
+      return parts[1] ? { name: 'credit-note', id: decodeURIComponent(parts[1]) } : { name: 'credit-notes' };
     case 'expenses':
       return { name: 'expenses', category: params.get('category') };
     case 'customers':
@@ -104,6 +109,7 @@ export function parseHash(hash: string): Route {
       return { name: 'settings', section: (SETTINGS_SECTIONS as readonly string[]).includes(parts[1] ?? '') ? (parts[1] as SettingsSection) : 'business' };
     case 'print':
       if (parts[1] === 'invoice' && id) return { name: 'print-invoice', id };
+      if (parts[1] === 'credit-note' && id) return { name: 'print-credit-note', id };
       if (parts[1] === 'proforma' && id) return { name: 'print-proforma', id };
       if (parts[1] === 'statement' && id) return { name: 'print-statement', id };
       if (parts[1] === 'receipt' && id) return { name: 'print-receipt', id };
@@ -155,6 +161,9 @@ export const sectionOf = (route: Route): Section => {
     case 'invoices':
     case 'invoice-new':
     case 'invoice':
+    case 'credit-notes':
+    case 'credit-note':
+    case 'print-credit-note':
     case 'print-invoice':
       return 'invoices';
     case 'proformas':
@@ -195,6 +204,8 @@ export const paths = {
   editWeaverOrder: (id: string) => `/inventory/weaver-orders/${encodeURIComponent(id)}/edit`,
   stockTake: '/inventory/stock-take',
   design: (id: string) => `/inventory/designs/${encodeURIComponent(id)}`,
+  creditNotes: '/credit-notes',
+  creditNote: (id: string) => `/credit-notes/${encodeURIComponent(id)}`,
   invoices: (status?: 'open' | 'overdue' | 'cancelled') => (status ? `/invoices?status=${status}` : '/invoices'),
   newInvoice: (customerId?: string, advance?: AdvancePreset) => {
     const q = new URLSearchParams();

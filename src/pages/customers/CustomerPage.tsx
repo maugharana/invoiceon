@@ -101,7 +101,7 @@ export function CustomerPage({ id }: { id: string }) {
         <Figure label="Total billed" sub="Excludes cancelled">
           <Money paise={c.billedPaise} fractionDigits={0} />
         </Figure>
-        <Figure label="Received" sub={ledger.data && ledger.data.writtenOffPaise > 0 ? `Plus ${formatMoney(ledger.data.writtenOffPaise, { fractionDigits: 0 })} written off` : undefined}>
+        <Figure label="Received" sub={[ledger.data && ledger.data.writtenOffPaise > 0 ? `Plus ${formatMoney(ledger.data.writtenOffPaise, { fractionDigits: 0 })} written off` : '', ledger.data && ledger.data.creditedPaise > 0 ? `${formatMoney(ledger.data.creditedPaise, { fractionDigits: 0 })} in credit notes` : ''].filter(Boolean).join(' · ') || undefined}>
           <Money paise={received} fractionDigits={0} />
         </Figure>
         <Figure label="Invoices">{c.invoiceCount}</Figure>
@@ -170,7 +170,7 @@ export function CustomerPage({ id }: { id: string }) {
             </thead>
             <tbody>
               {ledger.data?.entries.map((e, i) => {
-                const reversal = e.kind === 'invoice-cancelled' || e.kind === 'payment-voided';
+                const reversal = e.kind === 'invoice-cancelled' || e.kind === 'payment-voided' || e.kind === 'credit-note-cancelled';
                 const link = e.invoiceId;
                 return (
                   <tr

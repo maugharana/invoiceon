@@ -81,7 +81,7 @@ export function StatementDocument({ ledger, settings }: { ledger: Ledger; settin
             </tr>
           )}
           {ledger.entries.map((e, i) => (
-            <tr key={i} className={`break-inside-avoid border-b border-line align-top ${e.kind === 'invoice-cancelled' || e.kind === 'payment-voided' ? 'text-ink-muted' : ''}`}>
+            <tr key={i} className={`break-inside-avoid border-b border-line align-top ${e.kind === 'invoice-cancelled' || e.kind === 'payment-voided' || e.kind === 'credit-note-cancelled' ? 'text-ink-muted' : ''}`}>
               <td className="num py-1.5 pr-2">{formatDate(e.date)}</td>
               <td className="py-1.5 pr-2">{e.description}</td>
               <td className="num py-1.5 pr-2 text-right">{e.debitPaise ? amount(e.debitPaise) : ''}</td>

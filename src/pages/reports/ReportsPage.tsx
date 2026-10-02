@@ -1,6 +1,6 @@
 import { ChevronRight, Table2 } from 'lucide-react';
 import { Fragment, useState, type ReactNode } from 'react';
-import { gstB2bCsv, gstB2cCsv, gstCsv, gstHsnCsv, salesCsv, stockCsv } from '../../../shared/csv';
+import { gstB2bCsv, gstB2cCsv, gstCreditCsv, gstCsv, gstHsnCsv, salesCsv, stockCsv } from '../../../shared/csv';
 import { formatDate, todayIso } from '../../../shared/gst';
 import { formatMoney } from '../../../shared/money';
 import { PERIOD_LABEL, PERIOD_PRESETS, resolvePeriod, type PeriodPreset, type PeriodSpec } from '../../../shared/periods';
@@ -98,7 +98,7 @@ function SalesTab({ period }: { period: PeriodSpec }) {
   return (
     <>
       <div className="mb-8 grid grid-cols-4 gap-6">
-        <Figure label="Invoiced" sub={`${plural(r.invoiceCount, 'invoice')} · ${formatMoney(r.taxablePaise, { fractionDigits: 0 })} before GST`} highlight>
+        <Figure label="Invoiced" sub={`${plural(r.invoiceCount, 'invoice')} · ${formatMoney(r.taxablePaise, { fractionDigits: 0 })} before GST${r.creditNoteCount > 0 ? ` · ${formatMoney(r.creditedPaise, { fractionDigits: 0 })} taken back on ${plural(r.creditNoteCount, 'credit note')}, ${formatMoney(r.netInvoicedPaise, { fractionDigits: 0 })} net` : ''}`} highlight>
           <Money paise={r.invoicedPaise} fractionDigits={0} />
         </Figure>
         <Figure label="Collected" sub={`${plural(r.paymentCount, 'payment')} received`}>
@@ -283,7 +283,7 @@ function GstTab({ period }: { period: PeriodSpec }) {
         <Figure label="Taxable value" sub={`${plural(t.invoices, 'invoice')}, after discounts`}>
           <Money paise={t.taxablePaise} fractionDigits={0} />
         </Figure>
-        <Figure label="GST collected" sub="CGST + SGST + IGST" highlight>
+        <Figure label="GST collected" sub={r.creditNotes.invoices > 0 ? `${formatMoney(r.creditNotes.taxPaise, { fractionDigits: 0 })} comes off for credit notes: ${formatMoney(r.netTotals.taxPaise, { fractionDigits: 0 })} due` : 'CGST + SGST + IGST'} highlight>
           <Money paise={t.taxPaise} fractionDigits={0} />
         </Figure>
         <Figure label="CGST + SGST" sub={`${formatMoney(t.cgstPaise, { fractionDigits: 0 })} + ${formatMoney(t.sgstPaise, { fractionDigits: 0 })}`}>
@@ -416,6 +416,44 @@ function GstTab({ period }: { period: PeriodSpec }) {
               )}
             </Card>
           </Section>
+
+          {r.creditRegister.length > 0 && (
+            <Section title="Credit notes" note="Goods taken back in this period, a row for each rate. This is what comes off the sales above: the tax due is the GST collected less the tax on these." actions={<ExportButton label="Credit notes CSV" onClick={() => void exportCsv(`GST credit notes ${stamp}.csv`, gstCreditCsv(r))} />}>
+              <Card className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-line">
+                      <th className="th">Credit note</th>
+                      <th className="th">Date</th>
+                      <th className="th">Invoice</th>
+                      <th className="th">Buyer</th>
+                      <th className="th text-right">Rate</th>
+                      <th className="th text-right">Taxable</th>
+                      <th className="th text-right">Tax</th>
+                      <th className="th text-right">Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {r.creditRegister.map((c, i) => (
+                      <tr key={`${c.creditNoteId}${i}`} tabIndex={0} onClick={() => navigate(paths.creditNote(c.creditNoteId))} onKeyDown={(e) => e.key === 'Enter' && navigate(paths.creditNote(c.creditNoteId))} className="cursor-pointer border-b border-line/70 transition-colors duration-150 last:border-0 hover:bg-canvas focus-visible:bg-canvas">
+                        <td className="td num whitespace-nowrap">{c.number}</td>
+                        <td className="td num whitespace-nowrap text-ink-muted">{formatDate(c.date)}</td>
+                        <td className="td num whitespace-nowrap">{c.invoiceNumber}</td>
+                        <td className="td">
+                          {c.customer}
+                          {c.gstin && <div className="num text-xs text-ink-muted">{c.gstin}</div>}
+                        </td>
+                        <td className="td num text-right">{c.ratePercent}%</td>
+                        <td className="td text-right"><Money paise={c.taxablePaise} /></td>
+                        <td className="td text-right"><Money paise={c.cgstPaise + c.sgstPaise + c.igstPaise} /></td>
+                        <td className="td text-right">{c.totalPaise > 0 ? <Money paise={c.totalPaise} /> : <span className="text-ink-muted/50">–</span>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </Card>
+            </Section>
+          )}
 
           <Section title="B2C by state" note="Retail sales roll up by state and rate — no need to list each bill." actions={<ExportButton label="B2C CSV" onClick={() => void exportCsv(`GST B2C ${stamp}.csv`, gstB2cCsv(r))} />}>
             <Card className="overflow-x-auto">
