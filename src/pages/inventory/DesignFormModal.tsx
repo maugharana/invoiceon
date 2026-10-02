@@ -7,9 +7,9 @@ import { SupplierSelect } from './MaterialModals';
 import { Button, ErrorNote, Field, Input, MoneyInput, Textarea } from '../../components/ui';
 import { api, errorMessage } from '../../lib/api';
 import { useQuery, useRefresh } from '../../lib/data';
+import { buildDesignName, DEFAULT_OPTIONS } from '../../../shared/nomenclature';
 import { tagCounts } from '../../../shared/tags';
-
-const FABRICS = ['Pure silk', 'Katan silk', 'Silk blend', 'Cotton silk', 'Cotton', 'Organza', 'Georgette', 'Linen', 'Tissue'];
+import { ChoiceInput } from '../../components/ChoiceInput';
 
 interface Props {
   /** Existing design when editing; omitted when creating. */
@@ -27,6 +27,9 @@ export function DesignFormModal({ design, suggestedCode = '', onClose, onSaved }
   const [name, setName] = useState(design?.name ?? '');
   const [nickname, setNickname] = useState(design?.nickname ?? '');
   const [fabric, setFabric] = useState(design?.fabric ?? '');
+  const [weaveStyle, setWeaveStyle] = useState(design?.weaveStyle ?? '');
+  const [technique, setTechnique] = useState(design?.technique ?? '');
+  const [work, setWork] = useState(design?.work ?? '');
   const [hsn, setHsn] = useState(design?.hsnCode ?? '');
   const [price, setPrice] = useState(design?.defaultPricePaise ?? 0);
   const [gstRate, setGstRate] = useState(design?.gstRatePercent == null ? '' : String(design.gstRatePercent));
@@ -34,6 +37,9 @@ export function DesignFormModal({ design, suggestedCode = '', onClose, onSaved }
   const [tags, setTags] = useState(design?.tags ?? '');
   const [supplierId, setSupplierId] = useState(design?.supplierId ?? '');
   const everything = useQuery(() => api.designsList());
+  const choices = useQuery(() => api.catalogueOptions());
+  const lists = choices.data ?? DEFAULT_OPTIONS;
+  const suggestedName = buildDesignName({ weaveStyle, fabric, technique, work, specialName: nickname.trim() });
   const suggestions = tagCounts((everything.data ?? []).map((d) => d.tags)).map((t) => t.tag);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -43,7 +49,7 @@ export function DesignFormModal({ design, suggestedCode = '', onClose, onSaved }
     setSaving(true);
     setError(null);
     const rate = gstRate.trim() === '' ? null : Number(gstRate);
-    const input = { code, name, nickname: nickname.trim(), fabric, hsnCode: hsn, description, defaultPricePaise: price, gstRatePercent: rate, tags, supplierId: supplierId || null };
+    const input = { code, name, nickname: nickname.trim(), fabric, weaveStyle, technique, work, hsnCode: hsn, description, defaultPricePaise: price, gstRatePercent: rate, tags, supplierId: supplierId || null };
     try {
       const saved = design ? await api.designUpdate(design.id, input) : await api.designCreate(input);
       refresh();
@@ -73,21 +79,30 @@ export function DesignFormModal({ design, suggestedCode = '', onClose, onSaved }
           <Field label="Design code">
             <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="MG-001" />
           </Field>
-          <Field label="Design name">
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Banarasi Katan Kadhua" data-autofocus />
+          <Field label="Design name" hint={name.trim() ? undefined : 'Leave empty to build it from the choices below.'}>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={suggestedName || 'e.g. Banarasi Katan Silk Kadhua Saree'} data-autofocus />
+            {suggestedName && suggestedName !== name.trim() && (
+              <button type="button" onClick={() => setName(suggestedName)} className="mt-1 block text-left text-xs text-brand hover:underline">
+                Use “{suggestedName}”
+              </button>
+            )}
           </Field>
         </div>
-        <Field label="Short name" hint="A special one-word name for this saree, like “Kadhua”. Optional. Search finds it." error={/\s/.test(nickname.trim()) ? 'Use one word, with no spaces' : undefined}>
-          <Input value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="Kadhua" maxLength={20} className="max-w-[12rem]" />
+        <Field label="Special name" hint="Your own one-word name for this saree, like “Lalima”. Optional. It goes last in the full name, and search finds it." error={/\s/.test(nickname.trim()) ? 'Use one word, with no spaces' : undefined}>
+          <Input value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="Lalima" maxLength={20} className="max-w-[12rem]" />
         </Field>
         <div className="grid grid-cols-2 gap-4">
+          <Field label="Weave style">
+            <ChoiceInput options={lists.weaveStyle} value={weaveStyle} onChange={setWeaveStyle} placeholder="Banarasi, Kanjivaram…" aria-label="Weave style" />
+          </Field>
           <Field label="Fabric">
-            <Input value={fabric} onChange={(e) => setFabric(e.target.value)} list="fabric-options" placeholder="Pure silk" />
-            <datalist id="fabric-options">
-              {FABRICS.map((f) => (
-                <option key={f} value={f} />
-              ))}
-            </datalist>
+            <ChoiceInput options={lists.fabric} value={fabric} onChange={setFabric} placeholder="Katan Silk, Georgette…" aria-label="Fabric" />
+          </Field>
+          <Field label="Technique" hint="How it is woven">
+            <ChoiceInput options={lists.technique} value={technique} onChange={setTechnique} placeholder="Kadhua, Phekua…" aria-label="Technique" />
+          </Field>
+          <Field label="Special work" hint="You can pick more than one">
+            <ChoiceInput multi options={lists.work} value={work} onChange={setWork} placeholder="Zardozi, Aari…" aria-label="Special work" />
           </Field>
           <Field label="HSN code" hint="Used on GST invoices">
             <Input value={hsn} onChange={(e) => setHsn(e.target.value)} inputMode="numeric" placeholder="5007" />

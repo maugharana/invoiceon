@@ -7,6 +7,7 @@ import type {
   StockTakeLine,
   StockTakeResult,
   BulkSareeRow,
+  CatalogueOptions,
   Customer,
   AuditEntry,
   AuditQuery,
@@ -150,6 +151,8 @@ export interface Api {
   inventoryBulkAdd(rows: BulkSareeRow[]): Promise<BulkAddResult>;
   /** Adds one saree to the inventory from the invoice screen and returns it ready to put on the invoice. Same rules as the Add sarees sheet. */
   inventoryQuickAdd(row: BulkSareeRow): Promise<SaleVariant>;
+  /** The choices for weave style, fabric, technique, work and colour. */
+  catalogueOptions(): Promise<CatalogueOptions>;
   variantCreate(designId: string, input: VariantInput): Promise<Variant>;
   variantUpdate(id: string, input: VariantInput): Promise<Variant>;
   variantArchive(id: string): Promise<void>;

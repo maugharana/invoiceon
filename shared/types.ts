@@ -321,6 +321,12 @@ export interface DesignSummary {
   /** A special one-word name for the saree, e.g. "Kadhua". Empty when it has none. */
   nickname: string;
   fabric: string;
+  /** How it is woven in the Banarasi sense: Kadhua, Phekua… Empty when not set. */
+  technique: string;
+  /** The weaving tradition: Banarasi, Kanjivaram, Chanderi… Empty when not set. */
+  weaveStyle: string;
+  /** Special work done on it, one or more separated by commas: Zardozi Work, Aari Work. */
+  work: string;
   hsnCode: string;
   description: string;
   defaultPricePaise: Paise;
@@ -356,6 +362,10 @@ export interface DesignInput {
   /** Optional. One word. */
   nickname?: string;
   fabric: string;
+  weaveStyle?: string;
+  technique?: string;
+  /** One or more works, separated by commas. */
+  work?: string;
   hsnCode: string;
   description: string;
   defaultPricePaise: Paise;
@@ -418,7 +428,12 @@ export interface VariantInput {
  * with several colours; a name that matches a design you already have adds the piece to it.
  */
 export interface BulkSareeRow {
+  /** Left blank when weave style, fabric, technique or work is given: the name is then built from them (shared/nomenclature.ts). */
   name: string;
+  weaveStyle?: string;
+  technique?: string;
+  /** One or more works, separated by commas. */
+  work?: string;
   /** The special one-word name. Optional; taken from the first row that has one in each design. */
   nickname?: string;
   /** The Saree ID. Left blank to generate one from the design code, colour and size. */
@@ -1809,3 +1824,6 @@ export interface Notification {
   detail: string;
   link: NotificationLink;
 }
+
+/** The pick lists for entering a saree: what every shop starts with, plus what this shop added or already uses. */
+export type CatalogueOptions = Record<'weaveStyle' | 'fabric' | 'technique' | 'work' | 'colour', string[]>;

@@ -171,4 +171,10 @@ describe('upgrading a book from before raw-material stock and places', () => {
     expect(db.prepare('SELECT COUNT(*) AS n FROM stock_locations').get()).toEqual({ n: 0 }); // nothing is recorded elsewhere
     expect({ ...db.prepare("SELECT stock FROM variants WHERE id = 'v1'").get() }).toEqual({ stock: 7 });
   });
+  it('keeps every existing design as it was, with the new naming fields empty and an empty list of added choices', () => {
+    const db = bookAtVersion11();
+    migrate(db);
+    expect({ ...db.prepare("SELECT name, weave_style, technique, work FROM designs WHERE id = 'd1'").get() }).toEqual({ name: 'Butidar', weave_style: '', technique: '', work: '' });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM catalogue_options').get()).toEqual({ n: 0 });
+  });
 });

@@ -623,6 +623,22 @@ ALTER TABLE designs ADD COLUMN gst_rate_percent REAL;
 `;
 
 // Append new migrations to the end; never edit one that has shipped.
+const V15 = `
+-- What a saree is made of and how, as separate fields, so its full name can be built the same way every time (shared/nomenclature.ts).
+ALTER TABLE designs ADD COLUMN weave_style TEXT NOT NULL DEFAULT '';
+ALTER TABLE designs ADD COLUMN technique TEXT NOT NULL DEFAULT '';
+ALTER TABLE designs ADD COLUMN work TEXT NOT NULL DEFAULT '';
+
+-- Choices the shop added itself (a new technique, a new colour), kept so they appear in the pick lists next time.
+CREATE TABLE catalogue_options (
+  id         TEXT PRIMARY KEY,
+  kind       TEXT NOT NULL,
+  label      TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX ux_catalogue_options ON catalogue_options (kind, label COLLATE NOCASE);
+`;
+
 const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 1, sql: V1 },
   { version: 2, sql: V2 },
@@ -638,6 +654,7 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 12, sql: V12 },
   { version: 13, sql: V13 },
   { version: 14, sql: V14 },
+  { version: 15, sql: V15 },
 ];
 
 /** Brings a database up to date. `upTo` stops early at a version, which only the tests use, to build an older database to upgrade. */

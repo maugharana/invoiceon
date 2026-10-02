@@ -120,6 +120,7 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
     designArchive: async (id) => inventory.archiveDesign(db, id),
 
     inventoryBulkAdd: async (rows) => inventory.bulkAddSarees(db, rows),
+    catalogueOptions: async () => inventory.catalogueOptions(db),
     inventoryQuickAdd: async (row) => {
       const id = inventory.quickAddSaree(db, row);
       const made = invoices.variantsForSale(db).find((v) => v.variantId === id);
