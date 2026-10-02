@@ -273,6 +273,10 @@ The flow for a saree you don't have: customer quote (with a deposit if they pay 
 - **Notifications** (derived, nothing stored): an order that is past its expected day with pieces to come, and a quote whose ordered sarees have all arrived and is ready to invoice. The quote page shows its orders, what is still short, and an Order from weaver button.
 - Not built: weaver price lists, quality returns to a weaver, and raw materials issued to a weaver for job work.
 
+## E-way bill and e-invoice files
+
+On an issued invoice, **Government forms** prepares the JSON file the government's e-way bill portal or e-invoice (IRN) portal takes on upload. InvoiceOn does not issue the e-way bill number or the IRN: those come from the portals. The dialog shows what the portal would reject (missing GSTIN, pincode or HSN, an invoice number over 16 characters, a bad vehicle number) and the Save button stays off until those are fixed. Transport details are typed in the dialog and are not stored. The layouts follow the portals' published formats (e-way bill 1.0.0621, e-invoice schema 1.1); upload one invoice first and check the portal's validator before relying on it. The logic is in `shared/govFiles.ts`.
+
 ## Backup, restore and Google Drive
 
 Code: `electron/backup.ts` (files on this computer, checking and restoring), `electron/drive.ts` (Google), `electron/backupService.ts` (puts them together). Tests: `tests/backup-drive.test.ts`, which includes a stand-in for Google.

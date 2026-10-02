@@ -92,7 +92,8 @@ function createHost(getParent: () => BrowserWindow | null): Host {
       }
     },
     async saveTextFile(fileName, content) {
-      const filePath = await chooseSavePath(getParent(), 'Save report', fileName, { name: 'CSV (opens in Excel)', extensions: ['csv'] });
+      const json = /\.json$/i.test(fileName);
+      const filePath = await chooseSavePath(getParent(), json ? 'Save file' : 'Save report', fileName, json ? { name: 'JSON file', extensions: ['json'] } : { name: 'CSV (opens in Excel)', extensions: ['csv'] });
       if (!filePath) return { saved: false };
       try {
         await writeFile(filePath, content, 'utf8');

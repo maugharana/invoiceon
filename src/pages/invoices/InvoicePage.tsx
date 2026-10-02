@@ -1,4 +1,4 @@
-import { ArrowLeft, Ban, ClipboardCopy, Copy, Download, HandCoins, Mail, MessageCircle, PackageMinus, Printer, Send } from 'lucide-react';
+import { ArrowLeft, Ban, ClipboardCopy, Copy, Download, HandCoins, Mail, MessageCircle, PackageMinus, Printer, Send, FileJson } from 'lucide-react';
 import { useState } from 'react';
 import { formatDate } from '../../../shared/gst';
 import { invoiceMessage, mailtoLink, whatsappLink, whatsappPhone } from '../../../shared/messages';
@@ -17,6 +17,7 @@ import { useQuery, useRefresh } from '../../lib/data';
 import { navigate, paths } from '../../lib/router';
 import { RecordPaymentModal } from '../payments/RecordPaymentModal';
 import { CreditNoteModal } from './CreditNoteModal';
+import { GovFormsModal } from './GovFormsModal';
 import { DeliveryCard } from './DeliveryCard';
 import { InstalmentsCard } from './InstalmentsCard';
 import { WriteOffModal } from './WriteOffModal';
@@ -33,6 +34,7 @@ export function InvoicePage({ id }: { id: string }) {
   const [cancelling, setCancelling] = useState(false);
   const [writingOff, setWritingOff] = useState(false);
   const [takingBack, setTakingBack] = useState(false);
+  const [govForm, setGovForm] = useState<'eway' | 'einvoice' | null>(null);
   const [paying, setPaying] = useState(false);
   const [reason, setReason] = useState('');
 
@@ -134,6 +136,16 @@ ${message.body}`)) ? toast.success('Message copied — paste it anywhere') : toa
                   { label: 'WhatsApp', icon: <MessageCircle className="h-4 w-4" />, onClick: shareWhatsApp, disabledReason: phone ? undefined : 'No phone number saved for this customer' },
                   { label: 'Email', icon: <Mail className="h-4 w-4" />, onClick: shareEmail },
                   { label: 'Copy the message', icon: <ClipboardCopy className="h-4 w-4" />, onClick: () => void copyMessage() },
+                ]}
+              />
+            )}
+            {!cancelled && (
+              <Menu
+                label="Government forms"
+                icon={<FileJson className="h-4 w-4" />}
+                items={[
+                  { label: 'E-way bill file', onClick: () => setGovForm('eway') },
+                  { label: 'E-invoice file', onClick: () => setGovForm('einvoice'), disabledReason: inv.type === 'B2B' ? undefined : 'E-invoices are for business (B2B) invoices' },
                 ]}
               />
             )}
@@ -247,6 +259,7 @@ ${message.body}`)) ? toast.success('Message copied — paste it anywhere') : toa
         </div>
       </div>
 
+      {govForm && <GovFormsModal invoice={inv} kind={govForm} onClose={() => setGovForm(null)} />}
       {takingBack && <CreditNoteModal invoice={inv} customer={customer.data} onClose={() => setTakingBack(false)} />}
       {writingOff && <WriteOffModal invoice={inv} onClose={() => setWritingOff(false)} />}
       {paying && <RecordPaymentModal invoice={inv} customer={customer.data} onClose={() => setPaying(false)} />}
