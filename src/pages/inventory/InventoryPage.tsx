@@ -154,10 +154,10 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
 
       {!isEmptyInventory && untidyCount > 0 && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-surface px-4 py-3">
-          <p className="text-sm text-ink-muted">
+          <p className="min-w-0 flex-1 text-sm text-ink-muted">
             {untidyCount === 1 ? '1 design was' : `${untidyCount} designs were`} named by hand, before names were built from choices. Pick their choices and they get the same name style as every new saree.
           </p>
-          <Button onClick={() => navigate(paths.tidyNames)}>Fix names</Button>
+          <Button className="shrink-0" onClick={() => navigate(paths.tidyNames)}>Fix names</Button>
         </div>
       )}
 

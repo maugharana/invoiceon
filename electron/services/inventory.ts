@@ -27,6 +27,8 @@ import { UserError, isUniqueViolation, newId, nowIso, optionalText, requireInt, 
 
 const MAX_PAISE = 100_000_000_00; // ₹10 crore — a sanity ceiling that catches a stray extra zero.
 const MAX_STOCK = 1_000_000;
+/** A name built from several choices and works can run long: 200 characters leaves room, and it wraps on every screen and on paper. */
+const MAX_NAME = 200;
 
 // ── Row shapes ──────────────────────────────────────────────────────────────
 interface DesignRow {
@@ -336,7 +338,7 @@ function validateDesign(db: Db, input: DesignInput) {
   return {
     supplierId,
     code: requireText(input.code, 'Design code', 30),
-    name: requireText(typed || nameFromChoices({ weaveStyle, fabric, technique, pattern, work, nickname }), 'Design name'),
+    name: requireText(typed || nameFromChoices({ weaveStyle, fabric, technique, pattern, work, nickname }), 'Design name', MAX_NAME),
     nickname,
     fabric,
     weaveStyle,
@@ -560,7 +562,7 @@ export function bulkAddSarees(db: Db, rows: BulkSareeRow[]): BulkAddResult {
     try {
       return {
         i,
-        name: requireText(r.name?.trim() || nameFromChoices({ ...r, nickname: r.nickname }), 'Saree name', 120).replace(/\s+/g, ' '),
+        name: requireText(r.name?.trim() || nameFromChoices({ ...r, nickname: r.nickname }), 'Saree name', MAX_NAME).replace(/\s+/g, ' '),
         nickname: validateNickname(r.nickname ?? ''),
         weaveStyle: optionalText(r.weaveStyle, 'Weave style', 40),
         technique: optionalText(r.technique, 'Technique', 40),

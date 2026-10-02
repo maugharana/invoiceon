@@ -99,3 +99,25 @@ export function guessChoices(name: string, options: Pick<Record<CatalogueKind, r
   const work = found(options.work).join(', ');
   return { weaveStyle, technique, pattern, work };
 }
+
+/** The five choices that describe a saree apart from its colour and its special name. */
+export interface Choices {
+  weaveStyle: string;
+  fabric: string;
+  technique: string;
+  pattern: string;
+  work: string;
+}
+
+const key = (c: Choices) =>
+  [c.weaveStyle, c.fabric, c.technique, c.pattern, splitWorks(c.work).map((w) => w.toLowerCase()).sort().join(',')].map((v) => clean(v).toLowerCase()).join('|');
+
+/**
+ * Designs that are the same saree as the choices given, apart from the special name: a colour added to the wrong one of these would
+ * start a second design for what is really one saree. Designs with no choices at all are never matched, they say nothing to compare.
+ */
+export function sameChoices<T extends Choices>(designs: readonly T[], choices: Choices): T[] {
+  const k = key(choices);
+  if (k === '||||') return [];
+  return designs.filter((d) => key(d) === k);
+}

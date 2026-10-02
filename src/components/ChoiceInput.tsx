@@ -1,7 +1,7 @@
 import { Check, Plus, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { splitWorks } from '../../shared/nomenclature';
-import { matchesAll } from '../../shared/search';
+import { closeMatches, matchesAll } from '../../shared/search';
 
 interface Props {
   options: readonly string[];
@@ -27,7 +27,9 @@ export function ChoiceInput({ options, value, onChange, placeholder, multi = fal
   const typed = q.replace(/\s+/g, ' ').trim();
   const results = useMemo(() => options.filter((o) => matchesAll(o, typed)).slice(0, 60), [options, typed]);
   const canAdd = allowNew && typed !== '' && !options.some((o) => o.toLowerCase() === typed.toLowerCase());
-  const rows = canAdd ? [...results, typed] : results;
+  // A typed text that looks like a slip for a choice already in the list: offered first, so a typo doesn't become a new choice.
+  const similar = useMemo(() => (allowNew ? closeMatches(typed, options).filter((o) => !results.includes(o)) : []), [allowNew, typed, options, results]);
+  const rows = [...similar, ...results, ...(canAdd ? [typed] : [])];
   const isChosen = (o: string) => chosen.some((c) => c.toLowerCase() === o.toLowerCase());
 
   function choose(option: string) {
@@ -100,12 +102,13 @@ export function ChoiceInput({ options, value, onChange, placeholder, multi = fal
         <ul role="listbox" onMouseDown={(e) => e.preventDefault()} className="animate-pop-in absolute z-30 mt-1.5 max-h-56 w-full overflow-y-auto rounded-lg border border-line bg-surface py-1 shadow-overlay">
           {rows.map((o, i) => {
             const isNew = canAdd && i === rows.length - 1;
+            const isSimilar = i < similar.length;
             return (
               <li key={`${i}-${o}`} role="option" aria-selected={isChosen(o)}>
                 <button type="button" onClick={() => choose(o)} onMouseEnter={() => setActive(i)} className={`flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left ${isNew ? 'border-t border-line text-brand' : ''} ${i === active ? 'bg-brand-tint' : ''}`}>
                   <span className="flex items-center gap-2">
                     {isNew && <Plus className="h-4 w-4" aria-hidden />}
-                    {isNew ? `Add “${o}”` : o}
+                    {isNew ? `Add “${o}”` : isSimilar ? <>Did you mean <span className="text-brand">{o}</span>?</> : o}
                   </span>
                   {isChosen(o) && <Check className="h-4 w-4 text-brand" aria-hidden />}
                 </button>

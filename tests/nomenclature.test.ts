@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createApi } from '../electron/api';
 import { openDb, type Db } from '../electron/db/connection';
-import { buildDesignName, buildPieceTitle, DEFAULT_OPTIONS, splitWorks } from '../shared/nomenclature';
+import { buildDesignName, buildPieceTitle, DEFAULT_OPTIONS, sameChoices, splitWorks } from '../shared/nomenclature';
+import { closeMatches, editDistance } from '../shared/search';
 import type { BulkSareeRow } from '../shared/types';
 
 describe('saree names', () => {
@@ -139,5 +140,54 @@ describe('pick lists', () => {
     const o = await api.catalogueOptions();
     expect(o.fabric).toContain('Moonga Blend');
     expect(o.colour).toContain('Sandstone');
+  });
+});
+
+describe('catching slips and look alike designs', () => {
+  it('measures how far apart two spellings are', () => {
+    expect(editDistance('Kadhua', 'kadhwa')).toBe(1);
+    expect(editDistance('Zardozi', 'Zardosi')).toBe(1);
+    expect(editDistance('same', 'SAME')).toBe(0);
+  });
+
+  it('offers the choice a typed text is probably a slip for, nearest first', () => {
+    expect(closeMatches('Kadhwa', DEFAULT_OPTIONS.technique)).toEqual(['Kadhua']);
+    expect(closeMatches('Banarsi', DEFAULT_OPTIONS.weaveStyle)).toEqual(['Banarasi']);
+    expect(closeMatches('Phekwa', DEFAULT_OPTIONS.technique)).toContain('Phekua');
+  });
+
+  it('does not call the exact text, a very short text or something far off a slip', () => {
+    expect(closeMatches('kadhua', DEFAULT_OPTIONS.technique)).toEqual([]);
+    expect(closeMatches('Ikt', DEFAULT_OPTIONS.technique)).toEqual([]);
+    expect(closeMatches('Zebra Stripe', DEFAULT_OPTIONS.pattern)).toEqual([]);
+  });
+
+  const choices = { weaveStyle: 'Banarasi', fabric: 'Katan Silk', technique: 'Kadhua', pattern: 'Jaal', work: 'Zardozi Work, Aari Work' };
+  const designs = [
+    { ...choices, code: 'MG-1', nickname: 'Lalima' },
+    { ...choices, technique: 'Phekua', code: 'MG-2', nickname: '' },
+    { weaveStyle: '', fabric: '', technique: '', pattern: '', work: '', code: 'MG-3', nickname: 'Old' },
+  ];
+
+  it('finds designs that are the same saree under another special name, ignoring capitals and the order of works', () => {
+    expect(sameChoices(designs, { ...choices, weaveStyle: 'banarasi', work: 'aari work, Zardozi Work' }).map((d) => d.code)).toEqual(['MG-1']);
+    expect(sameChoices(designs, { ...choices, technique: 'Phekua' }).map((d) => d.code)).toEqual(['MG-2']);
+  });
+
+  it('never matches on no choices at all', () => {
+    expect(sameChoices(designs, { weaveStyle: '', fabric: '', technique: '', pattern: '', work: '' })).toEqual([]);
+  });
+});
+
+const design201 = () => ({ code: 'MG-949', name: 'x'.repeat(201), fabric: '', hsnCode: '', description: '', defaultPricePaise: 0 });
+
+describe('long names', () => {
+  it('allows a name built from many choices, up to 200 characters, and no more', async () => {
+    const api = createApi(db);
+    const long = await api.inventoryQuickAdd(row({ work: 'Zardozi Work, Aari Work, Gota Patti Work, Mirror Work', pattern: 'Jaal', nickname: 'Rang Bahar Wedding Collection' }));
+    expect(long.designName.length).toBeGreaterThan(120);
+    expect(long.designName.length).toBeLessThanOrEqual(200);
+    await expect(api.designCreate(design201())).rejects.toThrow(/Design name is too long/);
+    expect((await api.designCreate({ ...design201(), code: 'MG-950', name: 'y'.repeat(200) })).name).toHaveLength(200);
   });
 });

@@ -1,7 +1,7 @@
 import { AlertTriangle, ArrowLeft, ClipboardPaste, Copy, Plus, Trash2 } from 'lucide-react';
 import { useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react';
 import { parseMoney } from '../../../shared/money';
-import { buildDesignName, buildPieceTitle, DEFAULT_OPTIONS, splitWorks } from '../../../shared/nomenclature';
+import { buildDesignName, buildPieceTitle, DEFAULT_OPTIONS, sameChoices, splitWorks } from '../../../shared/nomenclature';
 import type { BulkSareeRow } from '../../../shared/types';
 import { useToast } from '../../components/Toast';
 import { Button, Card, ErrorNote, Money, PageHeader } from '../../components/ui';
@@ -329,6 +329,7 @@ export function AddSareesPage() {
               const key = norm(designNameOf(r));
               const title = buildPieceTitle({ weaveStyle: r.weaveStyle, fabric: r.fabric, technique: r.technique, pattern: r.pattern, work: r.work, specialName: r.nickname }, r.color);
               const match = key ? existing.get(key) : undefined;
+              const lookalike = !match && !r.name.trim() ? sameChoices(designs.data ?? [], r)[0] : undefined;
               const firstOfName = key ? rows.findIndex((x) => norm(designNameOf(x)) === key) === index : false;
               return (
                 <RowFragment key={r.id}>
@@ -364,6 +365,11 @@ export function AddSareesPage() {
                         {c.field === 'weaveStyle' && key && (
                           <div className="px-2.5 pb-1.5 text-[11px] leading-tight text-ink-muted">
                             {match ? <span className="text-brand">Adds to {match.code}</span> : firstOfName ? 'New saree' : 'Same saree as above'}
+                            {lookalike && (
+                              <span className="block text-status-partial-fg" title={`${lookalike.code} has the same choices${lookalike.nickname ? ` with the special name “${lookalike.nickname}”` : ' and no special name'}. This row starts a separate design.`}>
+                                Like {lookalike.code}, other special name
+                              </span>
+                            )}
                             {!r.name.trim() && title && <span className="block truncate" title={title}>{title}</span>}
                           </div>
                         )}

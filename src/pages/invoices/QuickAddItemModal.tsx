@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { buildPieceTitle, DEFAULT_OPTIONS } from '../../../shared/nomenclature';
+import { buildDesignName, buildPieceTitle, DEFAULT_OPTIONS, sameChoices } from '../../../shared/nomenclature';
 import type { BulkSareeRow, SaleVariant } from '../../../shared/types';
 import { ChoiceInput } from '../../components/ChoiceInput';
 import { Modal } from '../../components/Modal';
@@ -15,6 +15,7 @@ import { toNumber } from '../../lib/format';
  */
 export function QuickAddItemModal({ initialName, quote, onClose, onAdded }: { initialName: string; quote: boolean; onClose: () => void; onAdded: (v: SaleVariant) => void }) {
   const options = useQuery(() => api.catalogueOptions());
+  const designs = useQuery(() => api.designsList());
   const lists = options.data ?? DEFAULT_OPTIONS;
 
   // What was typed in the item box is a weave style when it matches one (Banarasi), otherwise the saree's special name.
@@ -39,6 +40,13 @@ export function QuickAddItemModal({ initialName, quote, onClose, onAdded }: { in
   const [error, setError] = useState<string | null>(null);
 
   const title = useMemo(() => buildPieceTitle({ weaveStyle, fabric, technique, pattern, work, specialName: nickname }, color), [weaveStyle, fabric, technique, pattern, work, nickname, color]);
+  // The design this piece would join: the one with exactly this name, or ones that are the same saree under a different special name.
+  const designName = buildDesignName({ weaveStyle, fabric, technique, pattern, work, specialName: nickname });
+  const joins = designName ? (designs.data ?? []).find((d) => d.name.toLowerCase() === designName.toLowerCase()) : undefined;
+  const lookalikes = useMemo(
+    () => (joins ? [] : sameChoices(designs.data ?? [], { weaveStyle, fabric, technique, pattern, work })),
+    [joins, designs.data, weaveStyle, fabric, technique, pattern, work],
+  );
   const pieces = toNumber(stock);
   const problem = !weaveStyle.trim() ? 'Choose the weave style.' : !color.trim() ? 'Choose the colour.' : !size.trim() ? 'Enter the size.' : price <= 0 ? 'Enter the selling price.' : !Number.isInteger(pieces) || pieces < 0 ? 'Pieces in stock should be a whole number, 0 or more.' : null;
 
@@ -105,6 +113,31 @@ export function QuickAddItemModal({ initialName, quote, onClose, onAdded }: { in
           <div className="text-xs text-ink-muted">Full name, as it will be saved</div>
           <div className="mt-0.5 text-sm">{title || <span className="text-ink-muted">Pick the weave style and colour to see it.</span>}</div>
         </div>
+        {joins && (
+          <p className="rounded-lg bg-brand-tint px-3 py-2 text-sm text-brand">
+            You already have this design ({joins.code}). This colour is added to it.
+          </p>
+        )}
+        {lookalikes.length > 0 && (
+          <div className="rounded-lg border border-line bg-status-partial-bg px-3 py-2 text-sm text-status-partial-fg">
+            <p>
+              {lookalikes.length === 1 ? 'You already have a design with these choices' : `You already have ${lookalikes.length} designs with these choices`}, under a different special name. Adding this makes a separate design.
+            </p>
+            <ul className="mt-1 space-y-1">
+              {lookalikes.slice(0, 3).map((d) => (
+                <li key={d.id} className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="min-w-0 truncate">
+                    <span className="num mr-1.5">{d.code}</span>
+                    {d.nickname ? `special name “${d.nickname}”` : 'no special name'}
+                  </span>
+                  <button type="button" onClick={() => setNickname(d.nickname)} className="shrink-0 underline underline-offset-2 hover:no-underline">
+                    Use {d.nickname ? `“${d.nickname}”` : 'no special name'} and add to {d.code}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <div className="grid grid-cols-4 gap-3">
           <Field label="Size">
             <Input value={size} onChange={(e) => setSize(e.target.value)} maxLength={30} />
