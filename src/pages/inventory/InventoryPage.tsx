@@ -1,7 +1,7 @@
 import { Boxes, ChevronRight, ClipboardCheck, Download, MapPin, Plus, SearchX, SlidersHorizontal } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { designsCsv } from '../../../shared/csv';
-import { MARGIN_LABEL, NO_FILTERS, SOLD_LABEL, applyDesignFilters, fabricsOf, filtersActive, type DesignFilters, type MarginBand, type SoldBand } from '../../../shared/designFilters';
+import { MARGIN_LABEL, NO_FILTERS, SOLD_LABEL, applyDesignFilters, choicesOf, fabricsOf, filtersActive, type DesignFilters, type MarginBand, type SoldBand } from '../../../shared/designFilters';
 import { formatDate, todayIso } from '../../../shared/gst';
 import { formatMoney } from '../../../shared/money';
 import { tagCounts } from '../../../shared/tags';
@@ -55,6 +55,7 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
   const everyDesign = useQuery(() => api.designsList());
   const untidyCount = (everyDesign.data ?? []).filter(isUntidy).length;
   const fabrics = useMemo(() => fabricsOf(everything.data ?? []), [everything.data]);
+  const choice = useMemo(() => ({ weaveStyle: choicesOf(everything.data ?? [], 'weaveStyle'), technique: choicesOf(everything.data ?? [], 'technique'), pattern: choicesOf(everything.data ?? [], 'pattern'), work: choicesOf(everything.data ?? [], 'work') }), [everything.data]);
   const tagList = useMemo(() => tagCounts((everything.data ?? []).map((d) => d.tags)), [everything.data]);
 
   const shown = useMemo(() => {
@@ -202,7 +203,7 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
 
           {showFilters && (
             <Card className="animate-fade-in mb-4 p-4">
-              <div className="grid grid-cols-6 items-end gap-4">
+              <div className="grid grid-cols-6 items-end gap-x-4 gap-y-3">
                 <Field label="Tag">
                   <Select value={columns.tag} onChange={(e) => setColumn('tag', e.target.value)}>
                     <option value="">Any tag</option>
@@ -213,6 +214,27 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
                     ))}
                   </Select>
                 </Field>
+                {(
+                  [
+                    ['weaveStyle', 'Weave style', 'Any weave style'],
+                    ['technique', 'Technique', 'Any technique'],
+                    ['pattern', 'Pattern', 'Any pattern'],
+                    ['work', 'Special work', 'Any work'],
+                  ] as const
+                ).map(([field, label, any]) =>
+                  choice[field].length > 0 ? (
+                    <Field key={field} label={label}>
+                      <Select value={columns[field]} onChange={(e) => setColumn(field, e.target.value)}>
+                        <option value="">{any}</option>
+                        {choice[field].map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                  ) : null,
+                )}
                 <Field label="Fabric">
                   <Select value={columns.fabric} onChange={(e) => setColumn('fabric', e.target.value)}>
                     <option value="">Any fabric</option>

@@ -1545,7 +1545,9 @@ export interface ProfitAndLoss extends ProfitLossFigures {
   lastYear: (ProfitLossFigures & { range: { from: string; to: string } }) | null;
 }
 
-export type MarginBy = 'design' | 'colour' | 'customer';
+/** What the margin report groups by. A saree with several works counts under each of them, so work rows can add up to more than the total. */
+export type MarginBy = 'design' | 'colour' | 'customer' | 'weaveStyle' | 'fabric' | 'technique' | 'pattern' | 'work';
+export const MARGIN_BY_LABEL: Record<MarginBy, string> = { design: 'Design', colour: 'Colour', customer: 'Customer', weaveStyle: 'Weave style', fabric: 'Fabric', technique: 'Technique', pattern: 'Pattern', work: 'Special work' };
 
 export interface MarginRow {
   /** Stable key, used to ask for the invoice lines behind the row. */

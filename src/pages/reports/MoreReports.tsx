@@ -4,7 +4,7 @@ import { accountBookCsv, dayBookCsv, marginCsv, movementCsv, moversCsv, profitLo
 import { formatDate } from '../../../shared/gst';
 import { formatMoney } from '../../../shared/money';
 import { resolvePeriod, type PeriodSpec } from '../../../shared/periods';
-import { PAYMENT_METHOD_LABEL, type DayBookMode, type MarginBy, type MoverClass } from '../../../shared/types';
+import { MARGIN_BY_LABEL, PAYMENT_METHOD_LABEL, type DayBookMode, type MarginBy, type MoverClass } from '../../../shared/types';
 import { Card, EmptyState, ErrorNote, Figure, Money, Pill, Segmented, Spinner, type PillTone } from '../../components/ui';
 import { api } from '../../lib/api';
 import { useQuery } from '../../lib/data';
@@ -114,7 +114,7 @@ export function ProfitTab({ period }: { period: PeriodSpec }) {
 }
 
 // ── Margin: by design, colour or customer, with drill-down ──────────────────
-const BY_LABEL: Record<MarginBy, string> = { design: 'Design', colour: 'Colour', customer: 'Customer' };
+const BY_LABEL = MARGIN_BY_LABEL;
 
 export function MarginTab({ period }: { period: PeriodSpec }) {
   const exportCsv = useReportExport();

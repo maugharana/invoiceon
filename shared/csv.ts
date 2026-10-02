@@ -1,7 +1,7 @@
 import { INVOICE_STATUS_LABEL } from './gst';
 import { STOCK_STATUS_LABEL } from './stock';
 import type { AccountBook, Customer, DayBook, DesignSummary, PurchasesReport, QuotesReport, DuesReport, Expense, ExpensesBreakdown, MarginReport, MoversReport, ProfitAndLoss, StockMovementReport, StockMovementRow, GstReport, InvoiceSummary, Payment, ProformaSummary, SalesReport, StockReport } from './types';
-import { PAYMENT_METHOD_LABEL, PROFORMA_STATUS_LABEL } from './types';
+import { MARGIN_BY_LABEL, PAYMENT_METHOD_LABEL, PROFORMA_STATUS_LABEL } from './types';
 
 type Row = (string | number)[];
 
@@ -190,7 +190,7 @@ export function profitLossCsv(r: ProfitAndLoss): string {
 }
 
 export function marginCsv(r: MarginReport): string {
-  const by = { design: 'Design', colour: 'Colour', customer: 'Customer' }[r.by];
+  const by = MARGIN_BY_LABEL[r.by];
   return toCsv([
     [`Margin by ${by.toLowerCase()}`, `${r.range.from} to ${r.range.to}`],
     [],
