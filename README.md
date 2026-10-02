@@ -42,6 +42,10 @@ freshly extracted files. If you hit it, exclude that cache folder from real-time
 elevated terminal, then re-run. `electronDist` in `package.json` already reuses the installed Electron so the
 main app payload isn't downloaded a second time. No app icon is set yet (default Electron icon) — a polish-stage item.
 
+## Automatic checks
+
+`.github/workflows/checks.yml` runs on every pull request and on `main`: `npm run typecheck`, `npm test` and `npm run build` on Linux with Node 22 (no Electron download). A red check on a pull request means one of those fails locally too.
+
 ## Stack
 
 - **Electron 44** shell, **React 19 + TypeScript + Tailwind 3** UI, bundled with **Vite**; main process bundled with esbuild.
