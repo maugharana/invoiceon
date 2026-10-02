@@ -1,5 +1,6 @@
 import { INVOICE_STATUS_LABEL } from './gst';
 import { STOCK_STATUS_LABEL } from './stock';
+import type { WebsiteListing } from './websiteText';
 import type { AccountBook, Customer, DayBook, DesignSummary, PurchasesReport, QuotesReport, DuesReport, Expense, ExpensesBreakdown, MarginReport, MoversReport, ProfitAndLoss, StockMovementReport, StockMovementRow, GstReport, InvoiceSummary, Payment, ProformaSummary, SalesReport, StockReport } from './types';
 import { MARGIN_BY_LABEL, PAYMENT_METHOD_LABEL, PROFORMA_STATUS_LABEL } from './types';
 
@@ -294,4 +295,28 @@ export function receivablesCsv(d: DuesReport): string {
     ...d.rows.map((r) => [r.customerName, r.openInvoices, r.oldestDueDate ?? '', rs(r.currentPaise), rs(r.days1to30Paise), rs(r.days31to60Paise), rs(r.days61plusPaise), rs(r.outstandingPaise), rs(r.advancePaise)]),
     ['Total', '', '', rs(d.currentPaise), rs(d.days1to30Paise), rs(d.days31to60Paise), rs(d.days61plusPaise), rs(d.outstandingPaise), rs(d.advanceHeldPaise)],
   ]);
+}
+
+// ── Website ─────────────────────────────────────────────────────────────────
+const html = (t: string): string => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/**
+ * The designs as a product import for an online shop, in the column layout Shopify's importer reads: one row per variant, with the
+ * product's own details on its first row. Products come in as drafts, so nothing goes live until it has been looked over. Prices are
+ * what the shopper pays (the printed price, or the selling price plus GST), and the colour and length are the variant options.
+ */
+export function websiteCsv(listings: WebsiteListing[], shop: { name: string }): string {
+  const header = ['Handle', 'Title', 'Body (HTML)', 'Vendor', 'Product Category', 'Type', 'Tags', 'Published', 'Option1 Name', 'Option1 Value', 'Option2 Name', 'Option2 Value', 'Variant SKU', 'Variant Inventory Tracker', 'Variant Inventory Qty', 'Variant Inventory Policy', 'Variant Fulfillment Service', 'Variant Price', 'Variant Requires Shipping', 'Variant Taxable', 'SEO Title', 'SEO Description', 'Status'];
+  const rows: Row[] = [header];
+  for (const l of listings) {
+    const body = [...l.paragraphs.map((p) => `<p>${html(p)}</p>`), `<ul>${l.details.map((d) => `<li><strong>${html(d.label)}:</strong> ${html(d.value)}</li>`).join('')}</ul>`].join('');
+    l.variants.forEach((v, i): void => {
+      rows.push(
+        i === 0
+          ? [l.handle, l.title, body, shop.name, 'Apparel & Accessories > Clothing > Traditional & Ceremonial Clothing > Saris & Lehengas', 'Saree', l.tags.join(', '), 'FALSE', 'Colour', v.colour, 'Length', v.size, v.sku, 'shopify', v.stock, 'deny', 'manual', rs(v.pricePaise), 'TRUE', 'TRUE', l.seoTitle, l.seoDescription, 'draft']
+          : [l.handle, '', '', '', '', '', '', '', '', v.colour, '', v.size, v.sku, 'shopify', v.stock, 'deny', 'manual', rs(v.pricePaise), 'TRUE', 'TRUE', '', '', ''],
+      );
+    });
+  }
+  return toCsv(rows);
 }

@@ -1,3 +1,4 @@
+import type { WebsiteListing } from './websiteText';
 import type { Paise } from './money';
 import type {
   BulkAddResult,
@@ -162,6 +163,8 @@ export interface Api {
   exportSaveZip(fileName: string, base64: string): Promise<{ saved: boolean; path?: string }>;
   /** A new design copied from this one: same details, and a copy of each variant with its price and raw-material costing, but no stock. */
   designDuplicate(id: string): Promise<DesignDetail>;
+  /** Every design as web page text and shop-import data: title, search text, description, tags and prices (see shared/websiteText.ts). */
+  websiteListings(): Promise<WebsiteListing[]>;
 
   /** Adds many sarees at once. All or nothing: if any row has a problem, none are added and the problems come back per row. */
   inventoryBulkAdd(rows: BulkSareeRow[]): Promise<BulkAddResult>;

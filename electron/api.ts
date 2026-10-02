@@ -13,6 +13,7 @@ import * as customers from './services/customers';
 import * as instalments from './services/instalments';
 import { dashboardNow, dashboardOverview } from './services/dashboard';
 import { festivalComparison } from './services/festival';
+import { buildListing } from '../shared/websiteText';
 import * as bulk from './services/bulk';
 import * as creditNotes from './services/creditNotes';
 import * as catalogue from './services/catalogue';
@@ -110,6 +111,10 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
     designCreate: async (input) => inventory.createDesign(db, input),
     designUpdate: async (id, input) => inventory.updateDesign(db, id, input),
     variantPriceHistory: async (variantId) => inventory.variantPriceHistory(db, variantId),
+    websiteListings: async () => {
+      const shop = { name: settings.getSettings(db).businessName, gstRatePercent: settings.getSettings(db).gstRatePercent };
+      return inventory.listDesigns(db).map((d) => buildListing(inventory.getDesign(db, d.id), shop));
+    },
     designDuplicate: async (id) => inventory.duplicateDesign(db, id),
     designRestore: async (id) => inventory.restoreDesign(db, id),
     designsBulk: async (action) => bulk.bulkChangeDesigns(db, action),

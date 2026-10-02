@@ -220,6 +220,15 @@ Migrations 8 to 13. Each has an upgrade test (`tests/upgrade.test.ts`) that buil
 
 Not built, on purpose: photos, barcodes/QR labels, e-invoice/e-way bill, users and roles, auto-update, production orders and job work (orders to a weaver for finished sarees are built, see Weaver orders). Sync/teams are planned for InvoiceOn Plus.
 
+## Website text
+
+Code: `shared/websiteText.ts`, `src/pages/inventory/WebsiteTextModal.tsx`, `websiteCsv` in `shared/csv.ts`, `tests/website-text.test.ts`. On a design, **Website text** gives the words for its page, built only from what is recorded about it:
+
+- the product name (the same as the saree's built name), a **search result** (title about 60 characters, description about 155, so the searched words come first and nothing is cut off), a **description** (the choices in a sentence, what each weave style, technique, pattern and work means, the colours and lengths, and a care line for silk and zari), **details**, **tags**, a web address ending, and **schema.org Product data** (JSON) with each colour as an offer, in stock or not, for search engines and AI assistants.
+- It claims nothing the choices don't say: no "handwoven", no weaver, no blouse piece. The dialog says to read it and add those. The meanings come from a table in the file, kept to facts that are well established (where a weave comes from, what a technique or work is); a choice with no entry just has no sentence.
+- **Prices** are what the shopper pays: the printed MRP when there is one, otherwise the selling price plus GST at the design's rate or the shop's usual.
+- **Website CSV** on Inventory exports every design as a product import in the column layout Shopify reads: one row per colour and length, product details on the first row only, and every product as a **draft**, so nothing goes live unreviewed. Check the product category against your shop's list before importing.
+
 ## Credit notes and returns
 
 Code: `electron/services/creditNotes.ts`, migration 18, `src/pages/invoices/CreditNote*.tsx`, `src/components/CreditNoteDocument.tsx`, `tests/credit-notes.test.ts`. On an issued invoice, **Take goods back** makes a credit note; all of them are under Invoices → Credit notes.

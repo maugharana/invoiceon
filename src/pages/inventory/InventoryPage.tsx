@@ -1,6 +1,6 @@
-import { Boxes, ChevronRight, ClipboardCheck, Download, MapPin, Plus, SearchX, SlidersHorizontal } from 'lucide-react';
+import { Boxes, ChevronRight, ClipboardCheck, Download, Globe, MapPin, Plus, SearchX, SlidersHorizontal } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { designsCsv } from '../../../shared/csv';
+import { designsCsv, websiteCsv } from '../../../shared/csv';
 import { MARGIN_LABEL, NO_FILTERS, SOLD_LABEL, applyDesignFilters, choicesOf, fabricsOf, filtersActive, type DesignFilters, type MarginBand, type SoldBand } from '../../../shared/designFilters';
 import { formatDate, todayIso } from '../../../shared/gst';
 import { formatMoney } from '../../../shared/money';
@@ -131,6 +131,24 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
           {!isEmptyInventory && (
             <Button icon={<Download className="h-4 w-4" />} disabled={shown.length === 0} onClick={() => void saveCsv(`designs-${todayIso()}.csv`, designsCsv(shown), 'Designs saved')} title="Save the designs shown as a spreadsheet">
               Export CSV
+            </Button>
+          )}
+          {!isEmptyInventory && (
+            <Button
+              icon={<Globe className="h-4 w-4" />}
+              onClick={() =>
+                void (async () => {
+                  try {
+                    const [listings, shop] = await Promise.all([api.websiteListings(), api.getSettings()]);
+                    await saveCsv(`website-products-${todayIso()}.csv`, websiteCsv(listings, { name: shop.businessName }), 'Product file saved. Import it as drafts in your online shop.');
+                  } catch (err) {
+                    toast.error(errorMessage(err));
+                  }
+                })()
+              }
+              title="Every design as a product import for an online shop, as drafts"
+            >
+              Website CSV
             </Button>
           )}
           <Button onClick={() => setAdding(true)}>Add one design</Button>
