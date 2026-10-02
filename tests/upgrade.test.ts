@@ -192,4 +192,12 @@ describe('upgrading a book from before raw-material stock and places', () => {
     expect(db.prepare('SELECT COUNT(*) AS n FROM users').get()).toEqual({ n: 0 });
     expect({ ...db.prepare("SELECT actor FROM audit_log WHERE id = 'a1'").get() }).toEqual({ actor: '' });
   });
+  it('adds barcodes, quote holds, production orders, loyalty and wishlists to a book that already has sign-in and credit notes', () => {
+    const db = bookAtVersion11();
+    migrate(db, 20);
+    migrate(db);
+    for (const t of ['production_orders', 'production_materials', 'production_receipts', 'loyalty_points', 'wishlist', 'credit_notes', 'users']) expect(db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get()).toEqual({ n: 0 });
+    expect({ ...db.prepare("SELECT stock, barcode FROM variants WHERE id = 'v1'").get() }).toEqual({ stock: 7, barcode: '' });
+    expect((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(23);
+  });
 });

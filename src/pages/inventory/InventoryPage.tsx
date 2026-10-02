@@ -29,21 +29,6 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
   const refresh = useRefresh();
   const saveCsv = useCsvExport();
   const [filter, setFilter] = useState<Filter>(initialFilter);
-  const [view, setView] = useState<'list' | 'grid'>(() => {
-    try {
-      return localStorage.getItem('invoiceon.inventory.view') === 'grid' ? 'grid' : 'list';
-    } catch {
-      return 'list';
-    }
-  });
-  const chooseView = (v: 'list' | 'grid') => {
-    setView(v);
-    try {
-      localStorage.setItem('invoiceon.inventory.view', v);
-    } catch {
-      /* the choice just isn't remembered */
-    }
-  };
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
   const [adding, setAdding] = useState(false);
@@ -97,8 +82,6 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
     }
   }, [designs.data, columns, sort.key, sort.dir]);
   const pager = usePager(shown);
-  const coverIds = pager.pageItems.map((d) => d.id);
-  const covers = useQuery(() => (coverIds.length ? api.photoCovers('design', coverIds) : Promise.resolve({} as Record<string, string>)), [coverIds.join(',')]);
   const pageAllPicked = pager.pageItems.length > 0 && pager.pageItems.every((d) => picked.has(d.id));
   const togglePick = (id: string) =>
     setPicked((s) => {
@@ -228,8 +211,6 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
                 Filters{active ? ' · on' : ''}
               </Button>
             </div>
-            <div className="flex items-center gap-3">
-            <Segmented label="View" value={view} onChange={chooseView} options={[{ value: 'list', label: 'List' }, { value: 'grid', label: 'Pictures' }]} />
             <Segmented
               label="Stock filter"
               value={filter}
@@ -240,7 +221,6 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
                 { value: 'out', label: 'Out of stock', count: s?.outOfStockDesigns },
               ]}
             />
-            </div>
           </div>
 
           {showFilters && (
@@ -380,27 +360,6 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
                   </Button>
                 }
               />
-            ) : view === 'grid' ? (
-              <ul className="grid grid-cols-2 gap-4 p-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-                {pager.pageItems.map((d) => (
-                  <li key={d.id}>
-                    <a href={`#${paths.design(d.id)}`} className="group block overflow-hidden rounded-lg border border-line bg-surface transition-shadow duration-150 hover:shadow-card">
-                      <div className="flex aspect-square items-center justify-center bg-canvas">
-                        {covers.data?.[d.id] ? <img src={covers.data[d.id]} alt="" className="h-full w-full object-cover" /> : <span className="px-3 text-center text-xs text-ink-muted">No picture yet</span>}
-                      </div>
-                      <div className="space-y-1 p-3">
-                        <div className="truncate">{d.name}</div>
-                        <div className="truncate text-xs text-ink-muted">{[d.nickname, d.code].filter(Boolean).join(' · ')}</div>
-                        <div className="flex items-center justify-between pt-1">
-                          <span className="num text-xs text-ink-muted">{d.totalStock} in stock</span>
-                          <StockPill status={d.status} />
-                        </div>
-                        <div className="num text-sm">{d.maxPricePaise === 0 ? <span className="text-ink-muted">—</span> : d.minPricePaise === d.maxPricePaise ? formatMoney(d.minPricePaise, { fractionDigits: 0 }) : `${formatMoney(d.minPricePaise, { fractionDigits: 0 })} – ${formatMoney(d.maxPricePaise, { fractionDigits: 0 })}`}</div>
-                      </div>
-                    </a>
-                  </li>
-                ))}
-              </ul>
             ) : (
               <table className="w-full">
                 <thead>

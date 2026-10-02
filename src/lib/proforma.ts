@@ -31,8 +31,6 @@ export function proformaAsInvoice(p: Proforma): Invoice {
     intraState: p.intraState,
     subtotalPaise: p.subtotalPaise,
     lineDiscountPaise: p.lineDiscountPaise,
-    credits: [],
-    creditedPaise: 0,
     taxByRate: p.taxByRate,
     discountPaise: p.discountPaise,
     taxablePaise: p.taxablePaise,

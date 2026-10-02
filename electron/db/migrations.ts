@@ -622,121 +622,9 @@ ALTER TABLE proformas ADD COLUMN line_discount_paise INTEGER NOT NULL DEFAULT 0 
 ALTER TABLE designs ADD COLUMN gst_rate_percent REAL;
 `;
 
-// 15: credit notes (returns) and refunds.
-//  • credit_notes / credit_note_lines: an immutable document that reverses part of an invoice, with its own numbering.
-//  • payments gets two more kinds. 'credit' is a credit note applied to an invoice (or held for the customer): no money moves.
-//    'refund' is money handed back. SQLite cannot change a CHECK in place, so the table is rebuilt; every row is copied as it was.
-//  • refund_of ties a refund to the payment whose unapplied money it returns; credit_note_id ties a credit to its note.
-const V15 = `
-CREATE TABLE payments_new (
-  id             TEXT PRIMARY KEY,
-  customer_id    TEXT REFERENCES customers (id),
-  amount_paise   INTEGER NOT NULL CHECK (amount_paise > 0),
-  method         TEXT NOT NULL CHECK (method IN ('cash','upi','bank','cheque','card','other')),
-  reference      TEXT NOT NULL DEFAULT '',
-  received_on    TEXT NOT NULL,
-  note           TEXT NOT NULL DEFAULT '',
-  voided_at      TEXT,
-  void_reason    TEXT NOT NULL DEFAULT '',
-  created_at     TEXT NOT NULL,
-  updated_at     TEXT NOT NULL,
-  proforma_id    TEXT REFERENCES proformas (id),
-  kind           TEXT NOT NULL DEFAULT 'receipt' CHECK (kind IN ('receipt','writeoff','credit','refund')),
-  account_id     TEXT NOT NULL DEFAULT '',
-  cheque_date    TEXT,
-  cheque_status  TEXT CHECK (cheque_status IS NULL OR cheque_status IN ('pending','deposited','cleared','bounced')),
-  reconciled_on  TEXT,
-  credit_note_id TEXT,
-  refund_of      TEXT
-);
-INSERT INTO payments_new (id, customer_id, amount_paise, method, reference, received_on, note, voided_at, void_reason, created_at, updated_at, proforma_id, kind, account_id, cheque_date, cheque_status, reconciled_on)
-  SELECT id, customer_id, amount_paise, method, reference, received_on, note, voided_at, void_reason, created_at, updated_at, proforma_id, kind, account_id, cheque_date, cheque_status, reconciled_on FROM payments;
-DROP TABLE payments;
-ALTER TABLE payments_new RENAME TO payments;
-CREATE INDEX ix_payments_customer ON payments (customer_id);
-CREATE INDEX ix_payments_date ON payments (received_on);
-CREATE INDEX ix_payments_cheque ON payments (cheque_status, cheque_date) WHERE cheque_status IS NOT NULL;
-CREATE INDEX ix_payments_refund_of ON payments (refund_of) WHERE refund_of IS NOT NULL;
-
-CREATE TABLE credit_notes (
-  id                  TEXT PRIMARY KEY,
-  number              TEXT NOT NULL UNIQUE,
-  fy                  TEXT NOT NULL,
-  seq                 INTEGER NOT NULL,
-  invoice_id          TEXT NOT NULL REFERENCES invoices (id),
-  customer_id         TEXT REFERENCES customers (id),
-  type                TEXT NOT NULL CHECK (type IN ('B2B','B2C')),
-  seller_json         TEXT NOT NULL,
-  buyer_json          TEXT NOT NULL,
-  place_of_supply     TEXT NOT NULL,
-  issue_date          TEXT NOT NULL,
-  reason              TEXT NOT NULL DEFAULT '',
-  gst_rate_percent    REAL NOT NULL,
-  prices_include_gst  INTEGER NOT NULL DEFAULT 0,
-  intra_state         INTEGER NOT NULL DEFAULT 1,
-  subtotal_paise      INTEGER NOT NULL,
-  line_discount_paise INTEGER NOT NULL DEFAULT 0,
-  taxable_paise       INTEGER NOT NULL,
-  cgst_paise          INTEGER NOT NULL DEFAULT 0,
-  sgst_paise          INTEGER NOT NULL DEFAULT 0,
-  igst_paise          INTEGER NOT NULL DEFAULT 0,
-  round_off_paise     INTEGER NOT NULL DEFAULT 0,
-  total_paise         INTEGER NOT NULL CHECK (total_paise >= 0),
-  created_at          TEXT NOT NULL,
-  updated_at          TEXT NOT NULL,
-  UNIQUE (fy, seq)
-);
-CREATE INDEX ix_credit_notes_invoice ON credit_notes (invoice_id);
-CREATE INDEX ix_credit_notes_customer ON credit_notes (customer_id);
-CREATE INDEX ix_credit_notes_date ON credit_notes (issue_date);
-
-CREATE TABLE credit_note_lines (
-  id                  TEXT PRIMARY KEY,
-  credit_note_id      TEXT NOT NULL REFERENCES credit_notes (id),
-  invoice_line_id     TEXT NOT NULL REFERENCES invoice_lines (id),
-  variant_id          TEXT REFERENCES variants (id),
-  position            INTEGER NOT NULL,
-  design_name         TEXT NOT NULL,
-  color               TEXT NOT NULL DEFAULT '',
-  size                TEXT NOT NULL DEFAULT '',
-  sku                 TEXT NOT NULL DEFAULT '',
-  hsn                 TEXT NOT NULL DEFAULT '',
-  qty                 INTEGER NOT NULL CHECK (qty > 0),
-  unit_price_paise    INTEGER NOT NULL,
-  amount_paise        INTEGER NOT NULL,
-  line_discount_paise INTEGER NOT NULL DEFAULT 0,
-  gst_rate_percent    REAL NOT NULL,
-  taxable_paise       INTEGER NOT NULL,
-  tax_paise           INTEGER NOT NULL,
-  restocked           INTEGER NOT NULL DEFAULT 1,
-  unit_cost_paise     INTEGER NOT NULL DEFAULT 0
-);
-CREATE INDEX ix_credit_lines_note ON credit_note_lines (credit_note_id);
-CREATE INDEX ix_credit_lines_invoice_line ON credit_note_lines (invoice_line_id);
-`;
-
-// 16: photos of designs, colours and expense receipts, kept inside the book so one backup holds everything.
-//   owner_type/owner_id say what a photo belongs to (no foreign key, as it can point at three tables). A deleted photo
-//   keeps its row but drops the picture, so the book does not grow with pictures nobody can see.
-const V16 = `
-CREATE TABLE photos (
-  id          TEXT PRIMARY KEY,
-  owner_type  TEXT NOT NULL CHECK (owner_type IN ('design','variant','expense')),
-  owner_id    TEXT NOT NULL,
-  mime        TEXT NOT NULL,
-  image       BLOB,
-  thumb       BLOB,
-  bytes       INTEGER NOT NULL DEFAULT 0,
-  position    INTEGER NOT NULL DEFAULT 0,
-  created_at  TEXT NOT NULL,
-  deleted_at  TEXT
-);
-CREATE INDEX ix_photos_owner ON photos (owner_type, owner_id, position) WHERE deleted_at IS NULL;
-`;
-
 // 17: an optional printed barcode on each colour and size (the number already on a bought-in saree's tag). Every colour and size can also
 //   be found by its SKU, which the labels the shop prints itself carry, so the barcode is only needed for codes printed by someone else.
-const V17 = `
+const V21 = `
 ALTER TABLE variants ADD COLUMN barcode TEXT NOT NULL DEFAULT '';
 CREATE UNIQUE INDEX ux_variants_barcode ON variants (barcode) WHERE barcode <> '' AND deleted_at IS NULL;
 `;
@@ -745,7 +633,7 @@ CREATE UNIQUE INDEX ux_variants_barcode ON variants (barcode) WHERE barcode <> '
 //   A production order takes raw materials out when the work starts and puts finished pieces on the shelf as they come back, in as
 //   many parts as they arrive. The wage for the pieces received becomes a bill to the karigar. production_materials remembers
 //   what was handed over, so anything unused can be taken back if the order is closed short or cancelled.
-const V18 = `
+const V22 = `
 ALTER TABLE proformas ADD COLUMN reserve_stock INTEGER NOT NULL DEFAULT 0;
 
 CREATE TABLE production_orders (
@@ -789,7 +677,7 @@ CREATE INDEX ix_production_receipts_order ON production_receipts (order_id);
 `;
 
 // 19: loyalty points (a ledger, like stock) and a wishlist of designs a customer is waiting for.
-const V19 = `
+const V23 = `
 CREATE TABLE loyalty_points (
   id          TEXT PRIMARY KEY,
   customer_id TEXT NOT NULL REFERENCES customers (id),
@@ -811,22 +699,6 @@ CREATE TABLE wishlist (
   deleted_at  TEXT
 );
 CREATE INDEX ix_wishlist_customer ON wishlist (customer_id) WHERE deleted_at IS NULL;
-`;
-
-// 20: people who can sign in (optional), and who did what in the activity log.
-const V20 = `
-CREATE TABLE users (
-  id         TEXT PRIMARY KEY,
-  name       TEXT NOT NULL,
-  role       TEXT NOT NULL CHECK (role IN ('owner','cashier','accountant')),
-  pin_salt   TEXT NOT NULL,
-  pin_hash   TEXT NOT NULL,
-  active     INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-CREATE UNIQUE INDEX ux_users_name ON users (name COLLATE NOCASE);
-ALTER TABLE audit_log ADD COLUMN user_name TEXT NOT NULL DEFAULT '';
 `;
 
 // Append new migrations to the end; never edit one that has shipped.
@@ -1044,6 +916,9 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 18, sql: V18 },
   { version: 19, sql: V19 },
   { version: 20, sql: V20 },
+  { version: 21, sql: V21 },
+  { version: 22, sql: V22 },
+  { version: 23, sql: V23 },
 ];
 
 /** Brings a database up to date. `upTo` stops early at a version, which only the tests use, to build an older database to upgrade. */
@@ -1051,20 +926,14 @@ export function migrate(db: DatabaseSync, upTo: number = Number.POSITIVE_INFINIT
   const row = db.prepare('PRAGMA user_version').get() as { user_version: number };
   for (const m of MIGRATIONS) {
     if (m.version <= row.user_version || m.version > upTo) continue;
-    const keysWereOn = (db.prepare('PRAGMA foreign_keys').get() as { foreign_keys: number }).foreign_keys === 1;
-    // The switch only works outside a transaction.
-    if (m.rebuilds && keysWereOn) db.exec('PRAGMA foreign_keys = OFF');
     db.exec('BEGIN IMMEDIATE');
     try {
       db.exec(m.sql);
-      if (m.rebuilds && db.prepare('PRAGMA foreign_key_check').all().length > 0) throw new Error('the rebuilt table no longer matches the rows that refer to it');
       db.exec(`PRAGMA user_version = ${m.version}`);
       db.exec('COMMIT');
     } catch (err) {
       db.exec('ROLLBACK');
       throw new Error(`Database migration ${m.version} failed: ${(err as Error).message}`);
-    } finally {
-      if (m.rebuilds && keysWereOn) db.exec('PRAGMA foreign_keys = ON');
     }
   }
 }

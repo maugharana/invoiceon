@@ -45,6 +45,15 @@ export function notifications(db: Db, today: string = todayIso()): Notification[
   }
   out.push(...fromAttention(reversedPayments(db, today)));
   out.push(...fromAttention(dueNotes(db, today)));
+  // Work that was due to come in.
+  const late = overdueOrders(db);
+  if (late.length > 0) {
+    out.push({ kind: 'production-late', id: 'production-late', severity: 'soon', title: `${plural(late.length, 'production order')} late`, detail: late.slice(0, 3).map((o) => `${o.designName} ${o.color}${o.vendorName ? ` (${o.vendorName})` : ''}`).join(', '), link: { to: 'path', path: '/inventory/production' } });
+  }
+
+  for (const w of readyWishes(db)) {
+    out.push({ kind: 'wishlist-ready', id: `wish:${w.id}`, severity: 'info', title: `${w.customerName} was waiting for ${w.designName}`, detail: 'It is in stock now. Let them know.', link: { to: 'path', path: `/customers/${w.customerId}` } });
+  }
   for (const n of dueInstalments(db, addDays(today, 3), today)) {
     out.push({
       kind: 'instalment-due',

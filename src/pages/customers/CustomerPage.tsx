@@ -1,4 +1,4 @@
-import { Archive, ArrowLeft, Download, FileText, HandCoins, Pencil, Plus, Printer, ScrollText, Undo2 } from 'lucide-react';
+import { Archive, ArrowLeft, Download, FileText, HandCoins, Pencil, Plus, Printer, ScrollText } from 'lucide-react';
 import { useState } from 'react';
 import { formatDate, todayIso } from '../../../shared/gst';
 import { formatMoney } from '../../../shared/money';
@@ -6,6 +6,7 @@ import { occasionLabel, upcomingOccasions } from '../../../shared/occasions';
 import { Menu } from '../../components/Menu';
 import { ConfirmDialog } from '../../components/Modal';
 import { NotesPanel } from '../../components/NotesPanel';
+import { LoyaltyCard, WishlistCard } from './CustomerExtras';
 import { TagChips } from '../../components/TagInput';
 import { useToast } from '../../components/Toast';
 import { Button, Card, EmptyState, ErrorNote, Figure, InvoicePill, Money, PageHeader, Spinner, TypePill } from '../../components/ui';
@@ -16,9 +17,7 @@ import { useRecent } from '../../lib/recent';
 import { plural } from '../../lib/format';
 import { navigate, paths } from '../../lib/router';
 import { RecordPaymentModal } from '../payments/RecordPaymentModal';
-import { RefundModal } from '../payments/RefundModal';
 import { CustomerFormModal } from './CustomerFormModal';
-import { LoyaltyCard, WishlistCard } from './CustomerExtras';
 
 export function CustomerPage({ id }: { id: string }) {
   const toast = useToast();
@@ -27,7 +26,7 @@ export function CustomerPage({ id }: { id: string }) {
   const ledger = useQuery(() => api.customerLedger(id), [id]);
   const invoices = useQuery(() => api.invoicesList({ customerId: id }), [id]);
   const purchases = useQuery(() => api.customerPurchases(id), [id]);
-  const [dialog, setDialog] = useState<'edit' | 'archive' | 'pay' | 'refund' | null>(null);
+  const [dialog, setDialog] = useState<'edit' | 'archive' | 'pay' | null>(null);
   const c = customer.data;
   const docs = useDocumentOutput();
   useRecent(c ? { kind: 'customer', id: c.id, title: c.name, hint: [c.phone, c.city].filter(Boolean).join(' · ') } : null);
@@ -86,11 +85,6 @@ export function CustomerPage({ id }: { id: string }) {
             <Button icon={<HandCoins className="h-4 w-4" />} onClick={() => setDialog('pay')}>
               Record payment
             </Button>
-            {c.advancePaise > 0 && (
-              <Button icon={<Undo2 className="h-4 w-4" />} onClick={() => setDialog('refund')} title="Give back advance or credit this customer is holding">
-                Refund
-              </Button>
-            )}
             <Button icon={<Pencil className="h-4 w-4" />} onClick={() => setDialog('edit')}>
               Edit
             </Button>
@@ -279,7 +273,6 @@ export function CustomerPage({ id }: { id: string }) {
       </Card>
 
       {dialog === 'pay' && <RecordPaymentModal customer={c} onClose={() => setDialog(null)} />}
-      {dialog === 'refund' && <RefundModal customer={c} onClose={() => setDialog(null)} />}
       {dialog === 'edit' && <CustomerFormModal customer={c} onClose={() => setDialog(null)} onSaved={() => setDialog(null)} />}
       {dialog === 'archive' && (
         <ConfirmDialog

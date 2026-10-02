@@ -148,8 +148,9 @@ export function ItemPicker({ variants, taken, onPick, onCreate, allowOutOfStock 
 
   // A scanner types a Saree ID and presses Enter: an exact ID is that piece and nothing else, so Enter picks it.
   const results = useMemo(() => {
-    const scanned = q.trim() ? variants.filter((v) => v.sku.toLowerCase() === q.trim().toLowerCase()) : [];
-    return scanned.length === 1 ? scanned : variants.filter((v) => matchesAll(`${v.designName} ${v.designNickname} ${v.designCode} ${v.color} ${v.size} ${v.sku}`, q)).slice(0, 50);
+    const code = q.trim().toLowerCase();
+    const scanned = code ? variants.filter((v) => v.sku.toLowerCase() === code || (v.barcode !== '' && v.barcode.toLowerCase() === code)) : [];
+    return scanned.length === 1 ? scanned : variants.filter((v) => matchesAll(`${v.designName} ${v.designNickname} ${v.designCode} ${v.color} ${v.size} ${v.sku} ${v.barcode}`, q)).slice(0, 50);
   }, [variants, q]);
 
   const pick = (v: SaleVariant) => {
@@ -192,10 +193,7 @@ export function ItemPicker({ variants, taken, onPick, onCreate, allowOutOfStock 
             setActive((a) => Math.max(a - 1, 0));
           } else if (e.key === 'Enter') {
             e.preventDefault();
-            // A scanner types the whole code and presses Enter: an exact barcode or SKU wins over the highlighted row.
-            const code = q.trim().toLowerCase();
-            const scanned = code ? variants.find((x) => x.sku.toLowerCase() === code || (x.barcode !== '' && x.barcode.toLowerCase() === code)) : undefined;
-            const v = scanned ?? results[active];
+            const v = results[active];
             if (v) pick(v);
             else if (active === results.length) create();
           } else if (e.key === 'Escape') setOpen(false);

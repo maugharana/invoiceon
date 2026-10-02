@@ -7,13 +7,9 @@ import * as drive from './drive';
 import type { Db } from './db/connection';
 import { UserError } from './services/common';
 import * as accounts from './services/accounts';
-import { auditBefore, isAudited, listAudit, recordAudit, recordNote } from './services/audit';
-import * as users from './services/users';
-import { BEFORE_SIGN_IN, roleCan } from '../shared/roles';
-import type { AuthUser } from '../shared/types';
+import { auditBefore, isAudited, listAudit, recordAudit } from './services/audit';
 import * as held from './services/held';
 import { notifications } from './services/notifications';
-import * as credits from './services/credits';
 import * as customers from './services/customers';
 import * as instalments from './services/instalments';
 import { dashboardNow, dashboardOverview } from './services/dashboard';
@@ -42,6 +38,9 @@ import { loadSampleData } from './services/seed';
 import * as settings from './services/settings';
 import * as users from './services/users';
 import * as weaverOrders from './services/weaverOrders';
+import { gstr1 } from './services/gstr';
+import * as loyalty from './services/loyalty';
+import * as production from './services/production';
 
 /** Things only the desktop shell can do. Absent in browser dev mode, where those calls explain themselves. */
 export interface Host {
@@ -79,8 +78,6 @@ function checkInvoiceIds(db: Db, ids: string[]): string[] {
  * Binds the data layer to one open database. This is the only place that knows which service backs which call. Every call that
  * changes something also leaves a line in the activity log, written here so no screen has to remember to.
  */
-type AuthKeys = 'authStatus' | 'authUsers' | 'authSignIn' | 'authSignOut' | 'authSetup' | 'authChangePin' | 'authRecover' | 'authDisable' | 'userList' | 'userCreate' | 'userUpdate' | 'userResetPin';
-
 export function createApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backupService.DriveOverrides): Api {
   const api = buildApi(db, host, dataDir, driveOverrides);
   const logged = {} as Record<string, unknown>;
@@ -125,7 +122,7 @@ export function createApi(db: Db, host?: Host, dataDir?: string, driveOverrides?
       return result;
     };
   }
-  return guarded as unknown as Api;
+  return logged as unknown as Api;
 }
 
 function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backupService.DriveOverrides): Omit<Api, 'sessionState' | 'sessionLogin' | 'sessionLogout'> {
@@ -248,13 +245,6 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
 
     variantsForSale: async () => invoices.variantsForSale(db),
     variantByCode: async (code) => invoices.variantByCode(db, code),
-    labelsPrint: async (items) => {
-      if (!host) throw new UserError(DESKTOP_ONLY);
-      const list = (Array.isArray(items) ? items : []).filter((i) => i && Number.isInteger(i.copies) && i.copies > 0).slice(0, 300);
-      if (list.length === 0) throw new UserError('Choose at least one label to print.');
-      for (const i of list) inventory.getVariant(db, i.variantId);
-      return host.printDocument(`/print/labels?items=${list.map((i) => encodeURIComponent(`${i.variantId}:${Math.min(200, i.copies)}`)).join(',')}`);
-    },
 
     creditNotesList: async (query) => creditNotes.listCreditNotes(db, query ?? {}),
     creditNoteGet: async (id) => creditNotes.getCreditNote(db, id),
@@ -310,16 +300,6 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
       const list = checkInvoiceIds(db, ids);
       return host.printDocument(`/print/invoices?ids=${list.map(encodeURIComponent).join(',')}`);
     },
-    invoiceSlipPrint: async (id) => {
-      if (!host) throw new UserError(DESKTOP_ONLY);
-      invoices.getInvoice(db, id);
-      return host.printDocument(`/print/slip/${encodeURIComponent(id)}`);
-    },
-    appNewWindow: async () => {
-      if (!host?.openWindow) throw new UserError(DESKTOP_ONLY);
-      return host.openWindow();
-    },
-    reportGstr1: async (range) => gstr1(db, range),
     invoiceExportPdf: async (id) => {
       if (!host) throw new UserError(DESKTOP_ONLY);
       const inv = invoices.getInvoice(db, id);
@@ -345,46 +325,6 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
     paymentsList: async (query) => payments.listPayments(db, query ?? {}),
     paymentRecord: async (input) => payments.recordPayment(db, input),
     paymentVoid: async (id, reason) => payments.voidPayment(db, id, reason),
-    paymentRefund: async (input) => payments.refundAdvance(db, input),
-
-    loyaltyHistory: async (customerId) => loyalty.history(db, customerId),
-    loyaltyAdjust: async (input) => loyalty.adjust(db, input),
-    wishlistGet: async (customerId) => loyalty.wishlist(db, customerId),
-    wishlistAdd: async (input) => loyalty.addWish(db, input),
-    wishlistRemove: async (id) => loyalty.removeWish(db, id),
-
-    productionList: async (query) => production.listOrders(db, query ?? {}),
-    productionGet: async (id) => production.getOrder(db, id),
-    productionCreate: async (input) => production.createOrder(db, input),
-    productionUpdate: async (id, input) => production.updateOrder(db, id, input),
-    productionIssueMaterials: async (id) => production.issueMaterials(db, id),
-    productionReceive: async (id, input) => production.receivePieces(db, id, input),
-    productionCloseShort: async (id) => production.closeShort(db, id),
-    productionCancel: async (id) => production.cancelOrder(db, id),
-
-    photosList: async (type, id) => photos.listPhotos(db, type, id),
-    photoGet: async (id) => photos.getPhotoImage(db, id),
-    photoAdd: async (input) => photos.addPhoto(db, input),
-    photoDelete: async (id) => photos.deletePhoto(db, id),
-    photoSetCover: async (id) => photos.setCover(db, id),
-    photoCovers: async (type, ids) => photos.coverThumbs(db, type, Array.isArray(ids) ? ids.map(String) : []),
-
-    creditNotesList: async (query) => credits.listCreditNotes(db, query ?? {}),
-    creditNoteGet: async (id) => credits.getCreditNote(db, id),
-    creditNoteNextNumber: async (issueDate) => credits.nextCreditNoteNumber(db, issueDate),
-    creditNoteReturnable: async (invoiceId) => credits.returnableLines(db, invoiceId),
-    creditNotePreview: async (input) => credits.previewCreditNote(db, input),
-    creditNoteCreate: async (input) => credits.createCreditNote(db, input),
-    creditNoteExportPdf: async (id) => {
-      if (!host) throw new UserError(DESKTOP_ONLY);
-      const note = credits.getCreditNote(db, id);
-      return host.exportDocumentPdf(`/print/credit-note/${encodeURIComponent(id)}`, `Credit note ${note.number.replace(/[\\/:*?"<>|]/g, '-')}.pdf`);
-    },
-    creditNotePrint: async (id) => {
-      if (!host) throw new UserError(DESKTOP_ONLY);
-      credits.getCreditNote(db, id);
-      return host.printDocument(`/print/credit-note/${encodeURIComponent(id)}`);
-    },
     invoiceApplyAdvance: async (invoiceId) => invoices.applyAdvanceToInvoice(db, invoiceId),
     paymentChequeStatus: async (id, status, reason) => payments.setChequeStatus(db, id, status, reason ?? ''),
     paymentsReconcile: async (ids, on) => payments.setReconciled(db, ids, on ?? null),
@@ -408,6 +348,31 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
 
     reportSales: async (range) => reports.salesReport(db, range),
     reportGst: async (range) => reports.gstReport(db, range),
+    reportGstr1: async (range) => gstr1(db, range),
+    invoiceSlipPrint: async (id) => {
+      if (!host) throw new UserError(DESKTOP_ONLY);
+      invoices.getInvoice(db, id);
+      return host.printDocument(`/print/slip/${encodeURIComponent(id)}`);
+    },
+    appNewWindow: async () => {
+      if (!host?.openWindow) throw new UserError(DESKTOP_ONLY);
+      return host.openWindow();
+    },
+
+    loyaltyHistory: async (customerId) => loyalty.history(db, customerId),
+    loyaltyAdjust: async (input) => loyalty.adjust(db, input),
+    wishlistGet: async (customerId) => loyalty.wishlist(db, customerId),
+    wishlistAdd: async (input) => loyalty.addWish(db, input),
+    wishlistRemove: async (id) => loyalty.removeWish(db, id),
+
+    productionList: async (query) => production.listOrders(db, query ?? {}),
+    productionGet: async (id) => production.getOrder(db, id),
+    productionCreate: async (input) => production.createOrder(db, input),
+    productionUpdate: async (id, input) => production.updateOrder(db, id, input),
+    productionIssueMaterials: async (id) => production.issueMaterials(db, id),
+    productionReceive: async (id, input) => production.receivePieces(db, id, input),
+    productionCloseShort: async (id) => production.closeShort(db, id),
+    productionCancel: async (id) => production.cancelOrder(db, id),
     reportProfitLoss: async (range) => moreReports.profitAndLoss(db, range),
     reportQuotes: async (range) => moreReports.quotesReport(db, range),
     reportMargin: async (range, by) => moreReports.marginReport(db, range, by),

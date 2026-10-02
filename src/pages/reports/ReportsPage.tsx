@@ -4,12 +4,12 @@ import { gstB2bCsv, gstB2cCsv, gstCreditCsv, gstCsv, gstHsnCsv, salesCsv, stockC
 import { formatDate, todayIso } from '../../../shared/gst';
 import { formatMoney } from '../../../shared/money';
 import { PERIOD_LABEL, PERIOD_PRESETS, resolvePeriod, type PeriodPreset, type PeriodSpec } from '../../../shared/periods';
-import { PAYMENT_METHOD_LABEL, type Gstr1Export } from '../../../shared/types';
+import { PAYMENT_METHOD_LABEL } from '../../../shared/types';
 import { SalesChart, bucketLabel } from '../../components/SalesChart';
 import { AccountBookTab, DayBookTab, MarginTab, MoversTab, MovementTab, ProfitTab, PurchasesTab, QuotesTab, ReceivablesTab } from './MoreReports';
 import { ExportButton, PrintButton, Section, useReportExport } from './parts';
 import { Button, Card, EmptyState, ErrorNote, Field, Figure, Input, Money, PageHeader, Segmented, Spinner, TypePill } from '../../components/ui';
-import { api, errorMessage } from '../../lib/api';
+import { api } from '../../lib/api';
 import { useQuery } from '../../lib/data';
 import { plural } from '../../lib/format';
 import { navigate, paths, type ReportTab } from '../../lib/router';
@@ -254,11 +254,6 @@ function SalesTab({ period }: { period: PeriodSpec }) {
               </Card>
             </Section>
           </div>
-          {r.creditNoteCount > 0 && (
-            <p className="mb-1 text-xs text-ink-muted">
-              {plural(r.creditNoteCount, 'credit note')} ({formatMoney(r.creditNotePaise, { fractionDigits: 0 })}) dated in this period {r.creditNoteCount === 1 ? 'has' : 'have'} been taken off the sales, profit and GST above.
-            </p>
-          )}
           {r.cancelledCount > 0 && (
             <p className="text-xs text-ink-muted">
               {plural(r.cancelledCount, 'cancelled invoice')} ({formatMoney(r.cancelledPaise, { fractionDigits: 0 })}) dated in this period {r.cancelledCount === 1 ? 'is' : 'are'} left out of these figures.
@@ -271,59 +266,6 @@ function SalesTab({ period }: { period: PeriodSpec }) {
 }
 
 // ── GST ─────────────────────────────────────────────────────────────────────
-/** Prepares the month's GSTR-1 as a JSON file for the GST portal, and lists what to check before uploading. */
-function Gstr1Panel({ range }: { range: { from: string; to: string } }) {
-  const exportFile = useReportExport();
-  const [state, setState] = useState<{ error?: string; made?: Gstr1Export } | null>(null);
-  const [busy, setBusy] = useState(false);
-  const oneMonth = range.from.slice(0, 7) === range.to.slice(0, 7);
-  useEffect(() => setState(null), [range.from, range.to]);
-  async function prepare() {
-    setBusy(true);
-    try {
-      setState({ made: await api.reportGstr1(range) });
-    } catch (err) {
-      setState({ error: errorMessage(err) });
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <Section title="GSTR-1 file" note="The month's sales return as a JSON file for the GST portal. You upload it yourself; InvoiceOn does not file anything.">
-      <Card className="p-5">
-        {!oneMonth ? (
-          <p className="text-ink-muted">Choose a single month above (This month or Last month) to prepare the return.</p>
-        ) : (
-          <div className="space-y-3">
-            <Button icon={<Download className="h-4 w-4" />} loading={busy} onClick={() => void prepare()}>
-              Prepare GSTR-1 for this month
-            </Button>
-            {state?.error && <ErrorNote>{state.error}</ErrorNote>}
-            {state?.made && (
-              <div className="space-y-3">
-                <p>
-                  {plural(state.made.counts.b2bInvoices, 'business invoice')}, {plural(state.made.counts.b2cLines, 'retail line')}, {plural(state.made.counts.creditNotes, 'credit note')} and {plural(state.made.counts.hsnLines, 'HSN code')} are in the file.
-                </p>
-                {state.made.warnings.length > 0 && (
-                  <ul className="list-disc space-y-1 rounded-lg bg-status-partial-bg px-8 py-3 text-status-partial-fg">
-                    {state.made.warnings.map((w) => (
-                      <li key={w}>{w}</li>
-                    ))}
-                  </ul>
-                )}
-                <Button variant="primary" icon={<Download className="h-4 w-4" />} onClick={() => void exportFile(state.made!.fileName, state.made!.json)}>
-                  Save {state.made.fileName}
-                </Button>
-                <p className="text-xs text-ink-muted">Open the GST portal's offline tool (or Returns &gt; GSTR-1 &gt; Prepare offline) and upload this file. The portal checks it when you upload, so fix anything it complains about.</p>
-              </div>
-            )}
-          </div>
-        )}
-      </Card>
-    </Section>
-  );
-}
-
 function GstTab({ period }: { period: PeriodSpec }) {
   const exportCsv = useReportExport();
   const range = resolvePeriod(period);
@@ -352,7 +294,7 @@ function GstTab({ period }: { period: PeriodSpec }) {
         </Figure>
       </div>
 
-      {t.invoices === 0 && r.credits.count === 0 ? (
+      {t.invoices === 0 ? (
         <Card>
           <EmptyState icon={<Table2 className="h-6 w-6" />} title="No invoices in this period" body="GST is reported by invoice date. Try a wider period." />
         </Card>
@@ -362,7 +304,6 @@ function GstTab({ period }: { period: PeriodSpec }) {
             <p className="text-xs text-ink-muted">
               By invoice date — the day GST becomes due, not the day the customer pays.
               {r.cancelledCount > 0 && ` ${plural(r.cancelledCount, 'cancelled invoice')} left out.`}
-              {r.credits.count > 0 && ` Figures are after ${plural(r.credits.count, 'credit note')} (${formatMoney(r.credits.taxPaise, { fractionDigits: 0 })} of tax taken off).`}
             </p>
             <ExportButton label="Export all (CSV)" onClick={() => void exportCsv(`GST ${stamp}.csv`, gstCsv(r))} />
           </div>
@@ -438,8 +379,6 @@ function GstTab({ period }: { period: PeriodSpec }) {
             </Card>
           </Section>
 
-          <Gstr1Panel range={range} />
-
           <Section title="B2B invoices" note="Invoice by invoice, with the buyer's GSTIN — the register for your GST return." actions={<ExportButton label="B2B CSV" onClick={() => void exportCsv(`GST B2B ${stamp}.csv`, gstB2bCsv(r))} />}>
             <Card className="overflow-x-auto">
               {r.b2bRegister.length === 0 ? (
@@ -452,7 +391,6 @@ function GstTab({ period }: { period: PeriodSpec }) {
                       <th className="th">Date</th>
                       <th className="th">Buyer</th>
                       <th className="th">GSTIN</th>
-                      <th className="th text-right">Rate</th>
                       <th className="th text-right">Taxable</th>
                       <th className="th text-right">Tax</th>
                       <th className="th text-right">Value</th>
@@ -460,7 +398,7 @@ function GstTab({ period }: { period: PeriodSpec }) {
                   </thead>
                   <tbody>
                     {r.b2bRegister.map((i) => (
-                      <tr key={`${i.invoiceId}-${i.ratePercent}`} tabIndex={0} onClick={() => navigate(paths.invoice(i.invoiceId))} onKeyDown={(e) => e.key === 'Enter' && navigate(paths.invoice(i.invoiceId))} className="cursor-pointer border-b border-line/70 transition-colors duration-150 last:border-0 hover:bg-canvas focus-visible:bg-canvas">
+                      <tr key={i.invoiceId} tabIndex={0} onClick={() => navigate(paths.invoice(i.invoiceId))} onKeyDown={(e) => e.key === 'Enter' && navigate(paths.invoice(i.invoiceId))} className="cursor-pointer border-b border-line/70 transition-colors duration-150 last:border-0 hover:bg-canvas focus-visible:bg-canvas">
                         <td className="td num whitespace-nowrap">{i.number}</td>
                         <td className="td num whitespace-nowrap text-ink-muted">{formatDate(i.date)}</td>
                         <td className="td">
@@ -468,7 +406,6 @@ function GstTab({ period }: { period: PeriodSpec }) {
                           <div className="text-xs text-ink-muted">{i.placeOfSupply}</div>
                         </td>
                         <td className="td num text-xs text-ink-muted">{i.gstin}</td>
-                        <td className="td num text-right text-ink-muted">{i.ratePercent}%</td>
                         <td className="td text-right"><Money paise={i.taxablePaise} /></td>
                         <td className="td text-right"><Money paise={i.cgstPaise + i.sgstPaise + i.igstPaise} /></td>
                         <td className="td text-right"><Money paise={i.totalPaise} /></td>

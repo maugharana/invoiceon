@@ -1,4 +1,4 @@
-import { ArrowLeft, Ban, ClipboardCopy, Copy, Download, HandCoins, Mail, MessageCircle, PackageMinus, Printer, Send, FileJson } from 'lucide-react';
+import { ArrowLeft, Ban, ClipboardCopy, Copy, Download, HandCoins, Mail, MessageCircle, PackageMinus, Printer, Receipt, Send, FileJson } from 'lucide-react';
 import { useState } from 'react';
 import { formatDate } from '../../../shared/gst';
 import { invoiceMessage, mailtoLink, whatsappLink, whatsappPhone } from '../../../shared/messages';
@@ -249,29 +249,6 @@ ${message.body}`)) ? toast.success('Message copied — paste it anywhere') : toa
               )}
             </div>
           </div>
-        </Card>
-      )}
-
-      {inv.credits.length > 0 && (
-        <Card className="mb-6 p-6">
-          <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-base">Credit notes</h2>
-            <span className="text-ink-muted">
-              <Money paise={inv.creditedPaise} /> taken back in all
-            </span>
-          </div>
-          <ul className="divide-y divide-line/70">
-            {inv.credits.map((c) => (
-              <li key={c.id} className="flex items-center justify-between py-1.5">
-                <span>
-                  <a href={`#${paths.creditNote(c.id)}`} className="num transition-colors hover:text-brand">{c.number}</a>
-                  <span className="num ml-3 text-ink-muted">{formatDate(c.issueDate)}</span>
-                </span>
-                <Money paise={c.totalPaise} />
-              </li>
-            ))}
-          </ul>
-          <p className="mt-2 text-xs text-ink-muted">The invoice stays as it was issued; its balance already allows for the credit notes. It can no longer be cancelled.</p>
         </Card>
       )}
 

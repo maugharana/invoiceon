@@ -24,7 +24,6 @@ import { PlusSection } from './PlusSection';
 import { PreferencesSection } from './PreferencesSection';
 import { ProformaSection } from './ProformaSection';
 import { TaxProfilesSection } from './TaxProfilesSection';
-import { UsersSection } from './UsersSection';
 
 interface SectionInfo {
   id: SettingsSection;

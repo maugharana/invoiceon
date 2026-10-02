@@ -163,13 +163,13 @@ export function loadCredits(db: Db, range: { from: string; to: string }): Loaded
   const notes = all<{
     id: string; number: string; invoice_number: string; issue_date: string; type: InvoiceType; customer_id: string | null; buyer_json: string; place_of_supply: string; intra_state: number;
     taxable_paise: number; cgst_paise: number; sgst_paise: number; igst_paise: number; total_paise: number;
-  }>(db, 'SELECT n.*, i.number AS invoice_number FROM credit_notes n JOIN invoices i ON i.id = n.invoice_id WHERE n.issue_date BETWEEN ? AND ? ORDER BY n.issue_date, n.seq', range.from, range.to);
+  }>(db, "SELECT n.*, i.number AS invoice_number, i.type FROM credit_notes n JOIN invoices i ON i.id = n.invoice_id WHERE n.status = 'issued' AND n.issue_date BETWEEN ? AND ? ORDER BY n.issue_date, n.seq", range.from, range.to);
   if (notes.length === 0) return [];
-  const lineRows = all<{ credit_note_id: string; design_id: string | null; design_name: string; color: string; size: string; hsn: string; qty: number; gst_rate_percent: number; taxable_paise: number; tax_paise: number; restocked: number; unit_cost_paise: number }>(
+  const lineRows = all<{ credit_note_id: string; design_id: string | null; design_name: string; color: string; size: string; hsn: string; qty: number; gst_rate_percent: number; taxable_paise: number; tax_paise: number; restocked: number }>(
     db,
-    `SELECT l.credit_note_id, v.design_id, l.design_name, l.color, l.size, l.hsn, l.qty, l.gst_rate_percent, l.taxable_paise, l.tax_paise, l.restocked, l.unit_cost_paise
+    `SELECT l.credit_note_id, v.design_id, l.design_name, l.color, l.size, l.hsn, l.qty, l.gst_rate_percent, l.taxable_paise, l.tax_paise, l.restocked
      FROM credit_note_lines l JOIN credit_notes n ON n.id = l.credit_note_id LEFT JOIN variants v ON v.id = l.variant_id
-     WHERE n.issue_date BETWEEN ? AND ? ORDER BY l.position`,
+     WHERE n.status = 'issued' AND n.issue_date BETWEEN ? AND ? ORDER BY l.position`,
     range.from,
     range.to,
   );
@@ -229,7 +229,7 @@ export function loadCredits(db: Db, range: { from: string; to: string }): Loaded
         sgst: sgst[k]!,
         igst: igst[k]!,
         // Pieces that went back on the shelf are no longer a cost of the sale; damaged ones still are.
-        cost: l.restocked === 1 ? l.qty * l.unit_cost_paise : 0,
+        cost: 0,
         rate: l.gst_rate_percent,
         restocked: l.restocked === 1,
       })),
@@ -293,7 +293,6 @@ export function salesReport(db: Db, range: { from: string; to: string }): SalesR
   const paid = loadPaid(db);
   const granularity = granularityFor(range);
 
-  const credits = loadCredits(db, range);
   const lines = invoices.flatMap((i) => i.lines);
   const taxablePaise = sum(invoices, (i) => i.row.taxable_paise);
   const cost = sum(lines, (l) => l.cost);
@@ -307,7 +306,7 @@ export function salesReport(db: Db, range: { from: string; to: string }): SalesR
   // Payments are measured by the day the money arrived — independent of which invoice (or advance) they went to.
   const payments = all<{ received_on: string; method: PaymentMethod; amount_paise: number }>(
     db,
-    "SELECT received_on, method, CASE WHEN kind = 'refund' THEN -amount_paise ELSE amount_paise END AS amount_paise FROM payments WHERE voided_at IS NULL AND kind IN ('receipt', 'refund') AND received_on BETWEEN ? AND ?",
+    "SELECT received_on, method, amount_paise FROM payments WHERE voided_at IS NULL AND kind = 'receipt' AND received_on BETWEEN ? AND ?",
     range.from,
     range.to,
   );
@@ -318,7 +317,6 @@ export function salesReport(db: Db, range: { from: string; to: string }): SalesR
     point.invoicedPaise += i.row.total_paise;
     point.invoices += 1;
   }
-  for (const c of credits) series.get(bucketOf(c.date, granularity))!.invoicedPaise -= c.total;
   for (const p of payments) series.get(bucketOf(p.received_on, granularity))!.collectedPaise += p.amount_paise;
 
   const methods = new Map<PaymentMethod, { count: number; paise: number }>();
@@ -338,14 +336,6 @@ export function salesReport(db: Db, range: { from: string; to: string }): SalesR
     d.profitPaise += l.taxable - l.cost;
     designs.set(key, d);
   }
-  for (const l of creditLines) {
-    const key = l.designId ?? l.designName;
-    const d = designs.get(key) ?? { designId: l.designId ?? '', name: l.designName, pieces: 0, revenuePaise: 0, profitPaise: 0 };
-    d.pieces -= l.qty;
-    d.revenuePaise -= l.taxable;
-    d.profitPaise -= l.taxable - l.cost;
-    designs.set(key, d);
-  }
 
   const customers = new Map<string, { customerId: string | null; name: string; invoices: number; invoicedPaise: number }>();
   for (const i of invoices) {
@@ -355,27 +345,19 @@ export function salesReport(db: Db, range: { from: string; to: string }): SalesR
     c.invoicedPaise += i.row.total_paise;
     customers.set(key, c);
   }
-  for (const n of credits) {
-    const key = n.customerId ?? 'walk-in';
-    const c = customers.get(key) ?? { customerId: n.customerId, name: n.customerId ? n.buyerName : 'Walk-in customers', invoices: 0, invoicedPaise: 0 };
-    c.invoicedPaise -= n.total;
-    customers.set(key, c);
-  }
 
   const types = (['B2B', 'B2C'] as const).map((type) => {
     const of = invoices.filter((i) => i.row.type === type);
-    return { type, invoices: of.length, invoicedPaise: sum(of, (i) => i.row.total_paise) - sum(credits.filter((c) => c.type === type), (c) => c.total) };
+    return { type, invoices: of.length, invoicedPaise: sum(of, (i) => i.row.total_paise) };
   });
 
   return {
     range,
-    invoicedPaise: sum(invoices, (i) => i.row.total_paise) - sum(credits, (c) => c.total),
-    creditNoteCount: credits.length,
-    creditNotePaise: sum(credits, (c) => c.total),
+    invoicedPaise: sum(invoices, (i) => i.row.total_paise),
     taxablePaise,
-    gstPaise: sum(invoices, (i) => i.row.cgst_paise + i.row.sgst_paise + i.row.igst_paise) - sum(credits, (c) => c.cgst + c.sgst + c.igst),
+    gstPaise: sum(invoices, (i) => i.row.cgst_paise + i.row.sgst_paise + i.row.igst_paise),
     invoiceCount: invoices.length,
-    piecesSold: sum(lines, (l) => l.qty) - sum(creditLines, (l) => l.qty),
+    piecesSold: sum(lines, (l) => l.qty),
     cancelledCount: cancelled.n,
     cancelledPaise: cancelled.s,
     collectedPaise: sum(payments, (p) => p.amount_paise),
@@ -420,25 +402,6 @@ export function gstReport(db: Db, range: { from: string; to: string }): GstRepor
     addInvoice(totals, i.row);
     addInvoice(i.row.type === 'B2B' ? b2b : b2c, i.row);
   }
-  // Credit notes dated in the period come off the tax due. The totals here are net; `credits` is what came off.
-  const credits = loadCredits(db, range);
-  const creditTotals = { count: credits.length, taxablePaise: 0, cgstPaise: 0, sgstPaise: 0, igstPaise: 0, taxPaise: 0, valuePaise: 0 };
-  for (const c of credits) {
-    for (const t of [totals, c.type === 'B2B' ? b2b : b2c]) {
-      t.taxablePaise -= c.taxable;
-      t.cgstPaise -= c.cgst;
-      t.sgstPaise -= c.sgst;
-      t.igstPaise -= c.igst;
-      t.taxPaise -= c.cgst + c.sgst + c.igst;
-      t.invoiceValuePaise -= c.total;
-    }
-    creditTotals.taxablePaise += c.taxable;
-    creditTotals.cgstPaise += c.cgst;
-    creditTotals.sgstPaise += c.sgst;
-    creditTotals.igstPaise += c.igst;
-    creditTotals.taxPaise += c.cgst + c.sgst + c.igst;
-    creditTotals.valuePaise += c.total;
-  }
 
   const hsn = new Map<string, GstReport['hsn'][number]>();
   for (const l of invoices.flatMap((i) => i.lines)) {
@@ -453,18 +416,6 @@ export function gstReport(db: Db, range: { from: string; to: string }): GstRepor
     hsn.set(key, h);
   }
 
-  for (const l of credits.flatMap((c) => c.lines)) {
-    const key = l.hsn || '—';
-    const h = hsn.get(key) ?? { hsn: key, qty: 0, taxablePaise: 0, cgstPaise: 0, sgstPaise: 0, igstPaise: 0, taxPaise: 0 };
-    h.qty -= l.qty;
-    h.taxablePaise -= l.taxable;
-    h.cgstPaise -= l.cgst;
-    h.sgstPaise -= l.sgst;
-    h.igstPaise -= l.igst;
-    h.taxPaise -= l.cgst + l.sgst + l.igst;
-    hsn.set(key, h);
-  }
-
   const states = new Map<string, GstReport['b2cByState'][number]>();
   for (const i of invoices.filter((x) => x.row.type === 'B2C')) {
     // An invoice with two rates appears under both, with each rate's own share.
@@ -476,18 +427,6 @@ export function gstReport(db: Db, range: { from: string; to: string }): GstRepor
       s.cgstPaise += g.cgstPaise;
       s.sgstPaise += g.sgstPaise;
       s.igstPaise += g.igstPaise;
-      states.set(key, s);
-    }
-  }
-
-  for (const c of credits.filter((x) => x.type === 'B2C')) {
-    for (const g of c.groups) {
-      const key = `${c.placeOfSupply}|${g.ratePercent}`;
-      const s = states.get(key) ?? { placeOfSupply: c.placeOfSupply, ratePercent: g.ratePercent, invoices: 0, taxablePaise: 0, cgstPaise: 0, sgstPaise: 0, igstPaise: 0 };
-      s.taxablePaise -= g.taxablePaise;
-      s.cgstPaise -= g.cgstPaise;
-      s.sgstPaise -= g.sgstPaise;
-      s.igstPaise -= g.igstPaise;
       states.set(key, s);
     }
   }

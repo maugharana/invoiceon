@@ -5,8 +5,6 @@ import { PAYMENT_METHODS, PAYMENT_METHOD_LABEL, type Expense, type ExpenseStatus
 import { Modal } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { Button, ErrorNote, Field, Input, MoneyInput, Segmented, Select } from '../../components/ui';
-import { PhotoStrip, savePending } from '../../components/PhotoStrip';
-import type { PreparedImage } from '../../lib/images';
 import { api, errorMessage } from '../../lib/api';
 import { useQuery, useRefresh } from '../../lib/data';
 
@@ -40,7 +38,6 @@ export function ExpenseFormModal({ expense, defaultCategory = '', onClose, onSav
   const [showGst, setShowGst] = useState((expense?.gstPaise ?? 0) > 0);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [receipts, setReceipts] = useState<PreparedImage[]>([]);
 
   // The account follows the way of paying until it is chosen by hand.
   useEffect(() => {
@@ -54,13 +51,6 @@ export function ExpenseFormModal({ expense, defaultCategory = '', onClose, onSav
     const input = { date, category, vendor, amountPaise: amount, gstPaise: showGst ? gst : 0, method, reference, note, accountId, status, dueDate: status === 'unpaid' ? dueDate : null };
     try {
       const saved = expense ? await api.expenseUpdate(expense.id, input) : await api.expenseCreate(input);
-      if (!expense && receipts.length > 0) {
-        try {
-          await savePending('expense', saved.id, receipts);
-        } catch {
-          toast.error('The expense was saved, but a receipt picture could not be added. Open it to add the picture again.');
-        }
-      }
       refresh();
       toast.success(expense ? 'Expense updated' : status === 'unpaid' ? 'Bill recorded — mark it paid when you pay it' : 'Expense recorded');
       onSaved?.(saved);
@@ -160,9 +150,6 @@ export function ExpenseFormModal({ expense, defaultCategory = '', onClose, onSav
         )}
         <Field label="Note">
           <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional" maxLength={300} />
-        </Field>
-        <Field label="Receipt or bill photo" hint="Optional. Keeps the paper bill with the entry.">
-          <PhotoStrip ownerType="expense" ownerId={expense?.id ?? null} pending={receipts} onPending={setReceipts} noun="photo" max={4} />
         </Field>
         {error && <ErrorNote>{error}</ErrorNote>}
       </form>

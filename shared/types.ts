@@ -2,7 +2,6 @@ import type { Paise } from './money';
 import type { StockStatus } from './stock';
 
 import type { InvoiceStatus, RateGroup, RateSlab, RoundOff } from './gst';
-import type { Role } from './roles';
 
 export const DEFAULT_EXPENSE_CATEGORIES = ['Raw materials', 'Rent', 'Salaries & wages', 'Transport & freight', 'Packaging', 'Electricity & utilities', 'Marketing', 'Other'];
 
@@ -47,8 +46,6 @@ export interface Settings {
   loyaltySpendPaise: Paise;
   /** What one point is worth as a discount, in paise. */
   loyaltyPointValuePaise: Paise;
-  /** Credit notes are numbered CN/2026-27/0001 with this prefix. */
-  creditNotePrefix: string;
   /** If set, B2B tax invoices are numbered in their own series with this prefix (MGB/2026-27/0001). Empty: one series for all. */
   b2bPrefix: string;
   /** Days until a B2B invoice falls due. B2C is due on the day. */
@@ -427,8 +424,6 @@ export interface VariantInput {
   size: string;
   /** Left blank on create to auto-generate from design code + color + size. */
   sku?: string;
-  /** A code already printed on the piece. Leave out to keep what is there; empty clears it. */
-  barcode?: string;
   sellPricePaise: Paise;
   /** Optional. Left out or 0 means "not set". */
   mrpPaise?: Paise;
@@ -437,6 +432,8 @@ export interface VariantInput {
   /** Create only. Later changes go through stock adjustments so history stays intact. */
   openingStock?: number;
   bom: { materialId: string; qty: number; wastagePercent?: number }[];
+  /** A code already printed on the piece. Leave out to keep what is there; empty clears it. */
+  barcode?: string;
 }
 
 /**
@@ -641,18 +638,8 @@ export interface Payment {
   reconciledOn: string | null;
   /** The quote it is a deposit for. */
   proformaId: string | null;
-  /** For a credit: the credit note that made it. */
-  creditNoteId: string | null;
-  /** For a refund: the payment (or credit) whose held money it returned. Null when it returned a credit note's overpayment directly. */
-  refundOf: string | null;
-  /** Money from this payment already handed back. */
-  refundedPaise: Paise;
 }
-/**
- * receipt: money in. writeoff: a balance given up, no money. credit: a credit note put toward an invoice, or held for the customer,
- * no money moves. refund: money handed back. Only receipts count as received; a refund is money out.
- */
-export type PaymentKind = 'receipt' | 'writeoff' | 'credit' | 'refund';
+export type PaymentKind = 'receipt' | 'writeoff';
 export type ChequeStatus = 'pending' | 'deposited' | 'cleared' | 'bounced';
 export const CHEQUE_STATUS_LABEL: Record<ChequeStatus, string> = { pending: 'To deposit', deposited: 'Deposited', cleared: 'Cleared', bounced: 'Bounced' };
 
@@ -829,19 +816,7 @@ export interface InvoiceSummary {
   status: InvoiceStatus;
 }
 
-/** A credit note against an invoice, as listed on it. */
-export interface InvoiceCredit {
-  id: string;
-  number: string;
-  issueDate: string;
-  totalPaise: Paise;
-}
-
 export interface Invoice extends InvoiceSummary {
-  /** Credit notes issued against this invoice. */
-  credits: InvoiceCredit[];
-  /** Their total. The invoice's balance already allows for it. */
-  creditedPaise: Paise;
   /**
    * The seller's details as they were when the invoice was issued. Content that matters legally or to the customer (address,
    * GSTIN, terms, where to pay) is frozen here; how it's dressed is `branding`, below.
@@ -943,248 +918,6 @@ export interface SaleVariant {
   sellPricePaise: Paise;
 }
 
-// ── Loyalty and wishlist ────────────────────────────────────────────────────
-export interface LoyaltyEntry {
-  id: string;
-  /** Positive when earned or given, negative when spent or taken back. */
-  points: number;
-  reason: 'earned' | 'redeemed' | 'reversed' | 'adjustment';
-  note: string;
-  invoiceId: string | null;
-  invoiceNumber: string | null;
-  createdAt: string;
-}
-
-export interface WishlistEntry {
-  id: string;
-  designId: string;
-  designName: string;
-  note: string;
-  addedOn: string;
-  /** The design has pieces on the shelf now. */
-  inStock: boolean;
-}
-
-// ── Production ──────────────────────────────────────────────────────────────
-export type ProductionStatus = 'planned' | 'making' | 'done' | 'cancelled';
-export const PRODUCTION_STATUS_LABEL: Record<ProductionStatus, string> = { planned: 'Planned', making: 'Being made', done: 'Finished', cancelled: 'Cancelled' };
-
-export interface ProductionMaterial {
-  materialId: string;
-  name: string;
-  unit: string;
-  /** What the whole order needs, wastage included. */
-  neededQty: number;
-  /** What was handed over so far. */
-  issuedQty: number;
-  inStockQty: number;
-  /** How much more is needed than the shop has, when the materials have not been handed over yet. */
-  shortQty: number;
-}
-
-export interface ProductionReceipt {
-  id: string;
-  qty: number;
-  receivedOn: string;
-  wagePaise: Paise;
-  /** The bill raised for the wage, if there was one. */
-  expenseId: string | null;
-}
-
-export interface ProductionOrder {
-  id: string;
-  number: string;
-  variantId: string;
-  designName: string;
-  color: string;
-  size: string;
-  sku: string;
-  qty: number;
-  receivedQty: number;
-  remainingQty: number;
-  vendorId: string | null;
-  vendorName: string;
-  /** Paid per piece received, to the karigar. */
-  wagePaise: Paise;
-  status: ProductionStatus;
-  orderedOn: string;
-  dueOn: string | null;
-  overdue: boolean;
-  note: string;
-  materialsIssued: boolean;
-  materials: ProductionMaterial[];
-  receipts: ProductionReceipt[];
-  closedOn: string | null;
-  createdAt: string;
-}
-
-export interface ProductionOrderInput {
-  variantId: string;
-  qty: number;
-  /** Who is making it, when it is not made in-house (a vendor from your list). */
-  vendorId?: string | null;
-  wagePaise?: Paise;
-  dueOn?: string | null;
-  note?: string;
-}
-
-export interface ProductionQuery {
-  status?: 'all' | 'open' | ProductionStatus;
-  search?: string;
-}
-
-// ── Photos ──────────────────────────────────────────────────────────────────
-export type PhotoOwner = 'design' | 'variant' | 'expense';
-
-/** A picture as listed: only the small version travels. Ask for the picture itself (photoGet) to see it large. */
-export interface Photo {
-  id: string;
-  ownerType: PhotoOwner;
-  ownerId: string;
-  /** A data URL of the small picture. */
-  thumb: string;
-  bytes: number;
-  position: number;
-  createdAt: string;
-}
-
-/** Both pictures are made by the screen (resized and compressed) before they are sent. */
-export interface PhotoInput {
-  ownerType: PhotoOwner;
-  ownerId: string;
-  image: string;
-  thumb: string;
-}
-
-/** A GSTR-1 file for one month, ready to upload to the GST portal, with what it holds and what to check first. */
-export interface Gstr1Export {
-  fileName: string;
-  json: string;
-  counts: { b2bInvoices: number; b2cLines: number; creditNotes: number; hsnLines: number };
-  warnings: string[];
-}
-
-// ── Credit notes ────────────────────────────────────────────────────────────
-export interface CreditNoteSummary {
-  id: string;
-  number: string;
-  invoiceId: string;
-  invoiceNumber: string;
-  customerId: string | null;
-  buyerName: string;
-  type: InvoiceType;
-  issueDate: string;
-  reason: string;
-  totalPaise: Paise;
-}
-
-export interface CreditNoteLine {
-  id: string;
-  invoiceLineId: string;
-  variantId: string | null;
-  designName: string;
-  color: string;
-  size: string;
-  sku: string;
-  hsn: string;
-  qty: number;
-  unitPricePaise: Paise;
-  amountPaise: Paise;
-  discountPaise: Paise;
-  ratePercent: number;
-  taxablePaise: Paise;
-  taxPaise: Paise;
-  /** The pieces went back on the shelf. Not done for damaged goods. */
-  restocked: boolean;
-}
-
-export interface CreditNote extends CreditNoteSummary {
-  seller: Party & { email: string; terms: string; bank: string; footer: string; upiId: string };
-  branding: InvoiceBranding;
-  buyer: Party;
-  placeOfSupply: string;
-  gstRatePercent: number;
-  pricesIncludeGst: boolean;
-  intraState: boolean;
-  subtotalPaise: Paise;
-  lineDiscountPaise: Paise;
-  taxablePaise: Paise;
-  cgstPaise: Paise;
-  sgstPaise: Paise;
-  igstPaise: Paise;
-  roundOffPaise: Paise;
-  taxByRate: RateGroup[];
-  lines: CreditNoteLine[];
-  /** How the money was dealt with. */
-  appliedPaise: Paise;
-  heldPaise: Paise;
-  refundedPaise: Paise;
-  createdAt: string;
-}
-
-/** What one invoice line can still take back. */
-export interface ReturnableLine {
-  invoiceLineId: string;
-  variantId: string;
-  designName: string;
-  color: string;
-  size: string;
-  sku: string;
-  qty: number;
-  creditedQty: number;
-  remainingQty: number;
-  unitPricePaise: Paise;
-  ratePercent: number;
-}
-
-export interface CreditNoteInput {
-  invoiceId: string;
-  issueDate: string;
-  reason: string;
-  lines: { invoiceLineId: string; qty: number; restock: boolean }[];
-  /**
-   * Only needed when the customer has already paid more than the invoice now comes to, so money is left over:
-   * give it back ('refund') or keep it for their next purchase ('credit').
-   */
-  leftover?: 'refund' | 'credit';
-  /** How the refund was paid, when there is one. */
-  refund?: { method: PaymentMethod; accountId?: string; reference?: string };
-}
-
-/** What a credit note would come to, before it is made. */
-export interface CreditNotePreview {
-  subtotalPaise: Paise;
-  lineDiscountPaise: Paise;
-  taxablePaise: Paise;
-  taxPaise: Paise;
-  roundOffPaise: Paise;
-  totalPaise: Paise;
-  taxByRate: RateGroup[];
-  /** The part that reduces what the customer owes on the invoice. */
-  appliedPaise: Paise;
-  /** The part that is left because they had already paid: to be refunded or kept as credit. */
-  leftoverPaise: Paise;
-}
-
-export interface CreditNoteQuery {
-  search?: string;
-  invoiceId?: string;
-  customerId?: string;
-  from?: string;
-  to?: string;
-}
-
-/** A refund of money a customer is holding with you (advance or credit), with the money going out by the chosen method. */
-export interface RefundInput {
-  customerId: string;
-  amountPaise: Paise;
-  method: PaymentMethod;
-  date: string;
-  accountId?: string;
-  reference?: string;
-  note?: string;
-}
-
 export interface DashboardSummary {
   outstandingPaise: Paise;
   openInvoices: number;
@@ -1208,11 +941,8 @@ export interface SalesSeriesPoint {
 
 export interface SalesReport {
   range: { from: string; to: string };
-  /** Invoice totals (incl. GST) dated in the period, cancelled invoices excluded, less credit notes dated in the period. Everything below that is about sales is net of returns too. */
+  /** Invoice totals (incl. GST) dated in the period, cancelled invoices excluded. */
   invoicedPaise: Paise;
-  /** Credit notes dated in the period, already taken off the figures above. */
-  creditNoteCount: number;
-  creditNotePaise: Paise;
   taxablePaise: Paise;
   gstPaise: Paise;
   invoiceCount: number;
@@ -1922,7 +1652,7 @@ export type DayBookMode = 'all' | 'cash' | 'bank';
 
 export interface DayBookEntry {
   date: string;
-  kind: 'sale' | 'credit-note' | 'receipt' | 'refund' | 'expense';
+  kind: 'sale' | 'receipt' | 'expense';
   party: string;
   detail: string;
   method: PaymentMethod | null;
@@ -2017,7 +1747,7 @@ export interface DueNote extends Note {
 // ── Accounts: where the money is ────────────────────────────────────────────
 export interface AccountEntry {
   date: string;
-  kind: 'receipt' | 'refund' | 'expense' | 'transfer-in' | 'transfer-out';
+  kind: 'receipt' | 'expense' | 'transfer-in' | 'transfer-out';
   party: string;
   detail: string;
   inPaise: Paise;
@@ -2108,26 +1838,8 @@ export interface PurchaseResult extends Purchase {
 }
 
 // ── Activity log ────────────────────────────────────────────────────────────
-// ── Sign-in ─────────────────────────────────────────────────────────────────
-export interface AuthUser {
-  id: string;
-  name: string;
-  role: Role;
-}
-export interface ManagedUser extends AuthUser {
-  active: boolean;
-  createdAt: string;
-}
-/** Whether this shop asks people to sign in, and who is signed in now. */
-export interface AuthStatus {
-  required: boolean;
-  user: AuthUser | null;
-}
-
 export interface AuditEntry {
   id: string;
-  /** Who did it, once the shop uses sign-in. Empty otherwise. */
-  userName: string;
   /** When it was done (UTC timestamp). */
   at: string;
   /** The request that made the change, e.g. "invoiceCreate". */
@@ -2168,6 +1880,8 @@ export type NotificationKind =
   | 'recurring-due'
   | 'bill-due'
   | 'budget'
+  | 'production-late'
+  | 'wishlist-ready'
   | 'instalment-due'
   | 'weaver-late'
   | 'weaver-arrived';
@@ -2520,4 +2234,103 @@ export interface SessionState {
   current: AppUser | null;
   /** The names offered on the sign in screen. */
   people: { id: string; name: string }[];
+}
+
+// ── Loyalty and wishlist ────────────────────────────────────────────────────
+export interface LoyaltyEntry {
+  id: string;
+  /** Positive when earned or given, negative when spent or taken back. */
+  points: number;
+  reason: 'earned' | 'redeemed' | 'reversed' | 'adjustment';
+  note: string;
+  invoiceId: string | null;
+  invoiceNumber: string | null;
+  createdAt: string;
+}
+
+export interface WishlistEntry {
+  id: string;
+  designId: string;
+  designName: string;
+  note: string;
+  addedOn: string;
+  /** The design has pieces on the shelf now. */
+  inStock: boolean;
+}
+
+// ── Production ──────────────────────────────────────────────────────────────
+export type ProductionStatus = 'planned' | 'making' | 'done' | 'cancelled';
+export const PRODUCTION_STATUS_LABEL: Record<ProductionStatus, string> = { planned: 'Planned', making: 'Being made', done: 'Finished', cancelled: 'Cancelled' };
+
+export interface ProductionMaterial {
+  materialId: string;
+  name: string;
+  unit: string;
+  /** What the whole order needs, wastage included. */
+  neededQty: number;
+  /** What was handed over so far. */
+  issuedQty: number;
+  inStockQty: number;
+  /** How much more is needed than the shop has, when the materials have not been handed over yet. */
+  shortQty: number;
+}
+
+export interface ProductionReceipt {
+  id: string;
+  qty: number;
+  receivedOn: string;
+  wagePaise: Paise;
+  /** The bill raised for the wage, if there was one. */
+  expenseId: string | null;
+}
+
+export interface ProductionOrder {
+  id: string;
+  number: string;
+  variantId: string;
+  designName: string;
+  color: string;
+  size: string;
+  sku: string;
+  qty: number;
+  receivedQty: number;
+  remainingQty: number;
+  vendorId: string | null;
+  vendorName: string;
+  /** Paid per piece received, to the karigar. */
+  wagePaise: Paise;
+  status: ProductionStatus;
+  orderedOn: string;
+  dueOn: string | null;
+  overdue: boolean;
+  note: string;
+  materialsIssued: boolean;
+  materials: ProductionMaterial[];
+  receipts: ProductionReceipt[];
+  closedOn: string | null;
+  createdAt: string;
+}
+
+export interface ProductionOrderInput {
+  variantId: string;
+  qty: number;
+  /** Who is making it, when it is not made in-house (a vendor from your list). */
+  vendorId?: string | null;
+  wagePaise?: Paise;
+  dueOn?: string | null;
+  note?: string;
+}
+
+export interface ProductionQuery {
+  status?: 'all' | 'open' | ProductionStatus;
+  search?: string;
+}
+
+
+/** A GSTR-1 file for one month, ready to upload to the GST portal, with what it holds and what to check first. */
+export interface Gstr1Export {
+  fileName: string;
+  json: string;
+  counts: { b2bInvoices: number; b2cLines: number; creditNotes: number; hsnLines: number };
+  warnings: string[];
 }
