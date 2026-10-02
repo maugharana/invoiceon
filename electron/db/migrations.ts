@@ -785,6 +785,20 @@ CREATE TABLE credit_note_refunds (
 CREATE INDEX ix_credit_note_refunds_note ON credit_note_refunds (credit_note_id);
 `;
 
+const V19 = `
+-- Photos of a design. Kept small (the screen shrinks them before they arrive) and in the book itself, so a backup carries them.
+CREATE TABLE design_photos (
+  id         TEXT PRIMARY KEY,
+  design_id  TEXT NOT NULL REFERENCES designs (id),
+  position   INTEGER NOT NULL,
+  data       TEXT NOT NULL,
+  thumb      TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  deleted_at TEXT
+);
+CREATE INDEX ix_design_photos_design ON design_photos (design_id, position);
+`;
+
 const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 1, sql: V1 },
   { version: 2, sql: V2 },
@@ -804,6 +818,7 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 16, sql: V16 },
   { version: 17, sql: V17 },
   { version: 18, sql: V18 },
+  { version: 19, sql: V19 },
 ];
 
 /** Brings a database up to date. `upTo` stops early at a version, which only the tests use, to build an older database to upgrade. */

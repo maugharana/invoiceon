@@ -53,6 +53,8 @@ const RULES: Record<string, Rule> = {
   catalogueRename: { label: 'Renamed a saree choice', entity: 'design', id: () => '', summary: (a, r) => join(a[0]?.from, '→', a[0]?.to, `${r?.changed ?? 0} used`) },
   catalogueDelete: { label: 'Removed a saree choice', entity: 'design', id: () => '', summary: (a) => join(a[0]?.label) },
   designsTidy: { label: 'Tidied saree names', entity: 'design', id: () => '', summary: (_a, r) => join(`${r?.updated ?? 0} designs`, `${r?.renamed ?? 0} renamed`) },
+  designPhotoAdd: { label: 'Added a photo to a design', entity: 'design', id: arg0Id, summary: () => '' },
+  designPhotoRemove: { label: 'Removed a photo from a design', entity: 'design', id: () => '', summary: () => '' },
   creditNoteCreate: { label: 'Took goods back with a credit note', entity: 'credit_note', id: (_a, r) => r?.id ?? '', summary: (_a, r) => join(r?.number, r?.invoiceNumber, r?.buyerName) },
   creditNoteRefund: { label: 'Refunded a customer on a credit note', entity: 'credit_note', id: arg0Id, summary: (_a, r) => join(r?.number, r?.buyerName) },
   creditNoteCancel: { label: 'Cancelled a credit note', entity: 'credit_note', id: arg0Id, summary: (_a, r) => join(r?.number) },

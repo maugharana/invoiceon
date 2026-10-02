@@ -2143,3 +2143,22 @@ export interface CreditNoteRefundInput {
   /** Left out, all of what is held. */
   amountPaise?: Paise;
 }
+
+// ── Photos ──────────────────────────────────────────────────────────────────
+export const MAX_PHOTOS_PER_DESIGN = 4;
+
+export interface DesignPhoto {
+  id: string;
+  designId: string;
+  /** 0 is the cover: the one shown in lists. */
+  position: number;
+  /** The photo as a data URL (JPEG, shrunk to fit about 700 pixels). */
+  dataUrl: string;
+}
+
+export interface DesignPhotoInput {
+  /** A JPEG, PNG or WebP data URL, already shrunk. */
+  dataUrl: string;
+  /** A much smaller copy for lists. */
+  thumbUrl: string;
+}

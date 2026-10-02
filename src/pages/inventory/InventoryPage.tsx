@@ -53,6 +53,7 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
   const isEmptyInventory = s?.designCount === 0;
   // Counted over every design, whatever the search and filters on this screen are showing.
   const everyDesign = useQuery(() => api.designsList());
+  const covers = useQuery(() => api.designCovers());
   const untidyCount = (everyDesign.data ?? []).filter(isUntidy).length;
   const fabrics = useMemo(() => fabricsOf(everything.data ?? []), [everything.data]);
   const choice = useMemo(() => ({ weaveStyle: choicesOf(everything.data ?? [], 'weaveStyle'), technique: choicesOf(everything.data ?? [], 'technique'), pattern: choicesOf(everything.data ?? [], 'pattern'), work: choicesOf(everything.data ?? [], 'work') }), [everything.data]);
@@ -372,6 +373,9 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
                         <input type="checkbox" checked={picked.has(d.id)} onChange={() => togglePick(d.id)} aria-label={`Select ${d.name}`} className="h-4 w-4 accent-[#0F6E56]" />
                       </td>
                       <td className="td">
+                        <div className="flex items-start gap-3">
+                          {covers.data?.[d.id] && <img src={covers.data[d.id]} alt="" className="h-12 w-9 shrink-0 rounded-md border border-line object-cover" />}
+                          <div className="min-w-0">
                         <div>{d.name}</div>
                         <div className="text-xs text-ink-muted">
                           {d.nickname && <span className="text-ink">{d.nickname}</span>}
@@ -383,6 +387,8 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
                             <TagChips tags={d.tags} onClick={(t) => setColumn('tag', t)} />
                           </div>
                         )}
+                          </div>
+                        </div>
                       </td>
                       <td className="td text-ink-muted">{d.fabric || '—'}</td>
                       <td className="td num text-right">{d.totalStock}</td>

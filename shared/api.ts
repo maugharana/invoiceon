@@ -10,6 +10,8 @@ import type {
   BulkSareeRow,
   CatalogueEntry,
   CreditNote,
+  DesignPhoto,
+  DesignPhotoInput,
   CreditNoteInput,
   CreditNotePreview,
   CreditNoteQuery,
@@ -165,6 +167,14 @@ export interface Api {
   designDuplicate(id: string): Promise<DesignDetail>;
   /** Every design as web page text and shop-import data: title, search text, description, tags and prices (see shared/websiteText.ts). */
   websiteListings(): Promise<WebsiteListing[]>;
+
+  designPhotos(designId: string): Promise<DesignPhoto[]>;
+  /** The cover photo of every design that has one, as a small thumbnail, by design id. */
+  designCovers(): Promise<Record<string, string>>;
+  designPhotoAdd(designId: string, input: DesignPhotoInput): Promise<DesignPhoto[]>;
+  designPhotoRemove(photoId: string): Promise<DesignPhoto[]>;
+  /** Makes this photo the one shown in lists. */
+  designPhotoCover(photoId: string): Promise<DesignPhoto[]>;
 
   /** Adds many sarees at once. All or nothing: if any row has a problem, none are added and the problems come back per row. */
   inventoryBulkAdd(rows: BulkSareeRow[]): Promise<BulkAddResult>;

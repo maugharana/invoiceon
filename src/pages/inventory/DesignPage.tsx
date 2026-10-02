@@ -15,6 +15,7 @@ import { DesignFormModal } from './DesignFormModal';
 import { AdjustStockModal, PriceHistoryModal, StockHistoryModal } from './StockModals';
 import { TransferStockModal } from './Places';
 import { VariantFormModal } from './VariantFormModal';
+import { PhotosCard } from './PhotosCard';
 import { WebsiteTextModal } from './WebsiteTextModal';
 
 type Dialog =
@@ -128,6 +129,8 @@ export function DesignPage({ id }: { id: string }) {
           <Money paise={d.stockValuePaise} fractionDigits={0} />
         </Figure>
       </div>
+
+      <PhotosCard design={d} />
 
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-base">Variants</h2>

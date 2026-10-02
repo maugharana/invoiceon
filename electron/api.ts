@@ -27,6 +27,7 @@ import * as locations from './services/locations';
 import * as materials from './services/materials';
 import * as notes from './services/notes';
 import * as payments from './services/payments';
+import * as photos from './services/photos';
 import * as proformas from './services/proformas';
 import * as purchases from './services/purchases';
 import * as receivables from './services/receivables';
@@ -115,6 +116,11 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
       const shop = { name: settings.getSettings(db).businessName, gstRatePercent: settings.getSettings(db).gstRatePercent };
       return inventory.listDesigns(db).map((d) => buildListing(inventory.getDesign(db, d.id), shop));
     },
+    designPhotos: async (designId) => photos.listPhotos(db, designId),
+    designCovers: async () => photos.covers(db),
+    designPhotoAdd: async (designId, input) => photos.addPhoto(db, designId, input),
+    designPhotoRemove: async (photoId) => photos.removePhoto(db, photoId),
+    designPhotoCover: async (photoId) => photos.setCover(db, photoId),
     designDuplicate: async (id) => inventory.duplicateDesign(db, id),
     designRestore: async (id) => inventory.restoreDesign(db, id),
     designsBulk: async (action) => bulk.bulkChangeDesigns(db, action),
