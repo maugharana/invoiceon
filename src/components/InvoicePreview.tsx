@@ -50,6 +50,8 @@ export function sampleInvoice(s: Settings): Invoice {
     roundOffPaise: t.roundOffPaise,
     notes: 'Sample invoice — this is how yours will look.',
     lines,
+    creditNotes: [],
+    creditedPaise: 0,
     payments: [{ paymentId: 'p1', receivedOn: today, method: 'bank', reference: 'NEFT 4471', amountPaise: paid }],
     cancelledAt: null,
     cancelReason: '',

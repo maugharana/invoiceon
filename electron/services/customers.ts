@@ -30,19 +30,25 @@ interface CustomerRow {
   billed: number;
   paid_on_invoices: number;
   received: number;
+  credited: number;
+  credit_applied: number;
+  refunded: number;
 }
 
 // Cancelled invoices don't count towards what a customer has been billed. "Live" allocations are ones not released
 // by a cancellation, on payments that haven't been voided (see payments.ts).
-//   outstanding = billed − paid on those invoices
-//   advance     = everything they've paid − the part of it that's sitting on invoices
+//   outstanding = billed − paid on those invoices − credit notes put against them
+//   advance     = everything they've paid − the part of it that's sitting on invoices, plus credit kept from credit notes
 const SELECT = `
   SELECT c.*,
     (SELECT COUNT(*) FROM invoices i WHERE i.customer_id = c.id AND i.status = 'issued') AS invoice_count,
     (SELECT COALESCE(SUM(i.total_paise), 0) FROM invoices i WHERE i.customer_id = c.id AND i.status = 'issued') AS billed,
     (SELECT COALESCE(SUM(a.amount_paise), 0) FROM payment_allocations a JOIN payments p ON p.id = a.payment_id JOIN invoices i ON i.id = a.invoice_id
        WHERE i.customer_id = c.id AND i.status = 'issued' AND a.released_at IS NULL AND p.voided_at IS NULL) AS paid_on_invoices,
-    (SELECT COALESCE(SUM(p.amount_paise), 0) FROM payments p WHERE p.customer_id = c.id AND p.voided_at IS NULL) AS received
+    (SELECT COALESCE(SUM(p.amount_paise), 0) FROM payments p WHERE p.customer_id = c.id AND p.voided_at IS NULL) AS received,
+    (SELECT COALESCE(SUM(n.total_paise), 0) FROM credit_notes n WHERE n.customer_id = c.id AND n.status = 'issued') AS credited,
+    (SELECT COALESCE(SUM(a.amount_paise), 0) FROM credit_note_applications a JOIN credit_notes n ON n.id = a.credit_note_id WHERE n.customer_id = c.id AND n.status = 'issued' AND a.released_at IS NULL) AS credit_applied,
+    (SELECT COALESCE(SUM(f.amount_paise), 0) FROM credit_note_refunds f JOIN credit_notes n ON n.id = f.credit_note_id WHERE n.customer_id = c.id AND n.status = 'issued') AS refunded
   FROM customers c WHERE c.deleted_at IS NULL`;
 
 function parseList<T>(json: string): T[] {
@@ -75,8 +81,10 @@ const toCustomer = (r: CustomerRow): Customer => ({
   contacts: parseList<CustomerContact>(r.contacts_json),
   invoiceCount: r.invoice_count,
   billedPaise: r.billed,
-  outstandingPaise: r.billed - r.paid_on_invoices,
-  advancePaise: r.received - r.paid_on_invoices,
+  creditedPaise: r.credited,
+  outstandingPaise: r.billed - r.paid_on_invoices - r.credit_applied,
+  // Credit that was handed back is not held any more, and credit put on an invoice is already counted there.
+  advancePaise: r.received - r.paid_on_invoices + r.credited - r.credit_applied - r.refunded,
 });
 
 type CustomerFields = Required<CustomerInput>;

@@ -8,6 +8,12 @@ import type {
   StockTakeResult,
   BulkSareeRow,
   CatalogueEntry,
+  CreditNote,
+  CreditNoteInput,
+  CreditNotePreview,
+  CreditNoteQuery,
+  CreditNoteRefundInput,
+  CreditNoteSummary,
   CatalogueOptions,
   Customer,
   AuditEntry,
@@ -233,6 +239,17 @@ export interface Api {
   notesDue(query?: { kind?: NoteKind; onOrBefore?: string }): Promise<DueNote[]>;
 
   variantsForSale(): Promise<SaleVariant[]>;
+
+  creditNotesList(query?: CreditNoteQuery): Promise<CreditNoteSummary[]>;
+  creditNoteGet(id: string): Promise<CreditNote>;
+  /** What a credit for these items would come to, and how it would settle. With no items, just what is left on the invoice to take back. */
+  creditNotePreview(input: Pick<CreditNoteInput, 'invoiceId' | 'lines'>): Promise<CreditNotePreview>;
+  /** Takes goods back from an issued invoice: a credit note with its own number and tax, optional restocking, and the money settled. */
+  creditNoteCreate(input: CreditNoteInput): Promise<CreditNote>;
+  /** Hands back credit that was being kept for the customer. */
+  creditNoteRefund(id: string, input: CreditNoteRefundInput): Promise<CreditNote>;
+  /** Cancels a credit note made by mistake, if no money was handed back and it was not used on another invoice. */
+  creditNoteCancel(id: string, reason: string): Promise<CreditNote>;
 
   weaverOrdersList(query?: WeaverOrderQuery): Promise<WeaverOrderSummary[]>;
   weaverOrderGet(id: string): Promise<WeaverOrder>;

@@ -41,6 +41,8 @@ export function proformaAsInvoice(p: Proforma): Invoice {
     notes: p.notes,
     lines: p.lines,
     payments: [],
+    creditNotes: [],
+    creditedPaise: 0,
     cancelledAt: p.cancelledAt,
     cancelReason: p.cancelReason,
     createdAt: p.createdAt,

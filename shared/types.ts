@@ -541,6 +541,8 @@ export interface Customer extends CustomerInput {
   contacts: CustomerContact[];
   invoiceCount: number;
   billedPaise: Paise;
+  /** Credit notes issued to them, and not cancelled. */
+  creditedPaise: Paise;
   /** What they still owe on issued invoices. */
   outstandingPaise: Paise;
   /** Money they've paid that isn't on any invoice yet. Applied to their next invoice. */
@@ -654,7 +656,7 @@ export interface InvoicePayment {
 // ── Ledger & dues ───────────────────────────────────────────────────────────
 export interface LedgerEntry {
   date: string;
-  kind: 'invoice' | 'invoice-cancelled' | 'payment' | 'payment-voided' | 'writeoff';
+  kind: 'invoice' | 'invoice-cancelled' | 'payment' | 'payment-voided' | 'writeoff' | 'credit-note' | 'credit-note-cancelled' | 'refund';
   description: string;
   invoiceId?: string;
   debitPaise: Paise;
@@ -667,11 +669,15 @@ export interface Ledger {
   customer: Customer;
   entries: LedgerEntry[];
   billedPaise: Paise;
+  /** Credit notes issued, and not cancelled. */
+  creditedPaise: Paise;
+  /** Money handed back to the customer on credit notes. */
+  refundedPaise: Paise;
   /** Money that actually arrived. Write-offs are not in it. */
   receivedPaise: Paise;
   /** Balances you chose not to chase. */
   writtenOffPaise: Paise;
-  /** billed − received − written off. Positive = owes, negative = advance credit. */
+  /** billed − credit notes − received − written off + refunded. Positive = owes, negative = advance credit. */
   balancePaise: Paise;
 }
 
@@ -793,7 +799,7 @@ export interface InvoiceSummary {
   issueDate: string;
   dueDate: string | null;
   totalPaise: Paise;
-  /** Sum of payments received against this invoice. Always 0 until payments are built. */
+  /** Payments received against this invoice, plus credit notes that reduced it. */
   paidPaise: Paise;
   status: InvoiceStatus;
 }
@@ -834,6 +840,10 @@ export interface Invoice extends InvoiceSummary {
   series: string;
   /** Payments currently applied to this invoice. */
   payments: InvoicePayment[];
+  /** Credit notes made for goods taken back from this invoice, newest last. Cancelled ones are listed but do not count. */
+  creditNotes: { id: string; number: string; issueDate: string; totalPaise: Paise; status: CreditNoteStatus }[];
+  /** How much of the invoice credit notes have taken off. Already part of paidPaise. */
+  creditedPaise: Paise;
   cancelledAt: string | null;
   cancelReason: string;
   createdAt: string;
@@ -926,7 +936,13 @@ export interface SalesReport {
   paymentCount: number;
   /** Of the invoices raised in this period, what is still owed today. */
   stillUnpaidPaise: Paise;
-  /** Taxable value less what the pieces cost. */
+  /** Credit notes dated in the period (not cancelled), and what they took back. */
+  creditNoteCount: number;
+  creditedPaise: Paise;
+  creditedTaxablePaise: Paise;
+  /** Invoiced less credit notes. */
+  netInvoicedPaise: Paise;
+  /** Taxable value less what the pieces cost, after goods taken back on credit notes: returned pieces that went back on the shelf give their cost back, damaged ones do not. */
   grossProfitPaise: Paise;
   /** Gross profit as a share of taxable value; null when there were no sales. */
   marginPercent: number | null;
@@ -969,6 +985,28 @@ export interface GstReport {
     totalPaise: Paise;
   }[];
   b2cByState: { placeOfSupply: string; ratePercent: number; invoices: number; taxablePaise: Paise; cgstPaise: Paise; sgstPaise: Paise; igstPaise: Paise }[];
+  /** Credit notes dated in the period, not cancelled. Everything above is as invoiced; this is what comes off it (the `invoices` count here is credit notes). */
+  creditNotes: GstTotals;
+  /** The totals above less the credit notes: the tax actually due. */
+  netTotals: GstTotals;
+  /** One row for each rate on a credit note, like the B2B register. The note's total sits on its first row only. */
+  creditRegister: {
+    creditNoteId: string;
+    number: string;
+    date: string;
+    invoiceNumber: string;
+    invoiceDate: string;
+    customer: string;
+    gstin: string;
+    type: InvoiceType;
+    placeOfSupply: string;
+    ratePercent: number;
+    taxablePaise: Paise;
+    cgstPaise: Paise;
+    sgstPaise: Paise;
+    igstPaise: Paise;
+    totalPaise: Paise;
+  }[];
   /** Cancelled invoices dated in the period; they are left out of everything above. */
   cancelledCount: number;
 }
@@ -1971,4 +2009,135 @@ export interface WeaverOrderDraft {
   vendorId: string | null;
   note: string;
   lines: WeaverOrderLineInput[];
+}
+
+// ── Credit notes ────────────────────────────────────────────────────────────
+export const CREDIT_NOTE_REASONS = ['Returned by the customer', 'Damaged or defective', 'Wrong item sent', 'Colour or quality not as shown', 'Other'] as const;
+
+export interface CreditNoteLineInput {
+  invoiceLineId: string;
+  qty: number;
+  /** Whether the pieces go back on the shelf. Leave it off for damaged ones. */
+  restock: boolean;
+}
+
+export interface CreditNoteInput {
+  invoiceId: string;
+  issueDate: string;
+  reason: string;
+  note?: string;
+  lines: CreditNoteLineInput[];
+  /** What to do with any part of the credit the customer does not owe: hand it back now, or keep it for their next invoice. */
+  settlement: 'refund' | 'credit';
+  /** How a refund is paid. Needed only when part of the credit is handed back. */
+  refund?: { method: PaymentMethod; accountId?: string; reference?: string };
+}
+
+/** One line of an invoice as it stands for credit: how many are left to take back, and what a credit for some of them would come to. */
+export interface CreditNotePreviewLine {
+  invoiceLineId: string;
+  designName: string;
+  color: string;
+  size: string;
+  sku: string;
+  soldQty: number;
+  creditedQty: number;
+  creditableQty: number;
+  /** What one piece came to on the invoice, tax included. */
+  unitGrossPaise: Paise;
+  /** For the quantity asked for; 0 when none was. */
+  qty: number;
+  taxablePaise: Paise;
+  taxPaise: Paise;
+}
+
+export interface CreditNotePreview {
+  lines: CreditNotePreviewLine[];
+  taxablePaise: Paise;
+  taxPaise: Paise;
+  roundOffPaise: Paise;
+  totalPaise: Paise;
+  /** What the customer still owed on the invoice before this credit. */
+  owedOnInvoicePaise: Paise;
+  /** The part of the credit that reduces what they owe. */
+  appliedToInvoicePaise: Paise;
+  /** The rest: money they have already paid that is now due back, or credit to keep. */
+  excessPaise: Paise;
+  /** Every piece still left on the invoice is being taken back. */
+  fullReturn: boolean;
+}
+
+export interface CreditNoteLine {
+  id: string;
+  invoiceLineId: string;
+  variantId: string;
+  designName: string;
+  color: string;
+  size: string;
+  sku: string;
+  hsn: string;
+  qty: number;
+  /** The rate each piece was sold at on the invoice. */
+  unitPricePaise: Paise;
+  ratePercent: number;
+  taxablePaise: Paise;
+  taxPaise: Paise;
+  restocked: boolean;
+}
+
+export type CreditNoteStatus = 'issued' | 'cancelled';
+
+export interface CreditNoteSummary {
+  id: string;
+  number: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  customerId: string | null;
+  buyerName: string;
+  issueDate: string;
+  reason: string;
+  totalPaise: Paise;
+  status: CreditNoteStatus;
+}
+
+export interface CreditNote extends CreditNoteSummary {
+  invoiceDate: string;
+  seller: Invoice['seller'];
+  branding: InvoiceBranding;
+  buyer: Party;
+  placeOfSupply: string;
+  intraState: boolean;
+  taxablePaise: Paise;
+  cgstPaise: Paise;
+  sgstPaise: Paise;
+  igstPaise: Paise;
+  roundOffPaise: Paise;
+  taxByRate: RateGroup[];
+  note: string;
+  lines: CreditNoteLine[];
+  /** Where its value went: the invoice it is for, and any other invoice it was later put toward. */
+  applications: { invoiceId: string; invoiceNumber: string; amountPaise: Paise }[];
+  refunds: { id: string; amountPaise: Paise; paidOn: string; method: PaymentMethod }[];
+  /** Kept for the customer's next invoice: what is left after the invoice it is for, other invoices and refunds. */
+  heldPaise: Paise;
+  cancelledAt: string | null;
+  cancelReason: string;
+  createdAt: string;
+}
+
+export interface CreditNoteQuery {
+  customerId?: string;
+  invoiceId?: string;
+  from?: string;
+  to?: string;
+  status?: CreditNoteStatus;
+  search?: string;
+}
+
+export interface CreditNoteRefundInput {
+  method: PaymentMethod;
+  accountId?: string;
+  reference?: string;
+  /** Left out, all of what is held. */
+  amountPaise?: Paise;
 }

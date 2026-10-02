@@ -705,6 +705,86 @@ CREATE TABLE weaver_payments (
 CREATE INDEX ix_weaver_payments_order ON weaver_payments (order_id);
 `;
 
+const V18 = `
+-- Credit notes: goods taken back from an invoice. A credit note is its own document with its own number and tax, frozen like an invoice.
+CREATE TABLE credit_notes (
+  id             TEXT PRIMARY KEY,
+  number         TEXT NOT NULL,
+  fy             TEXT NOT NULL,
+  seq            INTEGER NOT NULL,
+  invoice_id     TEXT NOT NULL REFERENCES invoices (id),
+  customer_id    TEXT REFERENCES customers (id),
+  issue_date     TEXT NOT NULL,
+  reason         TEXT NOT NULL DEFAULT '',
+  note           TEXT NOT NULL DEFAULT '',
+  seller_json    TEXT NOT NULL,
+  buyer_json     TEXT NOT NULL,
+  place_of_supply TEXT NOT NULL,
+  intra_state    INTEGER NOT NULL,
+  taxable_paise  INTEGER NOT NULL,
+  cgst_paise     INTEGER NOT NULL,
+  sgst_paise     INTEGER NOT NULL,
+  igst_paise     INTEGER NOT NULL,
+  round_off_paise INTEGER NOT NULL DEFAULT 0,
+  total_paise    INTEGER NOT NULL CHECK (total_paise > 0),
+  status         TEXT NOT NULL DEFAULT 'issued' CHECK (status IN ('issued','cancelled')),
+  cancelled_at   TEXT,
+  cancel_reason  TEXT NOT NULL DEFAULT '',
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL
+);
+CREATE UNIQUE INDEX ux_credit_notes_number ON credit_notes (number);
+CREATE INDEX ix_credit_notes_invoice ON credit_notes (invoice_id);
+CREATE INDEX ix_credit_notes_customer ON credit_notes (customer_id);
+
+CREATE TABLE credit_note_lines (
+  id              TEXT PRIMARY KEY,
+  credit_note_id  TEXT NOT NULL REFERENCES credit_notes (id),
+  invoice_line_id TEXT NOT NULL REFERENCES invoice_lines (id),
+  variant_id      TEXT NOT NULL REFERENCES variants (id),
+  position        INTEGER NOT NULL,
+  design_name     TEXT NOT NULL,
+  color           TEXT NOT NULL,
+  size            TEXT NOT NULL,
+  sku             TEXT NOT NULL,
+  hsn             TEXT NOT NULL DEFAULT '',
+  qty             INTEGER NOT NULL CHECK (qty > 0),
+  unit_price_paise INTEGER NOT NULL,
+  gst_rate_percent REAL NOT NULL,
+  taxable_paise   INTEGER NOT NULL,
+  tax_paise       INTEGER NOT NULL,
+  restocked       INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX ix_credit_note_lines_note ON credit_note_lines (credit_note_id);
+CREATE INDEX ix_credit_note_lines_invoice_line ON credit_note_lines (invoice_line_id);
+
+-- Where a credit note's value went: first against the invoice it is for, later against another invoice if it was held as store credit.
+CREATE TABLE credit_note_applications (
+  id             TEXT PRIMARY KEY,
+  credit_note_id TEXT NOT NULL REFERENCES credit_notes (id),
+  invoice_id     TEXT NOT NULL REFERENCES invoices (id),
+  amount_paise   INTEGER NOT NULL CHECK (amount_paise > 0),
+  created_at     TEXT NOT NULL,
+  released_at    TEXT
+);
+CREATE INDEX ix_credit_note_apps_invoice ON credit_note_applications (invoice_id);
+CREATE INDEX ix_credit_note_apps_note ON credit_note_applications (credit_note_id);
+
+-- Money handed back to the customer for a credit note. Each refund is also an expense.
+CREATE TABLE credit_note_refunds (
+  id             TEXT PRIMARY KEY,
+  credit_note_id TEXT NOT NULL REFERENCES credit_notes (id),
+  amount_paise   INTEGER NOT NULL CHECK (amount_paise > 0),
+  paid_on        TEXT NOT NULL,
+  method         TEXT NOT NULL,
+  account_id     TEXT NOT NULL DEFAULT '',
+  reference      TEXT NOT NULL DEFAULT '',
+  expense_id     TEXT,
+  created_at     TEXT NOT NULL
+);
+CREATE INDEX ix_credit_note_refunds_note ON credit_note_refunds (credit_note_id);
+`;
+
 const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 1, sql: V1 },
   { version: 2, sql: V2 },
@@ -723,6 +803,7 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 15, sql: V15 },
   { version: 16, sql: V16 },
   { version: 17, sql: V17 },
+  { version: 18, sql: V18 },
 ];
 
 /** Brings a database up to date. `upTo` stops early at a version, which only the tests use, to build an older database to upgrade. */

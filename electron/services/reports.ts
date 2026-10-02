@@ -1,4 +1,4 @@
-import { allocate, isIsoDate, todayIso, type RateGroup } from '../../shared/gst';
+import { allocate, isIsoDate, splitTax, todayIso, type RateGroup } from '../../shared/gst';
 import { bucketKeys, bucketOf, granularityFor } from '../../shared/periods';
 import type { GstReport, GstTotals, InvoiceType, PaymentMethod, SalesReport, StockReport } from '../../shared/types';
 import { all, type Db } from '../db/connection';
@@ -139,6 +139,53 @@ export function loadInvoices(db: Db, range: { from: string; to: string }): Loade
 
 const sum = <T>(items: T[], f: (t: T) => number): number => items.reduce((s, t) => s + f(t), 0);
 
+// ── Credit notes ────────────────────────────────────────────────────────────
+interface CreditRow {
+  id: string;
+  number: string;
+  issue_date: string;
+  invoice_number: string;
+  invoice_date: string;
+  invoice_type: InvoiceType;
+  buyer_json: string;
+  place_of_supply: string;
+  intra_state: number;
+  taxable_paise: number;
+  cgst_paise: number;
+  sgst_paise: number;
+  igst_paise: number;
+  total_paise: number;
+}
+
+/** Credit notes dated in the period that stand (cancelled ones are left out), as the GST and sales reports count them. */
+function loadCreditNotes(db: Db, range: { from: string; to: string }): CreditRow[] {
+  return all<CreditRow>(
+    db,
+    `SELECT n.id, n.number, n.issue_date, i.number AS invoice_number, i.issue_date AS invoice_date, i.type AS invoice_type, n.buyer_json, n.place_of_supply, n.intra_state,
+       n.taxable_paise, n.cgst_paise, n.sgst_paise, n.igst_paise, n.total_paise
+     FROM credit_notes n JOIN invoices i ON i.id = n.invoice_id WHERE n.status = 'issued' AND n.issue_date BETWEEN ? AND ? ORDER BY n.issue_date, n.seq`,
+    range.from,
+    range.to,
+  );
+}
+
+/**
+ * What goods taken back do to profit in the period. The taxable value comes off sales. Pieces that went back on the shelf also give their
+ * cost back (they will be sold again), so only the profit on them is lost; damaged pieces that did not go back keep their cost.
+ */
+function profitTakenBack(db: Db, range: { from: string; to: string }): number {
+  return (
+    all<{ taxable: number; cost: number; restocked: number }>(
+      db,
+      `SELECT l.taxable_paise AS taxable, l.qty * il.unit_cost_paise AS cost, l.restocked
+       FROM credit_note_lines l JOIN credit_notes n ON n.id = l.credit_note_id JOIN invoice_lines il ON il.id = l.invoice_line_id
+       WHERE n.status = 'issued' AND n.issue_date BETWEEN ? AND ?`,
+      range.from,
+      range.to,
+    ).reduce((s, l) => s + l.taxable - (l.restocked ? l.cost : 0), 0)
+  );
+}
+
 // ── Sales ───────────────────────────────────────────────────────────────────
 export function salesReport(db: Db, range: { from: string; to: string }): SalesReport {
   checkRange(range);
@@ -149,7 +196,10 @@ export function salesReport(db: Db, range: { from: string; to: string }): SalesR
   const lines = invoices.flatMap((i) => i.lines);
   const taxablePaise = sum(invoices, (i) => i.row.taxable_paise);
   const cost = sum(lines, (l) => l.cost);
-  const grossProfitPaise = taxablePaise - cost;
+  const notes = loadCreditNotes(db, range);
+  const creditedPaise = sum(notes, (n) => n.total_paise);
+  const creditedTaxablePaise = sum(notes, (n) => n.taxable_paise);
+  const grossProfitPaise = taxablePaise - cost - profitTakenBack(db, range);
 
   const cancelled = all<{ n: number; s: number }>(db, "SELECT COUNT(*) AS n, COALESCE(SUM(total_paise), 0) AS s FROM invoices WHERE status = 'cancelled' AND issue_date BETWEEN ? AND ?", range.from, range.to)[0]!;
 
@@ -213,8 +263,12 @@ export function salesReport(db: Db, range: { from: string; to: string }): SalesR
     collectedPaise: sum(payments, (p) => p.amount_paise),
     paymentCount: payments.length,
     stillUnpaidPaise: sum(invoices, (i) => i.row.total_paise - (paid.get(i.row.id) ?? 0)),
+    creditNoteCount: notes.length,
+    creditedPaise,
+    creditedTaxablePaise,
+    netInvoicedPaise: sum(invoices, (i) => i.row.total_paise) - creditedPaise,
     grossProfitPaise,
-    marginPercent: taxablePaise > 0 ? (grossProfitPaise / taxablePaise) * 100 : null,
+    marginPercent: taxablePaise - creditedTaxablePaise > 0 ? (grossProfitPaise / (taxablePaise - creditedTaxablePaise)) * 100 : null,
     granularity,
     series: [...series.values()],
     byType: types,
@@ -279,6 +333,44 @@ export function gstReport(db: Db, range: { from: string; to: string }): GstRepor
 
   const cancelled = all<{ n: number }>(db, "SELECT COUNT(*) AS n FROM invoices WHERE status = 'cancelled' AND issue_date BETWEEN ? AND ?", range.from, range.to)[0]!.n;
 
+  // Credit notes: what came off, and the register a return needs (a row for each rate on a note).
+  const notes = loadCreditNotes(db, range);
+  const credit = emptyTotals();
+  for (const n of notes) {
+    credit.invoices += 1;
+    credit.taxablePaise += n.taxable_paise;
+    credit.cgstPaise += n.cgst_paise;
+    credit.sgstPaise += n.sgst_paise;
+    credit.igstPaise += n.igst_paise;
+    credit.taxPaise += n.cgst_paise + n.sgst_paise + n.igst_paise;
+    credit.invoiceValuePaise += n.total_paise;
+  }
+  const net = emptyTotals();
+  for (const k of ['invoices', 'taxablePaise', 'cgstPaise', 'sgstPaise', 'igstPaise', 'taxPaise', 'invoiceValuePaise'] as const) net[k] = totals[k] - credit[k];
+  const rates = all<{ credit_note_id: string; rate: number; taxable: number; tax: number }>(
+    db,
+    `SELECT l.credit_note_id, l.gst_rate_percent AS rate, SUM(l.taxable_paise) AS taxable, SUM(l.tax_paise) AS tax FROM credit_note_lines l GROUP BY l.credit_note_id, l.gst_rate_percent ORDER BY l.gst_rate_percent`,
+  );
+  const creditRegister = notes.flatMap((n) =>
+    rates
+      .filter((r) => r.credit_note_id === n.id)
+      .map((r, i) => ({
+        creditNoteId: n.id,
+        number: n.number,
+        date: n.issue_date,
+        invoiceNumber: n.invoice_number,
+        invoiceDate: n.invoice_date,
+        customer: (JSON.parse(n.buyer_json) as { name: string }).name,
+        gstin: (JSON.parse(n.buyer_json) as { gstin: string }).gstin ?? '',
+        type: n.invoice_type,
+        placeOfSupply: n.place_of_supply,
+        ratePercent: r.rate,
+        taxablePaise: r.taxable,
+        ...splitTax(r.tax, n.intra_state === 1),
+        totalPaise: i === 0 ? n.total_paise : 0,
+      })),
+  );
+
   return {
     range,
     totals,
@@ -305,6 +397,9 @@ export function gstReport(db: Db, range: { from: string; to: string }): GstRepor
         })),
       ),
     b2cByState: [...states.values()].sort((a, b) => b.taxablePaise - a.taxablePaise),
+    creditNotes: credit,
+    netTotals: net,
+    creditRegister,
     cancelledCount: cancelled,
   };
 }

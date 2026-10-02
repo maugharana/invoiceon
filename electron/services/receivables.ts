@@ -38,6 +38,22 @@ export function customerLedger(db: Db, customerId: string): Ledger {
     }
   }
 
+  const notes = all<{ id: string; number: string; total_paise: number; issue_date: string; created_at: string; status: string; cancelled_at: string | null; cancel_reason: string; invoice_number: string; invoice_id: string }>(
+    db,
+    'SELECT n.id, n.number, n.total_paise, n.issue_date, n.created_at, n.status, n.cancelled_at, n.cancel_reason, n.invoice_id, i.number AS invoice_number FROM credit_notes n JOIN invoices i ON i.id = n.invoice_id WHERE n.customer_id = ?',
+    customerId,
+  );
+  for (const n of notes) {
+    events.push({ date: n.issue_date, at: n.created_at, kind: 'credit-note', description: `Credit note ${n.number} — goods returned from ${n.invoice_number}`, invoiceId: n.invoice_id, debit: 0, credit: n.total_paise });
+    if (n.status === 'cancelled' && n.cancelled_at) events.push({ date: localDateOf(n.cancelled_at), at: n.cancelled_at, kind: 'credit-note-cancelled', description: `Credit note ${n.number} cancelled${n.cancel_reason ? ` — ${n.cancel_reason}` : ''}`, invoiceId: n.invoice_id, debit: n.total_paise, credit: 0 });
+  }
+  const refunds = all<{ amount_paise: number; paid_on: string; created_at: string; number: string; method: PaymentMethod }>(
+    db,
+    "SELECT f.amount_paise, f.paid_on, f.created_at, f.method, n.number FROM credit_note_refunds f JOIN credit_notes n ON n.id = f.credit_note_id WHERE n.customer_id = ? AND n.status = 'issued'",
+    customerId,
+  );
+  for (const f of refunds) events.push({ date: f.paid_on, at: f.created_at, kind: 'refund', description: `Refund paid (${PAYMENT_METHOD_LABEL[f.method]}) — ${f.number}`, debit: f.amount_paise, credit: 0 });
+
   const payments = all<{ id: string; voided_at: string | null; void_reason: string; received_on: string; created_at: string; amount_paise: number; method: PaymentMethod; reference: string; kind: 'receipt' | 'writeoff'; note: string }>(
     db,
     'SELECT id, voided_at, void_reason, received_on, created_at, amount_paise, method, reference, kind, note FROM payments WHERE customer_id = ?',
@@ -70,7 +86,9 @@ export function customerLedger(db: Db, customerId: string): Ledger {
   const live = payments.filter((p) => !p.voided_at);
   const received = live.filter((p) => p.kind === 'receipt').reduce((s, p) => s + p.amount_paise, 0);
   const writtenOff = live.filter((p) => p.kind === 'writeoff').reduce((s, p) => s + p.amount_paise, 0);
-  return { customer, entries, billedPaise: customer.billedPaise, receivedPaise: received, writtenOffPaise: writtenOff, balancePaise: customer.billedPaise - received - writtenOff };
+  const credited = notes.filter((n) => n.status === 'issued').reduce((s, n) => s + n.total_paise, 0);
+  const refunded = refunds.reduce((s, f) => s + f.amount_paise, 0);
+  return { customer, entries, billedPaise: customer.billedPaise, creditedPaise: credited, refundedPaise: refunded, receivedPaise: received, writtenOffPaise: writtenOff, balancePaise: customer.billedPaise - credited - received - writtenOff + refunded };
 }
 
 // ── Dues ────────────────────────────────────────────────────────────────────

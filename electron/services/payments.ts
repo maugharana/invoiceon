@@ -11,16 +11,23 @@ const MAX_PAISE = 100_000_000_00;
 // A payment's *applied* part is the sum of its live allocations (not released, payment not voided).
 // Its *advance* is what's left. That leftover is the only place "advance" exists — there is no separate balance to drift.
 const LIVE_ALLOCATION = 'a.released_at IS NULL AND p.voided_at IS NULL';
+/** Likewise a credit note's application to an invoice is live until released or the credit note is cancelled. */
+const CREDIT_APPLICATION = "a.released_at IS NULL AND n.status = 'issued'";
 
 // ── Invoice-side lookups (used by the invoice service, which imports this file) ─
 /** Amount received against every invoice, in one query. */
 export function loadPaid(db: Db): Map<string, number> {
   const rows = all<{ invoice_id: string; s: number }>(db, `SELECT a.invoice_id, SUM(a.amount_paise) AS s FROM payment_allocations a JOIN payments p ON p.id = a.payment_id WHERE ${LIVE_ALLOCATION} GROUP BY a.invoice_id`);
-  return new Map(rows.map((r) => [r.invoice_id, r.s]));
+  const paid = new Map(rows.map((r) => [r.invoice_id, r.s]));
+  // Credit notes settle an invoice just as a payment does, though no money arrives.
+  for (const c of all<{ invoice_id: string; s: number }>(db, `SELECT a.invoice_id, SUM(a.amount_paise) AS s FROM credit_note_applications a JOIN credit_notes n ON n.id = a.credit_note_id WHERE ${CREDIT_APPLICATION} GROUP BY a.invoice_id`)) paid.set(c.invoice_id, (paid.get(c.invoice_id) ?? 0) + c.s);
+  return paid;
 }
 
 export function paidFor(db: Db, invoiceId: string): number {
-  return get<{ s: number }>(db, `SELECT COALESCE(SUM(a.amount_paise), 0) AS s FROM payment_allocations a JOIN payments p ON p.id = a.payment_id WHERE a.invoice_id = ? AND ${LIVE_ALLOCATION}`, invoiceId)?.s ?? 0;
+  const payments = get<{ s: number }>(db, `SELECT COALESCE(SUM(a.amount_paise), 0) AS s FROM payment_allocations a JOIN payments p ON p.id = a.payment_id WHERE a.invoice_id = ? AND ${LIVE_ALLOCATION}`, invoiceId)?.s ?? 0;
+  const credits = get<{ s: number }>(db, `SELECT COALESCE(SUM(a.amount_paise), 0) AS s FROM credit_note_applications a JOIN credit_notes n ON n.id = a.credit_note_id WHERE a.invoice_id = ? AND ${CREDIT_APPLICATION}`, invoiceId)?.s ?? 0;
+  return payments + credits;
 }
 
 export function paymentsOnInvoice(db: Db, invoiceId: string): InvoicePayment[] {
@@ -56,7 +63,19 @@ function unappliedPayments(db: Db, customerId: string): Unapplied[] {
   ).filter((r) => r.unapplied > 0);
 }
 
-export const advanceHeld = (db: Db, customerId: string): number => unappliedPayments(db, customerId).reduce((s, r) => s + r.unapplied, 0);
+/** Credit kept for the customer on their credit notes: not yet put on an invoice and not handed back. Oldest first. */
+function storeCredits(db: Db, customerId: string): { id: string; held: number }[] {
+  return all<{ id: string; held: number }>(
+    db,
+    `SELECT n.id, n.total_paise
+       - COALESCE((SELECT SUM(a.amount_paise) FROM credit_note_applications a WHERE a.credit_note_id = n.id AND a.released_at IS NULL), 0)
+       - COALESCE((SELECT SUM(f.amount_paise) FROM credit_note_refunds f WHERE f.credit_note_id = n.id), 0) AS held
+     FROM credit_notes n WHERE n.customer_id = ? AND n.status = 'issued' ORDER BY n.issue_date, n.created_at, n.rowid`,
+    customerId,
+  ).filter((r) => r.held > 0);
+}
+
+export const advanceHeld = (db: Db, customerId: string): number => unappliedPayments(db, customerId).reduce((s, r) => s + r.unapplied, 0) + storeCredits(db, customerId).reduce((s, r) => s + r.held, 0);
 
 function addAllocation(db: Db, paymentId: string, invoiceId: string, amount: number): void {
   run(db, 'INSERT INTO payment_allocations (id, payment_id, invoice_id, amount_paise, created_at) VALUES (?, ?, ?, ?, ?)', newId(), paymentId, invoiceId, amount, nowIso());
@@ -71,6 +90,14 @@ export function applyAdvance(db: Db, customerId: string, invoiceId: string, max:
       if (remaining <= 0) break;
       const take = Math.min(p.unapplied, remaining);
       addAllocation(db, p.id, invoiceId, take);
+      remaining -= take;
+      applied += take;
+    }
+    // Then credit kept from credit notes.
+    for (const c of storeCredits(db, customerId)) {
+      if (remaining <= 0) break;
+      const take = Math.min(c.held, remaining);
+      run(db, 'INSERT INTO credit_note_applications (id, credit_note_id, invoice_id, amount_paise, created_at) VALUES (?, ?, ?, ?, ?)', newId(), c.id, invoiceId, take, nowIso());
       remaining -= take;
       applied += take;
     }

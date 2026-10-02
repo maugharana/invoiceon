@@ -14,6 +14,7 @@ import * as instalments from './services/instalments';
 import { dashboardNow, dashboardOverview } from './services/dashboard';
 import { festivalComparison } from './services/festival';
 import * as bulk from './services/bulk';
+import * as creditNotes from './services/creditNotes';
 import * as catalogue from './services/catalogue';
 import { exportEverything } from './services/exportAll';
 import * as moreReports from './services/moreReports';
@@ -177,6 +178,13 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
     customerArchive: async (id) => customers.archiveCustomer(db, id),
 
     variantsForSale: async () => invoices.variantsForSale(db),
+
+    creditNotesList: async (query) => creditNotes.listCreditNotes(db, query ?? {}),
+    creditNoteGet: async (id) => creditNotes.getCreditNote(db, id),
+    creditNotePreview: async (input) => creditNotes.previewCreditNote(db, input),
+    creditNoteCreate: async (input) => creditNotes.createCreditNote(db, input),
+    creditNoteRefund: async (id, input) => creditNotes.refundCreditNote(db, id, input),
+    creditNoteCancel: async (id, reason) => creditNotes.cancelCreditNote(db, id, reason),
 
     weaverOrdersList: async (query) => weaverOrders.listWeaverOrders(db, query ?? {}),
     weaverOrderGet: async (id) => weaverOrders.getWeaverOrder(db, id),
