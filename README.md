@@ -13,6 +13,8 @@ Windows desktop app, offline-first: your data lives in a local SQLite file, no i
 | 4 | Reports (sales, GST, stock valuation) | **Done** |
 | 5 | Animation & UI polish pass | **Done** |
 | 6 | Dashboard, proformas, expenses, quick-create, command palette | **Done** |
+| 7 | Bulk entry, imports, stock-take, print documents, look and wording | **Done** |
+| 8–15 | Customer details and notes, quote lifecycle, payment accounts and cheques, vendors and input GST, raw-material stock and purchases, notifications and activity log | **Done** |
 
 **New here? Start with [`docs/TOUR.md`](docs/TOUR.md)** — a ten-minute guided tour (see it, generate a PDF, see what the PDF looks
 like, customise it). Sample PDFs are in [`sample-pdfs/`](sample-pdfs). If packaging fails on Windows, see
@@ -173,6 +175,21 @@ The period lives in the URL, so switching tabs keeps it.
 - **Add sarees** (`src/pages/inventory/AddSareesPage.tsx`) is a sheet: one row per piece, paste from Excel, keyboard navigation, live totals. It calls `inventoryBulkAdd` → `bulkAddSarees` in `electron/services/inventory.ts`, which validates every row (alone, against the other rows and against the shop), then writes designs and variants in one transaction. Nothing is written unless every row is valid; problems come back one per row.
 - Rows with the same normalised name (case and spacing ignored) form one design; a name matching an existing design extends it; two existing designs with one name are refused rather than guessed at.
 - **MRP** is a new optional field on each variant (migration 5; `0` means not set). It is stored and shown, and is not used in invoice maths: prices stay GST-exclusive (SP), MRP is the printed GST-inclusive price.
+
+## Customers, quotes, money, materials and the shell (stages 8–15)
+
+Migrations 8 to 13. Each has an upgrade test (`tests/upgrade.test.ts`) that builds a populated book at the previous version, upgrades it, and checks the backfills.
+
+- **Customers (8).** Tags, a credit limit (0 = none, warns on a new invoice but never blocks), payment terms (days; sets the due date when set, otherwise the shop's default), birthday/anniversary (month and day only; a 29 February date falls on the 28th in other years), extra addresses and contacts. `notes` is one timeline for customers, quotes and invoices; a *follow-up* or *promise to pay* has a day and can be ticked off, and the open ones feed the dashboard, the dues list and the notifications.
+- **Prices (8).** `price_history` gets a row when a variant is created and whenever its selling price, MRP or cost changes (all changes go through `updateVariant`, bulk price changes included).
+- **Invoices (9).** `series` + `seq` are unique per year: with a B2B prefix set (Settings → Invoice), B2B tax invoices count on their own; the two prefixes must differ. Ship-to is frozen at issue because it is printed; carrier, tracking and delivery status are the only things on an issued invoice that can change (`invoiceSetDelivery`), as they aren't part of the tax document.
+- **Quotes (10).** Statuses are derived: open → expired (past date) → partial (some lines invoiced) → converted (all invoiced) / lost / cancelled. Partial conversion invoices chosen quantities (`proforma_lines.invoiced_qty`); the quoted discount is shared out by value and the last part takes what is left so the invoices carry exactly what was quoted. Cancelling an invoice made from a quote gives its pieces back to the quote. A deposit is a payment with `proforma_id`; it is held as the customer's advance and put toward the invoice when one is made. Editing writes the earlier version to `proforma_revisions`.
+- **Payments (11).** `kind` is `receipt` or `writeoff`. **A write-off is never money in**: every "received" query filters `kind = 'receipt'` (dashboard, reports, day book, payments summary, accounts, advance), and cancelling an invoice voids its write-offs instead of turning them into advance. A cheque with a date is tracked pending → deposited → cleared; it counts as received when recorded and a bounce reverses it. `reconciled_on` is set only after the person confirms a statement match (`shared/reconcile.ts` proposes). Each payment and bill can name a payment account (`account_id`, an id from Settings); balances are opening + receipts − paid bills ± transfers (`electron/services/accounts.ts`), and entries with no account sit under "not linked". The day close compares a cash count with the cash accounts' book balance and only notes the difference.
+- **Expenses (11).** Vendors build themselves from the "Paid to" text (case-insensitive). `gst_paise` is the input GST inside `amount_paise`. Profit and loss counts spending before that GST; the cash views count a bill only once paid, on `paid_on`. Standing expenses are entered with one click when due (never silently). Monthly budgets live in Settings (`expenseBudgets`).
+- **Raw materials (12).** `stock_qty` is a cached balance with a ledger (`material_movements`), like finished stock; quantities are rounded to a thousandth. A purchase adds stock, makes the price just paid the material's price (history in `material_prices`), and can create the matching expense in the same transaction. A costing line's cost includes its wastage percent. The what-if simulator (`simulateMaterialPrices`) changes nothing. Places: the shop is the default; `stock_locations` holds only what is kept elsewhere, and sales and write-offs draw only on the shop's share.
+- **The shell (13).** Every API call that changes something writes one line to `audit_log` from `createApi` (a description, never the data; a log that can't be written never fails the change). Notifications are derived on every call from the books (`electron/services/notifications.ts`), nothing is stored; "read" is remembered per computer in the browser. Held bills are rows in `held_bills` and touch no stock or money.
+
+Not built, on purpose: photos, barcodes/QR labels, credit notes and returns, per-line discounts, multi-rate GST, e-invoice/e-way bill, users and roles, auto-update, production orders and job work. Sync/teams are planned for InvoiceOn Plus.
 
 ## Brand
 
