@@ -26,6 +26,7 @@ import * as materials from './services/materials';
 import * as notes from './services/notes';
 import * as payments from './services/payments';
 import * as photos from './services/photos';
+import * as loyalty from './services/loyalty';
 import * as production from './services/production';
 import * as proformas from './services/proformas';
 import * as purchases from './services/purchases';
@@ -228,6 +229,12 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
     paymentRecord: async (input) => payments.recordPayment(db, input),
     paymentVoid: async (id, reason) => payments.voidPayment(db, id, reason),
     paymentRefund: async (input) => payments.refundAdvance(db, input),
+
+    loyaltyHistory: async (customerId) => loyalty.history(db, customerId),
+    loyaltyAdjust: async (input) => loyalty.adjust(db, input),
+    wishlistGet: async (customerId) => loyalty.wishlist(db, customerId),
+    wishlistAdd: async (input) => loyalty.addWish(db, input),
+    wishlistRemove: async (id) => loyalty.removeWish(db, id),
 
     productionList: async (query) => production.listOrders(db, query ?? {}),
     productionGet: async (id) => production.getOrder(db, id),

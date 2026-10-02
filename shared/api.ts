@@ -70,6 +70,8 @@ import type {
   FestivalComparison,
   ReorderRow,
   DataInfo,
+  LoyaltyEntry,
+  WishlistEntry,
   ProductionOrder,
   ProductionOrderInput,
   ProductionQuery,
@@ -262,6 +264,14 @@ export interface Api {
   paymentVoid(id: string, reason: string): Promise<Payment>;
   /** Hands back advance or credit a customer is holding. Money out. */
   paymentRefund(input: RefundInput): Promise<Payment[]>;
+
+  // Loyalty and wishlist
+  loyaltyHistory(customerId: string): Promise<LoyaltyEntry[]>;
+  /** Adds or takes off points by hand, with a reason. Returns the new balance. */
+  loyaltyAdjust(input: { customerId: string; points: number; note: string }): Promise<number>;
+  wishlistGet(customerId: string): Promise<WishlistEntry[]>;
+  wishlistAdd(input: { customerId: string; designId: string; note?: string }): Promise<WishlistEntry[]>;
+  wishlistRemove(id: string): Promise<void>;
 
   // Production orders and job work
   productionList(query?: ProductionQuery): Promise<ProductionOrder[]>;

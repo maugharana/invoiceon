@@ -18,6 +18,7 @@ import { navigate, paths } from '../../lib/router';
 import { RecordPaymentModal } from '../payments/RecordPaymentModal';
 import { RefundModal } from '../payments/RefundModal';
 import { CustomerFormModal } from './CustomerFormModal';
+import { LoyaltyCard, WishlistCard } from './CustomerExtras';
 
 export function CustomerPage({ id }: { id: string }) {
   const toast = useToast();
@@ -249,6 +250,8 @@ export function CustomerPage({ id }: { id: string }) {
         </>
       )}
 
+      <LoyaltyCard customer={c} />
+      <WishlistCard customer={c} />
       <NotesPanel subjectType="customer" subjectId={c.id} title="Notes and follow-ups" />
 
       <div className="mb-3 flex items-center justify-between">

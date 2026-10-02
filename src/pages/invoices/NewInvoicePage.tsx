@@ -240,6 +240,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
   const [dueDate, setDueDate] = useState(todayIso());
   const dueTouched = useRef(false);
   const [reserve, setReserve] = useState(false);
+  const [usePoints, setUsePoints] = useState(false);
   const [discount, setDiscount] = useState(0);
   const [notes, setNotes] = useState('');
   const templates = useQuery(() => (quote ? api.quoteTemplatesList() : Promise.resolve([])), [quote]);
@@ -397,9 +398,15 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
   const placeOfSupply = customer?.state || settings.data?.state || '';
   const intraState = !settings.data?.state || sameState(placeOfSupply, settings.data.state);
   const inclusive = settings.data?.pricesIncludeGst ?? false;
+  // Loyalty points are spent as a part of the discount: as many as the customer has, up to what the bill can take.
+  const pointValue = settings.data?.loyaltyPointValuePaise ?? 100;
+  const netBeforeDiscount = rows.reduce((s, r) => s + r.amount - r.discount, 0);
+  const pointsAvailable = !quote && customer && (settings.data?.loyaltySpendPaise ?? 0) > 0 ? Math.min(customer.loyaltyPoints, Math.floor(Math.max(0, netBeforeDiscount - discount) / pointValue)) : 0;
+  const pointsUsed = usePoints ? pointsAvailable : 0;
+  const effectiveDiscount = discount + pointsUsed * pointValue;
   const totals = computeInvoice({
     lines: rows.map((r) => ({ amountPaise: r.amount, discountPaise: r.discount, ratePercent: r.rate })),
-    discountPaise: discount,
+    discountPaise: effectiveDiscount,
     intraState,
     inclusive,
     roundOff: settings.data?.roundOff,
@@ -421,7 +428,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
   if (rows.some((r) => r.short)) problems.push('Some items are short of stock.');
   if (type === 'B2B' && !customer) problems.push('Choose the business customer.');
   if (type === 'B2B' && customer && !customer.gstin) problems.push(`${customer.name} has no GSTIN — add it, or bill as B2C.`);
-  if (discount > totals.subtotalPaise - totals.lineDiscountPaise) problems.push('The discount is more than the subtotal.');
+  if (effectiveDiscount > totals.subtotalPaise - totals.lineDiscountPaise) problems.push('The discount is more than the subtotal.');
   if (rows.some((r) => !r.typedValid)) problems.push('Check the GST rate on an item: it should be a number from 0 to 100.');
   if (rows.some((r) => r.line.discount > r.amount)) problems.push("An item's discount is more than the item.");
   if (sellerGstinMissing) problems.push('Add your GSTIN in Settings first.');
@@ -453,7 +460,8 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
         buyerName: customerId ? undefined : buyerName,
         issueDate,
         dueDate: dueDate || null,
-        discountPaise: discount,
+        discountPaise: effectiveDiscount,
+        redeemPoints: pointsUsed > 0 ? pointsUsed : undefined,
         notes,
         shipTo,
         transport,
@@ -767,6 +775,17 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
             <h2 className="mb-4 text-base">Summary</h2>
             <dl className="space-y-2">
               <div className="flex justify-between"><dt className="text-ink-muted">{inclusive ? 'Subtotal (incl. GST)' : 'Subtotal'}</dt><dd><Money paise={totals.subtotalPaise} /></dd></div>
+              {pointsAvailable > 0 && (
+                <div className="flex items-center justify-between gap-3">
+                  <dt>
+                    <label className="flex cursor-pointer items-center gap-2 text-ink-muted">
+                      <input type="checkbox" checked={usePoints} onChange={(e) => setUsePoints(e.target.checked)} className="h-4 w-4 accent-[#0F6E56]" />
+                      Use {pointsAvailable} points
+                    </label>
+                  </dt>
+                  <dd className="num">{usePoints ? `−${formatMoney(pointsUsed * pointValue)}` : formatMoney(pointsAvailable * pointValue)}</dd>
+                </div>
+              )}
               {totals.lineDiscountPaise > 0 && <div className="flex justify-between"><dt className="text-ink-muted">Item discounts</dt><dd className="num">−{formatMoney(totals.lineDiscountPaise)}</dd></div>}
               <div className="flex items-center justify-between gap-4">
                 <dt className="text-ink-muted">Discount</dt>

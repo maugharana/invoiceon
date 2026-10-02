@@ -5,6 +5,7 @@ import { PAYMENT_METHODS } from '../../shared/types';
 import { all, get, run, tx, type Db } from '../db/connection';
 import { UserError, isUniqueViolation, newId, nowIso, requireText } from './common';
 import { recordMovement } from './inventory';
+import { onReturn } from './loyalty';
 import { brandingOf } from './invoices';
 import { paidFor, recordPaymentTx } from './payments';
 import { getSettings } from './settings';
@@ -257,7 +258,9 @@ export function createCreditNote(db: Db, input: CreditNoteInput): CreditNote {
       }
     });
 
-    // Money. The credit is put toward the invoice first; what is left is refunded, or kept as the customer's credit.
+    onReturn(db, inv.customer_id, inv.id, number, preview.totalPaise);
+
+    // Money. The credit is first put toward the invoice first; what is left is refunded, or kept as the customer's credit.
     const keepAsCredit = leftover > 0 && input.leftover === 'credit';
     const creditAmount = keepAsCredit ? preview.totalPaise : preview.appliedPaise;
     if (creditAmount > 0) {

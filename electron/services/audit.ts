@@ -97,6 +97,8 @@ const RULES: Record<string, Rule> = {
   productionReceive: { label: 'Received pieces from an order', entity: 'production', id: arg0Id, summary: (a, r) => join(r?.number, `${a[1]?.qty ?? ''} pieces`) },
   productionCloseShort: { label: 'Closed an order early', entity: 'production', id: arg0Id, summary: (_a, r) => join(r?.number) },
   productionCancel: { label: 'Cancelled a production order', entity: 'production', id: arg0Id, summary: (_a, r) => join(r?.number) },
+  loyaltyAdjust: { label: 'Changed loyalty points', entity: 'customer', id: (a) => a[0]?.customerId ?? '', summary: (a) => join(`${(a[0]?.points ?? 0) > 0 ? '+' : ''}${a[0]?.points ?? ''}`, a[0]?.note) },
+  wishlistAdd: { label: 'Added to a wishlist', entity: 'customer', id: (a) => a[0]?.customerId ?? '' },
   photoAdd: { label: 'Added a picture', entity: 'design', id: (a) => a[0]?.ownerId ?? '', summary: (a) => a[0]?.ownerType ?? '' },
   photoDelete: { label: 'Removed a picture', entity: 'photo', id: arg0Id },
   creditNoteCreate: { label: 'Issued a credit note', entity: 'invoice', id: (_a, r) => r?.invoiceId ?? '', summary: (_a, r) => join(r?.number, r?.buyerName, money(r?.totalPaise)) },

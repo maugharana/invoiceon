@@ -251,6 +251,14 @@ Code: `electron/services/reservations.ts`, `electron/services/production.ts`, `s
 - **Holding stock.** A quote can hold its pieces (`proformas.reserve_stock`). They stay on the shelf and in the stock ledger, but `stock − held` is all anyone else can sell: an invoice that would eat into pieces held by another live quote is refused, naming the quote. A hold ends by itself when the quote is invoiced, lost, cancelled or past its date; the quote it is held for can always take its own pieces (`exceptQuoteId`). A hold can only be placed on pieces that are really there and not already held. Quotes that hold nothing may still promise more than exists.
 - **Production orders and job work are one thing.** An order is "make N of this colour and size", in-house or by a karigar from the vendors list at a wage per piece (`PRD/2026-27/0001`). Needs are the costing's quantity with its wastage, times N. Materials come off the shelf all at once when work starts (or when the first pieces arrive), refused whole if any is short. Finished pieces go on the shelf through the stock ledger as they arrive, in any number of batches; each batch raises an unpaid "Job work" bill to the karigar for pieces × wage. The last piece finishes the order. Closing early gives back only the materials for pieces never made; cancelling (before anything arrives) gives back all. Orders past their due date appear in notifications.
 
+## Loyalty points and wishlist
+
+Code: `electron/services/loyalty.ts`, `src/pages/customers/CustomerExtras.tsx`, migration 19, `tests/loyalty.test.ts`.
+
+- **Points are a ledger** (`loyalty_points`), like stock: earned, redeemed, reversed, adjusted, with the balance as their sum. Off until Settings > Preferences says how many rupees earn a point (`loyaltySpendPaise`; 0 = off); a point is worth `loyaltyPointValuePaise` (₹1 by default).
+- **Earning** is on the invoice total, for saved customers only. **Spending** is part of the invoice's discount (the screen's "Use N points"); the server checks the balance and that the discount covers the points' value. **Cancelling** an invoice gives spent points back and removes earned ones; **a credit note** removes the points earned on that much of the sale. Removals never take a balance below zero. Hand adjustments need a reason.
+- **Wishlist.** Designs a customer asked for. When one has stock, a notification says so; buying the design takes it off the list.
+
 ## Brand
 
 Tokens live in `tailwind.config.js` (teal `#0F6E56`, gold `#D9A94E` for one figure per screen, status pairs, ink).

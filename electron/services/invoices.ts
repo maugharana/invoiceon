@@ -8,6 +8,7 @@ import { UserError, isUniqueViolation, newId, nowIso, optionalText, requireInt }
 import { getCustomer } from './customers';
 import { getVariant, recordMovement } from './inventory';
 import { advanceHeld, applyAdvance, loadPaid, paidFor, paymentsOnInvoice, recordPaymentTx, releaseInvoicePayments } from './payments';
+import { fulfilWishes, onInvoiceCancelled, onInvoiceIssued } from './loyalty';
 import { heldByQuotes } from './reservations';
 import { getSettings } from './settings';
 
@@ -457,6 +458,9 @@ export function createInvoice(db: Db, input: InvoiceInput, opts: { exceptQuoteId
       recordMovement(db, i.variant.id, -i.l.qty, 'sale', `Invoice ${number}`, { type: 'invoice', id });
     }
 
+    onInvoiceIssued(db, { customerId: customer?.id ?? null, invoiceId: id, number, totalPaise: totals.totalPaise, discountPaise: totals.discountPaise, redeemPoints: input.redeemPoints ? requireInt(input.redeemPoints, 'Loyalty points', { max: 1_000_000 }) : 0 });
+    fulfilWishes(db, customer?.id ?? null, items.map((i) => i.variant.designId));
+
     // Money handed over as the invoice is made is recorded in this same step, so an invoice and its advance can never get out of sync.
     let due = totals.totalPaise;
     if (advanceToApply > 0) {
@@ -501,6 +505,7 @@ export function cancelInvoice(db: Db, id: string, reason: string): Invoice {
   if (invoice.credits.length > 0) throw new UserError(`${invoice.number} has credit notes against it (${invoice.credits.map((c) => c.number).join(', ')}), so it can no longer be cancelled.`);
 
   tx(db, () => {
+    onInvoiceCancelled(db, id, invoice.number);
     releaseInvoicePayments(db, id, `Invoice ${invoice.number} cancelled`);
     for (const line of invoice.lines) {
       // If the variant has since been archived there is no shelf to put the pieces back on.

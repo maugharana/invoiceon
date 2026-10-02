@@ -42,6 +42,10 @@ export interface Settings {
   /** True when the prices you enter already include GST, so the tax is carved out of them instead of added on top. */
   pricesIncludeGst: boolean;
   invoicePrefix: string;
+  /** Loyalty points: a saved customer earns one point for each this much they spend (in paise). 0 switches loyalty off. */
+  loyaltySpendPaise: Paise;
+  /** What one point is worth as a discount, in paise. */
+  loyaltyPointValuePaise: Paise;
   /** Credit notes are numbered CN/2026-27/0001 with this prefix. */
   creditNotePrefix: string;
   /** If set, B2B tax invoices are numbered in their own series with this prefix (MGB/2026-27/0001). Empty: one series for all. */
@@ -521,6 +525,8 @@ export interface CustomerContact {
 }
 export interface Customer extends CustomerInput {
   id: string;
+  /** Loyalty points in hand. */
+  loyaltyPoints: number;
   tags: string;
   creditLimitPaise: Paise;
   paymentTermsDays: number | null;
@@ -868,6 +874,8 @@ export interface InvoiceInput {
   payment?: { amountPaise: Paise; method: PaymentMethod; reference: string };
   /** How much of the customer's held advance to put toward this invoice. */
   applyAdvancePaise?: Paise;
+  /** Loyalty points being spent. Their value must be part of the discount. */
+  redeemPoints?: number;
   shipTo?: ShipTo | null;
   transport?: string;
   trackingNo?: string;
@@ -906,6 +914,28 @@ export interface SaleVariant {
   sku: string;
   stock: number;
   sellPricePaise: Paise;
+}
+
+// ── Loyalty and wishlist ────────────────────────────────────────────────────
+export interface LoyaltyEntry {
+  id: string;
+  /** Positive when earned or given, negative when spent or taken back. */
+  points: number;
+  reason: 'earned' | 'redeemed' | 'reversed' | 'adjustment';
+  note: string;
+  invoiceId: string | null;
+  invoiceNumber: string | null;
+  createdAt: string;
+}
+
+export interface WishlistEntry {
+  id: string;
+  designId: string;
+  designName: string;
+  note: string;
+  addedOn: string;
+  /** The design has pieces on the shelf now. */
+  inStock: boolean;
 }
 
 // ── Production ──────────────────────────────────────────────────────────────
@@ -2072,6 +2102,7 @@ export type NotificationKind =
   | 'bill-due'
   | 'budget'
   | 'production-late'
+  | 'wishlist-ready'
   | 'instalment-due';
 export type NotificationLink = AttentionItem['link'] | { to: 'path'; path: string };
 export interface Notification {
