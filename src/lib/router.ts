@@ -6,7 +6,7 @@ import { PAYMENT_METHODS, type PaymentMethod, type ProformaStatus } from '../../
 
 export type Section = 'dashboard' | 'inventory' | 'invoices' | 'proformas' | 'customers' | 'payments' | 'expenses' | 'reports' | 'settings';
 
-export const SETTINGS_SECTIONS = ['business', 'tax', 'invoice', 'proforma', 'expenses', 'accounts', 'instructions', 'notifications', 'messages', 'data', 'backup', 'preferences', 'activity', 'plus'] as const;
+export const SETTINGS_SECTIONS = ['business', 'tax', 'invoice', 'proforma', 'expenses', 'accounts', 'instructions', 'notifications', 'messages', 'data', 'backup', 'users', 'preferences', 'activity', 'plus'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 export type Route =
@@ -43,6 +43,7 @@ export type Route =
   | { name: 'print-statement'; id: string }
   | { name: 'print-receipt'; id: string }
   | { name: 'print-credit-note'; id: string }
+  | { name: 'print-slip'; id: string }
   | { name: 'print-labels'; items: { variantId: string; copies: number }[] }
   | { name: 'print-invoices'; ids: string[] }
   | { name: 'reports'; tab: ReportTab; period: PeriodSpec; /** Stock valuation date; null means today. */ asOf: string | null };
@@ -105,6 +106,7 @@ export function parseHash(hash: string): Route {
       if (parts[1] === 'statement' && id) return { name: 'print-statement', id };
       if (parts[1] === 'receipt' && id) return { name: 'print-receipt', id };
       if (parts[1] === 'credit-note' && id) return { name: 'print-credit-note', id };
+      if (parts[1] === 'slip' && id) return { name: 'print-slip', id };
       if (parts[1] === 'labels') {
         const items = (params.get('items') ?? '')
           .split(',')
@@ -163,6 +165,7 @@ export const sectionOf = (route: Route): Section => {
     case 'credit-note':
     case 'print-credit-note':
     case 'print-labels':
+    case 'print-slip':
     case 'print-invoice':
       return 'invoices';
     case 'proformas':
@@ -240,6 +243,7 @@ export const paths = {
   printLabels: (pairs: string[]) => `/print/labels?items=${pairs.map(encodeURIComponent).join(',')}`,
   creditNotes: '/invoices/credit-notes',
   creditNote: (id: string) => `/invoices/credit-notes/${encodeURIComponent(id)}`,
+  printSlip: (id: string) => `/print/slip/${encodeURIComponent(id)}`,
   printCreditNote: (id: string) => `/print/credit-note/${encodeURIComponent(id)}`,
   printStatement: (customerId: string) => `/print/statement/${encodeURIComponent(customerId)}`,
   printReceipt: (paymentId: string) => `/print/receipt/${encodeURIComponent(paymentId)}`,

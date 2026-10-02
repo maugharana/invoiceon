@@ -1,4 +1,5 @@
 import { InvoiceDocument } from '../../components/InvoiceDocument';
+import { SlipDocument, slipPage } from '../../components/SlipDocument';
 import { PrintShell } from '../../components/PrintShell';
 import { api } from '../../lib/api';
 import { useQuery } from '../../lib/data';
@@ -16,6 +17,19 @@ export function PrintInvoicePage({ id, kind = 'invoice' }: { id: string; kind?: 
   return (
     <PrintShell ready title={`${proforma ? 'Proforma' : 'Invoice'} ${invoice.number.replaceAll('/', '-')}`} noun={proforma ? 'proforma' : 'invoice'}>
       <InvoiceDocument invoice={invoice} variant={kind} />
+    </PrintShell>
+  );
+}
+
+/** The short receipt for an 80 mm thermal printer. */
+export function PrintSlipPage({ id }: { id: string }) {
+  const query = useQuery(() => api.invoiceGet(id), [id]);
+  const invoice = query.data;
+  if (query.error) return <p className="p-8 text-status-overdue-fg">{query.error}</p>;
+  if (!invoice) return null;
+  return (
+    <PrintShell ready title={`Receipt ${invoice.number.replaceAll('/', '-')}`} noun="receipt" page={slipPage(invoice.lines.length, invoice.taxByRate.length + 4)}>
+      <SlipDocument invoice={invoice} />
     </PrintShell>
   );
 }

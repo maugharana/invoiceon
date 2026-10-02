@@ -1,4 +1,5 @@
 import type { Paise } from './money';
+import type { Role } from './roles';
 import type {
   BulkAddResult,
   BulkDesignAction,
@@ -70,6 +71,10 @@ import type {
   FestivalComparison,
   ReorderRow,
   DataInfo,
+  Gstr1Export,
+  AuthStatus,
+  AuthUser,
+  ManagedUser,
   LoyaltyEntry,
   WishlistEntry,
   ProductionOrder,
@@ -253,6 +258,10 @@ export interface Api {
   /** Desktop app only: several invoices in one PDF, each on its own page. */
   invoicesExportPdf(ids: string[]): Promise<{ saved: boolean; path?: string }>;
   invoicesPrint(ids: string[]): Promise<void>;
+  /** Prints the short 80 mm receipt for a thermal printer. */
+  invoiceSlipPrint(id: string): Promise<void>;
+  /** Opens another InvoiceOn window, for working on two things side by side. */
+  appNewWindow(): Promise<void>;
   invoiceExportPdf(id: string): Promise<{ saved: boolean; path?: string }>;
   /** Desktop app only: opens the system print dialog for the invoice. */
   invoicePrint(id: string): Promise<void>;
@@ -264,6 +273,24 @@ export interface Api {
   paymentVoid(id: string, reason: string): Promise<Payment>;
   /** Hands back advance or credit a customer is holding. Money out. */
   paymentRefund(input: RefundInput): Promise<Payment[]>;
+
+  // Signing in (optional: a shop that never turns it on is open to whoever opens the app)
+  authStatus(): Promise<AuthStatus>;
+  /** The names to choose from on the sign-in screen. */
+  authUsers(): Promise<AuthUser[]>;
+  authSignIn(input: { userId: string; pin: string }): Promise<AuthUser>;
+  authSignOut(): Promise<void>;
+  /** Turns sign-in on by creating the owner. The recovery code is shown once. */
+  authSetup(input: { name: string; pin: string }): Promise<{ user: AuthUser; recoveryCode: string }>;
+  authChangePin(input: { oldPin: string; newPin: string }): Promise<void>;
+  /** A forgotten owner PIN, reset with the recovery code. */
+  authRecover(input: { code: string; newPin: string }): Promise<{ user: AuthUser; recoveryCode: string }>;
+  /** Turns sign-in off (owner PIN needed). Everyone is removed. */
+  authDisable(input: { pin: string }): Promise<void>;
+  userList(): Promise<ManagedUser[]>;
+  userCreate(input: { name: string; role: Role; pin: string }): Promise<ManagedUser>;
+  userUpdate(id: string, patch: { name?: string; role?: Role; active?: boolean }): Promise<ManagedUser>;
+  userResetPin(id: string, pin: string): Promise<void>;
 
   // Loyalty and wishlist
   loyaltyHistory(customerId: string): Promise<LoyaltyEntry[]>;
@@ -341,6 +368,8 @@ export interface Api {
   /** Sales for a date range: invoiced (by invoice date) alongside collected (by payment date). */
   reportSales(range: { from: string; to: string }): Promise<SalesReport>;
   /** GST collected on invoices dated in the range, split B2B/B2C, by HSN, and as a GSTR-1-style register. */
+  /** The month's GSTR-1 as a JSON file for the GST portal. For one calendar month. */
+  reportGstr1(range: { from: string; to: string }): Promise<Gstr1Export>;
   reportGst(range: { from: string; to: string }): Promise<GstReport>;
   /** Stock on hand, valued at cost and at selling price, as of a date (default today). */
   reportStock(asOf?: string): Promise<StockReport>;

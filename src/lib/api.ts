@@ -28,7 +28,12 @@ export const api = new Proxy({} as Api, {
     (_target, method: string) =>
     async (...args: unknown[]) => {
       const envelope = await transport(method, args);
-      if (!envelope.ok) throw new Error(envelope.error);
+      if (!envelope.ok) {
+        // Signed out behind the screen's back (the owner removed this person, or the app was locked from another window):
+        // the app asks who is signed in again and shows the sign-in screen.
+        if (envelope.error.startsWith('Sign in to continue') && method !== 'authStatus') window.dispatchEvent(new Event('invoiceon:signed-out'));
+        throw new Error(envelope.error);
+      }
       return envelope.data;
     },
 });

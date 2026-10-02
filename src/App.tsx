@@ -1,5 +1,9 @@
 import { AppShell } from './components/Layout';
-import { sectionOf, useRoute, type Route } from './lib/router';
+import { useEffect } from 'react';
+import { ROLE_HOME } from '../shared/roles';
+import { useAuth } from './lib/auth';
+import { SignInScreen } from './pages/SignInScreen';
+import { navigate, sectionOf, useRoute, type Route } from './lib/router';
 import { CustomerPage } from './pages/customers/CustomerPage';
 import { CustomersPage } from './pages/customers/CustomersPage';
 import { DashboardPage } from './pages/DashboardPage';
@@ -15,7 +19,7 @@ import { QuickBillPage } from './pages/invoices/QuickBillPage';
 import { InvoicePage } from './pages/invoices/InvoicePage';
 import { InvoicesPage } from './pages/invoices/InvoicesPage';
 import { NewInvoicePage } from './pages/invoices/NewInvoicePage';
-import { PrintCreditNotePage, PrintInvoicePage, PrintInvoicesPage } from './pages/invoices/PrintInvoicePage';
+import { PrintCreditNotePage, PrintInvoicePage, PrintInvoicesPage, PrintSlipPage } from './pages/invoices/PrintInvoicePage';
 import { PrintReceiptPage, PrintStatementPage } from './pages/PrintOtherPages';
 import { ExpensesPage } from './pages/expenses/ExpensesPage';
 import { NotificationsPage } from './pages/NotificationsPage';
@@ -90,6 +94,7 @@ function renderRoute(route: Route) {
     case 'print-receipt':
     case 'print-credit-note':
     case 'print-labels':
+    case 'print-slip':
     case 'print-invoices':
       return null; // rendered outside the app shell, see App()
   }
@@ -127,11 +132,23 @@ const pageKey = (r: Route): string => {
 
 export default function App() {
   const route = useRoute();
+  const auth = useAuth();
+  // Typing the address of a part of the app your role does not have sends you home instead of showing an error.
+  const user = auth.status?.user;
+  const shut = !!auth.status?.required && !!user && !auth.canOpen(sectionOf(route));
+  useEffect(() => {
+    if (shut && user) navigate(ROLE_HOME[user.role]);
+  }, [shut, user]);
+  // A shop that uses sign-in sees nothing, not even the print pages, until someone has signed in.
+  if (!auth.status) return null;
+  if (auth.status.required && !auth.status.user) return <SignInScreen />;
+  if (shut) return null;
   // Print/PDF export render just the paper, with none of the app around it.
   if (route.name === 'print-invoice') return <PrintInvoicePage id={route.id} />;
   if (route.name === 'print-proforma') return <PrintInvoicePage id={route.id} kind="proforma" />;
   if (route.name === 'print-statement') return <PrintStatementPage customerId={route.id} />;
   if (route.name === 'print-receipt') return <PrintReceiptPage paymentId={route.id} />;
+  if (route.name === 'print-slip') return <PrintSlipPage id={route.id} />;
   if (route.name === 'print-labels') return <PrintLabelsPage items={route.items} />;
   if (route.name === 'print-credit-note') return <PrintCreditNotePage id={route.id} />;
   if (route.name === 'print-invoices') return <PrintInvoicesPage ids={route.ids} />;

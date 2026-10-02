@@ -1,4 +1,4 @@
-import { BarChart3, Boxes, CalendarDays, ClipboardList, FileText, LayoutDashboard, PanelLeftClose, PanelLeftOpen, Plus, Receipt, Search, Settings as SettingsIcon, Users, Wallet, type LucideIcon } from 'lucide-react';
+import { BarChart3, Boxes, LockKeyhole, CalendarDays, ClipboardList, FileText, LayoutDashboard, PanelLeftClose, PanelLeftOpen, Plus, Receipt, Search, Settings as SettingsIcon, Users, Wallet, type LucideIcon } from 'lucide-react';
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { financialYear, todayIso } from '../../shared/gst';
 import { CHORD_MS, goTarget, isTypingContext } from '../../shared/shortcuts';
@@ -6,6 +6,8 @@ import { api } from '../lib/api';
 import { useApplyPreferences } from '../lib/prefs';
 import { useQuery } from '../lib/data';
 import { navigate, paths, type Section } from '../lib/router';
+import { useAuth } from '../lib/auth';
+import { ROLE_LABEL } from '../../shared/roles';
 import { CommandPaletteProvider, useCommandPalette } from './CommandPalette';
 import { NotificationBell } from './NotificationBell';
 import { QuickCreateFab, QuickCreateProvider } from './QuickCreate';
@@ -90,6 +92,7 @@ function loadCollapsed(): boolean {
 }
 
 export function Sidebar({ active }: { active: Section }) {
+  const auth = useAuth();
   const settings = useQuery(() => api.getSettings());
   const summary = useQuery(() => api.inventorySummary());
   const dash = useQuery(() => api.dashboardSummary());
@@ -135,7 +138,7 @@ export function Sidebar({ active }: { active: Section }) {
         >
           <span className="absolute inset-y-2 left-0 w-[3px] rounded-full bg-brand" />
         </span>
-        {NAV_GROUPS.map((group, gi) => (
+        {NAV_GROUPS.map((g) => ({ ...g, items: g.items.filter((i) => auth.canOpen(i.section)) })).filter((g) => g.items.length > 0).map((group, gi) => (
           <Fragment key={group.label}>
             {collapsed ? (
               gi > 0 && <li aria-hidden className="mx-2 my-2 h-px bg-line" />
@@ -165,10 +168,21 @@ export function Sidebar({ active }: { active: Section }) {
         ))}
       </ul>
       <div className="mt-auto space-y-3 pt-4">
-        <a href={`#${paths.settings}`} aria-current={active === 'settings' ? 'page' : undefined} title={collapsed ? 'Settings' : undefined} aria-label={collapsed ? 'Settings' : undefined} className={`flex h-9 items-center rounded-lg transition-colors duration-150 ${collapsed ? 'justify-center' : 'gap-3 px-3'} ${active === 'settings' ? 'bg-brand-tint font-medium text-brand' : 'text-ink-muted hover:bg-ink/5 hover:text-ink'}`}>
+        {auth.status?.required && auth.status.user && (
+          <button type="button" onClick={() => void auth.signOut()} title={collapsed ? `Lock — ${auth.status.user.name}` : undefined} aria-label={collapsed ? 'Lock InvoiceOn' : undefined} className={`flex h-9 w-full items-center rounded-lg text-ink-muted transition-colors hover:bg-ink/5 hover:text-ink ${collapsed ? 'justify-center' : 'gap-3 px-3'}`}>
+            <LockKeyhole className="h-[18px] w-[18px] shrink-0" aria-hidden />
+            {!collapsed && (
+              <span className="min-w-0 flex-1 text-left">
+                <span className="block truncate text-ink">Lock · {auth.status.user.name}</span>
+                <span className="block text-[11px] leading-tight">{ROLE_LABEL[auth.status.user.role]}</span>
+              </span>
+            )}
+          </button>
+        )}
+        {auth.canOpen('settings') && <a href={`#${paths.settings}`} aria-current={active === 'settings' ? 'page' : undefined} title={collapsed ? 'Settings' : undefined} aria-label={collapsed ? 'Settings' : undefined} className={`flex h-9 items-center rounded-lg transition-colors duration-150 ${collapsed ? 'justify-center' : 'gap-3 px-3'} ${active === 'settings' ? 'bg-brand-tint font-medium text-brand' : 'text-ink-muted hover:bg-ink/5 hover:text-ink'}`}>
           <SettingsIcon className="h-[18px] w-[18px] shrink-0" aria-hidden />
           {!collapsed && 'Settings'}
-        </a>
+        </a>}
         <button type="button" onClick={toggle} aria-label={collapsed ? 'Expand the menu' : 'Collapse the menu'} title={collapsed ? 'Expand the menu' : 'Collapse the menu'} className={`flex h-8 w-full items-center rounded-lg text-ink-muted transition-colors hover:bg-ink/5 hover:text-ink ${collapsed ? 'justify-center' : 'gap-3 px-3 text-xs'}`}>
           {collapsed ? <PanelLeftOpen className="h-4 w-4" aria-hidden /> : <PanelLeftClose className="h-4 w-4" aria-hidden />}
           {!collapsed && 'Collapse menu'}

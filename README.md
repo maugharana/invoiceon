@@ -259,6 +259,20 @@ Code: `electron/services/loyalty.ts`, `src/pages/customers/CustomerExtras.tsx`, 
 - **Earning** is on the invoice total, for saved customers only. **Spending** is part of the invoice's discount (the screen's "Use N points"); the server checks the balance and that the discount covers the points' value. **Cancelling** an invoice gives spent points back and removes earned ones; **a credit note** removes the points earned on that much of the sale. Removals never take a balance below zero. Hand adjustments need a reason.
 - **Wishlist.** Designs a customer asked for. When one has stock, a notification says so; buying the design takes it off the list.
 
+## Signing in, roles, a receipt slip, a second window and the GSTR-1 file
+
+Code: `shared/roles.ts`, `electron/services/users.ts`, the gate in `createApi` (`electron/api.ts`), `src/pages/SignInScreen.tsx`, `src/pages/settings/UsersSection.tsx`, `electron/services/gstr.ts`, `src/components/SlipDocument.tsx`, migration 20; tests `tests/auth.test.ts`, `tests/gstr.test.ts`.
+
+- **Sign-in is optional.** A shop that never turns it on works as before. Settings > People & sign-in makes the first person the owner (name and a 4-8 digit PIN) and shows a **recovery code once**, the only way back from a forgotten owner PIN. From then on nothing works until someone signs in, and every call is checked against the signed-in person's role.
+- **Roles.** Owner (everything), Counter staff (sell, quote, take payments, look after customers, take goods back; no expenses, reports or settings), Accountant (payments, expenses, bills, reports, GST; cannot sell or change stock or settings). `shared/roles.ts` is an allow-list per role: a call not named there is refused, and `tests/auth.test.ts` fails if a new API call is not deliberately placed, so nothing new is open to staff by accident. Roles guard what people can *do* and which money screens they can open; a cashier can still see cost prices in stock lists.
+- **Session.** Kept in the one process that owns the book, not on the screen. A change of role or a removal takes effect on the person's very next action. Five wrong PINs pause that person for 30 seconds. PINs are stored only as salted scrypt hashes. The activity log records who did each thing, plus signing in, out and PIN changes.
+- **A PIN does not lock the data file.** Anyone with the computer can still copy `invoiceon.db`; keep the computer and the backups safe.
+- **80 mm receipt slip.** Invoice > Receipt, and after a quick bill: a short text-only receipt sized for a thermal roll.
+- **Second window.** Ctrl+Shift+N in the desktop app opens another window on the same book (the sign-in is shared).
+- **GSTR-1 file.** Reports > GST > Prepare GSTR-1 for a single month: B2B invoices by buyer with tax by rate, B2C totalled by in/out of state, rate and state (credit notes to retail buyers come off these), credit notes to businesses, the HSN summary net of credit notes, and the documents issued. It is built from the same data as the GST report, which the tests compare to the paisa. It is for you to upload; InvoiceOn files nothing, and the portal's own check on upload is the final word, so read the warnings first. Unit code is PCS; descriptions in the HSN table are left blank.
+
+Not built: dark mode and alternative invoice layouts. Both are about how the screens look and are best done after the screens have their final design, to avoid doing them twice.
+
 ## Brand
 
 Tokens live in `tailwind.config.js` (teal `#0F6E56`, gold `#D9A94E` for one figure per screen, status pairs, ink).

@@ -2,6 +2,7 @@ import type { Paise } from './money';
 import type { StockStatus } from './stock';
 
 import type { InvoiceStatus, RateGroup, RateSlab, RoundOff } from './gst';
+import type { Role } from './roles';
 
 export const DEFAULT_EXPENSE_CATEGORIES = ['Raw materials', 'Rent', 'Salaries & wages', 'Transport & freight', 'Packaging', 'Electricity & utilities', 'Marketing', 'Other'];
 
@@ -1027,6 +1028,14 @@ export interface PhotoInput {
   ownerId: string;
   image: string;
   thumb: string;
+}
+
+/** A GSTR-1 file for one month, ready to upload to the GST portal, with what it holds and what to check first. */
+export interface Gstr1Export {
+  fileName: string;
+  json: string;
+  counts: { b2bInvoices: number; b2cLines: number; creditNotes: number; hsnLines: number };
+  warnings: string[];
 }
 
 // ── Credit notes ────────────────────────────────────────────────────────────
@@ -2061,8 +2070,26 @@ export interface PurchaseResult extends Purchase {
 }
 
 // ── Activity log ────────────────────────────────────────────────────────────
+// ── Sign-in ─────────────────────────────────────────────────────────────────
+export interface AuthUser {
+  id: string;
+  name: string;
+  role: Role;
+}
+export interface ManagedUser extends AuthUser {
+  active: boolean;
+  createdAt: string;
+}
+/** Whether this shop asks people to sign in, and who is signed in now. */
+export interface AuthStatus {
+  required: boolean;
+  user: AuthUser | null;
+}
+
 export interface AuditEntry {
   id: string;
+  /** Who did it, once the shop uses sign-in. Empty otherwise. */
+  userName: string;
   /** When it was done (UTC timestamp). */
   at: string;
   /** The request that made the change, e.g. "invoiceCreate". */

@@ -167,6 +167,18 @@ export function QuickBillPage() {
             >
               Print invoice
             </Button>
+            <Button
+              onClick={async () => {
+                try {
+                  if (window.invoiceon) await api.invoiceSlipPrint(done.id);
+                  else window.open(`${location.origin}${location.pathname}#${paths.printSlip(done.id)}`, '_blank');
+                } catch (err) {
+                  toast.error(errorMessage(err));
+                }
+              }}
+            >
+              Print receipt
+            </Button>
             <Button variant="primary" onClick={again} data-autofocus>
               Next customer
             </Button>

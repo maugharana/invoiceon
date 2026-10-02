@@ -148,6 +148,7 @@ export interface LoadedCredit {
   buyerName: string;
   buyerGstin: string;
   placeOfSupply: string;
+  intra: boolean;
   taxable: number;
   cgst: number;
   sgst: number;
@@ -209,6 +210,7 @@ export function loadCredits(db: Db, range: { from: string; to: string }): Loaded
       buyerName: buyer.name,
       buyerGstin: buyer.gstin,
       placeOfSupply: n.place_of_supply,
+      intra: n.intra_state === 1,
       taxable: n.taxable_paise,
       cgst: n.cgst_paise,
       sgst: n.sgst_paise,

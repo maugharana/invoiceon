@@ -125,6 +125,15 @@ const RULES: Record<string, Rule> = {
   recurringRun: { label: 'Entered standing expenses that came due', entity: 'expense', id: () => '', summary: (_a, r) => `${r ?? 0} entries` },
 };
 
+/** A line for something that is not a data change, such as signing in. */
+export function recordNote(db: Db, label: string, who: string): void {
+  try {
+    run(db, 'INSERT INTO audit_log (id, at, action, label, entity_type, entity_id, summary, user_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', newId(), nowIso(), 'auth', label, 'user', '', '', who);
+  } catch (err) {
+    console.error('[audit] could not write the log', err);
+  }
+}
+
 /** Whether a call is one that gets logged. */
 export const isAudited = (method: string): boolean => method in RULES;
 
@@ -138,13 +147,13 @@ export function auditBefore(db: Db, method: string): unknown {
 }
 
 /** Writes one line to the activity log. It never throws: the log must not be the reason a real change fails. */
-export function recordAudit(db: Db, method: string, args: unknown[], result: unknown, before?: unknown): void {
+export function recordAudit(db: Db, method: string, args: unknown[], result: unknown, before?: unknown, who = ''): void {
   const rule = RULES[method];
   if (!rule) return;
   try {
     const id = (rule.id ?? resultId)(args, result);
     const summary = rule.summary ? rule.summary(args, result, before) : '';
-    run(db, 'INSERT INTO audit_log (id, at, action, label, entity_type, entity_id, summary) VALUES (?, ?, ?, ?, ?, ?, ?)', newId(), nowIso(), method, rule.label, rule.entity, id, String(summary ?? '').slice(0, 300));
+    run(db, 'INSERT INTO audit_log (id, at, action, label, entity_type, entity_id, summary, user_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', newId(), nowIso(), method, rule.label, rule.entity, id, String(summary ?? '').slice(0, 300), who);
   } catch (err) {
     console.error('[audit] could not write the log', err);
   }
@@ -169,12 +178,12 @@ export function listAudit(db: Db, query: AuditQuery = {}): AuditEntry[] {
   }
   const search = (query.search ?? '').trim().toLowerCase();
   const limit = Math.min(Math.max(query.limit ?? 300, 1), 1000);
-  return all<{ id: string; at: string; action: string; label: string; entity_type: string; entity_id: string; summary: string }>(
+  return all<{ id: string; at: string; action: string; label: string; entity_type: string; entity_id: string; summary: string; user_name: string }>(
     db,
     `SELECT * FROM audit_log ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY at DESC, rowid DESC`,
     ...params,
   )
-    .filter((r) => !search || `${r.label} ${r.summary} ${r.entity_type}`.toLowerCase().includes(search))
+    .filter((r) => !search || `${r.label} ${r.summary} ${r.entity_type} ${r.user_name}`.toLowerCase().includes(search))
     .slice(0, limit)
-    .map((r) => ({ id: r.id, at: r.at, action: r.action, label: r.label, entityType: r.entity_type, entityId: r.entity_id, summary: r.summary }));
+    .map((r) => ({ id: r.id, at: r.at, action: r.action, label: r.label, entityType: r.entity_type, entityId: r.entity_id, summary: r.summary, userName: r.user_name }));
 }

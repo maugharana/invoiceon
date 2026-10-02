@@ -96,6 +96,7 @@ export function ActivitySection() {
                       e.label
                     )}
                     {e.summary && <span className="block truncate text-xs text-ink-muted">{e.summary}</span>}
+                    {e.userName && <span className="block text-xs text-ink-muted">by {e.userName}</span>}
                   </span>
                 </li>
               );

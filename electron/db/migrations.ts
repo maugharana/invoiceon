@@ -813,6 +813,22 @@ CREATE TABLE wishlist (
 CREATE INDEX ix_wishlist_customer ON wishlist (customer_id) WHERE deleted_at IS NULL;
 `;
 
+// 20: people who can sign in (optional), and who did what in the activity log.
+const V20 = `
+CREATE TABLE users (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  role       TEXT NOT NULL CHECK (role IN ('owner','cashier','accountant')),
+  pin_salt   TEXT NOT NULL,
+  pin_hash   TEXT NOT NULL,
+  active     INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX ux_users_name ON users (name COLLATE NOCASE);
+ALTER TABLE audit_log ADD COLUMN user_name TEXT NOT NULL DEFAULT '';
+`;
+
 // Append new migrations to the end; never edit one that has shipped.
 // `rebuilds` marks a migration that replaces a table other tables point at (SQLite's documented way of changing a CHECK). Foreign keys
 // are switched off around it, and checked before it is committed, as SQLite's own instructions for that say.
@@ -836,6 +852,7 @@ const MIGRATIONS: { version: number; sql: string; rebuilds?: boolean }[] = [
   { version: 17, sql: V17 },
   { version: 18, sql: V18 },
   { version: 19, sql: V19 },
+  { version: 20, sql: V20 },
 ];
 
 /** Brings a database up to date. `upTo` stops early at a version, which only the tests use, to build an older database to upgrade. */

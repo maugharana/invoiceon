@@ -1,4 +1,4 @@
-import { ArrowLeft, Ban, ClipboardCopy, Copy, Download, HandCoins, Mail, MessageCircle, Printer, Send, Undo2 } from 'lucide-react';
+import { ArrowLeft, Ban, ClipboardCopy, Copy, Download, HandCoins, Mail, MessageCircle, Printer, Receipt, Send, Undo2 } from 'lucide-react';
 import { useState } from 'react';
 import { formatDate } from '../../../shared/gst';
 import { invoiceMessage, mailtoLink, whatsappLink, whatsappPhone } from '../../../shared/messages';
@@ -82,6 +82,7 @@ export function InvoicePage({ id }: { id: string }) {
   };
   const exportPdf = () => (window.invoiceon ? run('pdf', async () => ((await api.invoiceExportPdf(id)).saved ? toast.success('PDF saved') : undefined)) : openPrintView());
   const print = () => (window.invoiceon ? run('print', () => api.invoicePrint(id)) : openPrintView());
+  const printSlip = () => (window.invoiceon ? run('print', () => api.invoiceSlipPrint(id)) : void window.open(`${location.origin}${location.pathname}#${paths.printSlip(id)}`, '_blank'));
   // Sharing: a ready-written message. WhatsApp and email can't take the PDF from us, so the person attaches the one they save.
   const message = invoiceMessage(inv, { name: inv.seller.name, upiId: inv.seller.upiId }, settings.data?.msgInvoice ?? '');
   const phone = whatsappPhone(inv.buyer.phone ?? '');
@@ -125,6 +126,9 @@ ${message.body}`)) ? toast.success('Message copied — paste it anywhere') : toa
             </Button>
             <Button icon={<Printer className="h-4 w-4" />} loading={busy === 'print'} disabled={busy !== null} onClick={() => void print()}>
               Print
+            </Button>
+            <Button icon={<Receipt className="h-4 w-4" />} disabled={busy !== null} onClick={() => void printSlip()} title="A short receipt for an 80 mm thermal printer">
+              Receipt
             </Button>
             {!cancelled && (
               <Menu
