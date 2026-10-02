@@ -98,3 +98,45 @@ describe('upgrading a book that already has data', () => {
     expect({ ...db.prepare('SELECT COUNT(*) AS n FROM price_history').get() }).toEqual(before);
   });
 });
+
+describe('upgrading a book from before accounts, vendors and input GST', () => {
+  function bookAtVersion10() {
+    const db = new DatabaseSync(':memory:');
+    db.exec('PRAGMA foreign_keys = ON');
+    migrate(db, 10);
+    const now = '2026-09-01T10:00:00.000Z';
+    db.exec(`
+      INSERT INTO customers (id, name, type, phone, gstin, created_at, updated_at) VALUES ('c1', 'Sunita', 'B2C', '9876543210', '', '${now}', '${now}');
+      INSERT INTO payments (id, customer_id, amount_paise, method, received_on, created_at, updated_at) VALUES ('pay1', 'c1', 50000, 'upi', '2026-09-01', '${now}', '${now}');
+      INSERT INTO expenses (id, expense_date, category, vendor, amount_paise, method, created_at, updated_at)
+        VALUES ('e1', '2026-08-10', 'Rent', 'Sharma Traders', 100000, 'bank', '${now}', '${now}'),
+               ('e2', '2026-08-20', 'Packaging', 'sharma traders', 20000, 'cash', '${now}', '${now}'),
+               ('e3', '2026-08-25', 'Tea', '', 5000, 'cash', '${now}', '${now}'),
+               ('e4', '2026-08-26', 'Fuel', 'Gupta', 7000, 'cash', '${now}', '${now}');
+    `);
+    return db;
+  }
+
+  it('turns every name typed under "Paid to" into one vendor, spelt as first entered, and links the expenses', () => {
+    const db = bookAtVersion10();
+    migrate(db);
+    const vendors = db.prepare('SELECT name FROM vendors ORDER BY name').all().map((r) => (r as { name: string }).name);
+    expect(vendors).toEqual(['Gupta', 'Sharma Traders']);
+    const linked = db.prepare('SELECT e.id, v.name FROM expenses e LEFT JOIN vendors v ON v.id = e.vendor_id ORDER BY e.id').all().map((r) => ({ ...r }));
+    expect(linked).toEqual([
+      { id: 'e1', name: 'Sharma Traders' },
+      { id: 'e2', name: 'Sharma Traders' },
+      { id: 'e3', name: null },
+      { id: 'e4', name: 'Gupta' },
+    ]);
+  });
+
+  it('marks existing expenses paid on their own date, with no GST, and existing payments as plain receipts', () => {
+    const db = bookAtVersion10();
+    migrate(db);
+    const e = db.prepare("SELECT status, paid_on, gst_paise, account_id, due_date FROM expenses WHERE id = 'e1'").get();
+    expect({ ...e }).toEqual({ status: 'paid', paid_on: '2026-08-10', gst_paise: 0, account_id: '', due_date: null });
+    const p = db.prepare("SELECT kind, account_id, cheque_status, reconciled_on FROM payments WHERE id = 'pay1'").get();
+    expect({ ...p }).toEqual({ kind: 'receipt', account_id: '', cheque_status: null, reconciled_on: null });
+  });
+});

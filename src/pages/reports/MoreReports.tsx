@@ -1,6 +1,6 @@
 import { ChevronRight, Table2 } from 'lucide-react';
 import { Fragment, useState, type ReactNode } from 'react';
-import { dayBookCsv, marginCsv, movementCsv, moversCsv, profitLossCsv, quotesCsv, receivablesCsv } from '../../../shared/csv';
+import { accountBookCsv, dayBookCsv, marginCsv, movementCsv, moversCsv, profitLossCsv, purchasesCsv, quotesCsv, receivablesCsv } from '../../../shared/csv';
 import { formatDate } from '../../../shared/gst';
 import { formatMoney } from '../../../shared/money';
 import { resolvePeriod, type PeriodSpec } from '../../../shared/periods';
@@ -682,6 +682,171 @@ export function QuotesTab({ period }: { period: PeriodSpec }) {
             </Section>
           )}
         </>
+      )}
+    </>
+  );
+}
+
+// ── Purchases and input GST ─────────────────────────────────────────────────
+export function PurchasesTab({ period }: { period: PeriodSpec }) {
+  const exportCsv = useReportExport();
+  const range = resolvePeriod(period);
+  const q = useQuery(() => api.reportPurchases(range), [range.from, range.to]);
+  const net = useQuery(() => api.gstNet(range), [range.from, range.to]);
+  const r = q.data;
+  if (q.error && !r) return <ErrorNote>{q.error}</ErrorNote>;
+  if (!r) return <Spinner />;
+  const n = net.data;
+
+  return (
+    <>
+      <Toolbar>
+        <p className="text-xs text-ink-muted">Spending that carried GST, for claiming the tax back. Enter the GST on each bill when you record the expense, and the vendor's GSTIN under Expenses → Vendors.</p>
+        <div className="flex gap-2">
+          <ExportButton onClick={() => void exportCsv(`purchases-${range.from}_${range.to}.csv`, purchasesCsv(r))} />
+        </div>
+      </Toolbar>
+      <div className="mb-8 grid grid-cols-4 gap-6">
+        <Figure label="Purchases with GST" sub={plural(r.entries.length, 'bill')}>
+          <Money paise={r.totalPaise} fractionDigits={0} />
+        </Figure>
+        <Figure label="Input GST" sub="Paid on those bills">
+          <Money paise={r.gstPaise} fractionDigits={0} />
+        </Figure>
+        <Figure label="GST collected" sub="On sales in the same dates">
+          <Money paise={n?.outputPaise ?? 0} fractionDigits={0} />
+        </Figure>
+        <Figure label={n && n.netPaise < 0 ? 'GST credit' : 'GST to pay'} sub="Collected less paid" highlight>
+          <Money paise={Math.abs(n?.netPaise ?? 0)} fractionDigits={0} />
+        </Figure>
+      </div>
+      {r.entries.length === 0 ? (
+        <Empty title="No purchases with GST" body="Record the GST on a bill (Expenses → New expense → “This bill has GST on it”) and it appears here." />
+      ) : (
+        <>
+          <Section title="By vendor">
+            <Card className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-line">
+                    <th className="th">Vendor</th>
+                    <th className="th">GSTIN</th>
+                    <th className="th text-right">Total</th>
+                    <th className="th text-right">GST</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {r.byVendor.map((v) => (
+                    <tr key={v.vendor} className="border-b border-line/70 last:border-0">
+                      <td className="td">{v.vendor}</td>
+                      <td className="td num text-xs">{v.gstin || <span className="text-status-partial-fg">missing, so it cannot be claimed</span>}</td>
+                      <td className="td text-right"><Money paise={v.totalPaise} /></td>
+                      <td className="td text-right"><Money paise={v.gstPaise} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Card>
+          </Section>
+          <Section title="Every bill">
+            <Card className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-line">
+                    <th className="th">Date</th>
+                    <th className="th">Vendor</th>
+                    <th className="th">Category</th>
+                    <th className="th text-right">Taxable</th>
+                    <th className="th text-right">GST</th>
+                    <th className="th text-right">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {r.entries.map((e) => (
+                    <tr key={e.id} className="border-b border-line/70 last:border-0">
+                      <td className="td num whitespace-nowrap text-ink-muted">{formatDate(e.date)}</td>
+                      <td className="td">{e.vendor || dash}</td>
+                      <td className="td text-ink-muted">{e.category}</td>
+                      <td className="td text-right"><Money paise={e.taxablePaise} /></td>
+                      <td className="td text-right"><Money paise={e.gstPaise} /></td>
+                      <td className="td text-right"><Money paise={e.totalPaise} /></td>
+                    </tr>
+                  ))}
+                  <tr className="bg-canvas">
+                    <td className="td" colSpan={3}>Total</td>
+                    <td className="td text-right"><Money paise={r.taxablePaise} /></td>
+                    <td className="td text-right"><Money paise={r.gstPaise} /></td>
+                    <td className="td text-right"><Money paise={r.totalPaise} /></td>
+                  </tr>
+                </tbody>
+              </table>
+            </Card>
+          </Section>
+        </>
+      )}
+      {r.withoutGstPaise > 0 && <p className="text-xs text-ink-muted">Another <Money paise={r.withoutGstPaise} /> was spent with no GST recorded.</p>}
+    </>
+  );
+}
+
+// ── Account book ────────────────────────────────────────────────────────────
+export function AccountBookTab({ period }: { period: PeriodSpec }) {
+  const exportCsv = useReportExport();
+  const range = resolvePeriod(period);
+  const q = useQuery(() => api.accountBook(range), [range.from, range.to]);
+  const b = q.data;
+  if (q.error && !b) return <ErrorNote>{q.error}</ErrorNote>;
+  if (!b) return <Spinner />;
+  const kind = { receipt: 'Received', expense: 'Paid', 'transfer-in': 'Moved in', 'transfer-out': 'Moved out' } as const;
+
+  return (
+    <>
+      <Toolbar>
+        <p className="text-xs text-ink-muted">What went into and out of each account. Accounts are set up in Settings → Payment accounts; bills not yet paid are not money out.</p>
+        <div className="flex gap-2">
+          <ExportButton onClick={() => void exportCsv(`account-book-${range.from}_${range.to}.csv`, accountBookCsv(b))} />
+        </div>
+      </Toolbar>
+      {b.accounts.length === 0 ? (
+        <Empty title="No accounts set up" body="Add your cash drawer, bank and UPI accounts in Settings → Payment accounts to see what each one holds." />
+      ) : (
+        b.accounts.map((a) => (
+          <Section key={a.accountId || 'loose'} title={a.name} note={<>Started at <Money paise={a.openingPaise} />, ended at <Money paise={a.closingPaise} /></>}>
+            <Card className="overflow-x-auto">
+              {a.entries.length === 0 ? (
+                <p className="px-6 py-5 text-ink-muted">Nothing moved in this period.</p>
+              ) : (
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-line">
+                      <th className="th">Date</th>
+                      <th className="th">Type</th>
+                      <th className="th">Details</th>
+                      <th className="th text-right">In</th>
+                      <th className="th text-right">Out</th>
+                      <th className="th text-right">Balance</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {a.entries.map((e, i) => (
+                      <tr key={i} className="border-b border-line/70 last:border-0">
+                        <td className="td num whitespace-nowrap text-ink-muted">{formatDate(e.date)}</td>
+                        <td className="td text-ink-muted">{kind[e.kind]}</td>
+                        <td className="td">
+                          {e.party}
+                          <div className="text-xs text-ink-muted">{e.detail}</div>
+                        </td>
+                        <td className="td text-right">{e.inPaise ? <Money paise={e.inPaise} /> : dash}</td>
+                        <td className="td text-right">{e.outPaise ? <Money paise={e.outPaise} /> : dash}</td>
+                        <td className="td text-right"><Money paise={e.balancePaise} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </Card>
+          </Section>
+        ))
       )}
     </>
   );

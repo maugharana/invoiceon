@@ -1,4 +1,5 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { suggestAccount } from '../../../shared/accountChoice';
 import { formatDate, todayIso } from '../../../shared/gst';
 import { formatMoney } from '../../../shared/money';
 import { PAYMENT_METHODS, PAYMENT_METHOD_LABEL, type Customer, type InvoiceSummary, type PaymentMethod } from '../../../shared/types';
@@ -59,6 +60,15 @@ export function RecordPaymentModal({ customer: presetCustomer = null, invoice: p
   const [method, setMethod] = useState<PaymentMethod>('cash');
   const [reference, setReference] = useState('');
   const [note, setNote] = useState('');
+  const settings = useQuery(() => api.getSettings());
+  const accounts = settings.data?.paymentAccounts ?? [];
+  const [accountId, setAccountId] = useState('');
+  const accountTouched = useRef(false);
+  const [chequeDate, setChequeDate] = useState('');
+  // The account follows the method until it is chosen by hand: cash goes to the drawer, UPI to the UPI account, and so on.
+  useEffect(() => {
+    if (!accountTouched.current) setAccountId(suggestAccount(method, accounts));
+  }, [method, settings.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const [share, setShareState] = useState<Share>(loadShare);
   const [manual, setManual] = useState<Record<string, number> | null>(null); // null = automatic (oldest first), or empty when picking
   const [error, setError] = useState<string | null>(null);
@@ -121,6 +131,8 @@ export function RecordPaymentModal({ customer: presetCustomer = null, invoice: p
         receivedOn,
         note,
         allocations: invoices.filter((i) => (alloc[i.id] ?? 0) > 0).map((i) => ({ invoiceId: i.id, amountPaise: alloc[i.id]! })),
+        accountId,
+        chequeDate: method === 'cheque' && chequeDate ? chequeDate : null,
       });
       refresh();
       toast.success(advance > 0 ? `${formatMoney(amount)} recorded — ${formatMoney(advance)} held as advance` : `${formatMoney(amount)} payment recorded`);
@@ -213,6 +225,28 @@ export function RecordPaymentModal({ customer: presetCustomer = null, invoice: p
             <Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="UTR / cheque no." />
           </Field>
         </div>
+
+        {(accounts.length > 0 || method === 'cheque') && (
+          <div className="grid grid-cols-2 gap-4">
+            {accounts.length > 0 && (
+              <Field label="Into account">
+                <Select value={accountId} onChange={(e) => { accountTouched.current = true; setAccountId(e.target.value); }}>
+                  <option value="">Not recorded</option>
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            )}
+            {method === 'cheque' && (
+              <Field label="Date on the cheque" hint="A later date is a post-dated cheque. It is tracked under Cheques until it clears.">
+                <Input type="date" value={chequeDate} onChange={(e) => setChequeDate(e.target.value)} className="num" />
+              </Field>
+            )}
+          </div>
+        )}
 
         {/* Where the money goes */}
         <div className="rounded-lg border border-line">

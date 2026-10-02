@@ -122,7 +122,7 @@ export function salesReport(db: Db, range: { from: string; to: string }): SalesR
   // Payments are measured by the day the money arrived — independent of which invoice (or advance) they went to.
   const payments = all<{ received_on: string; method: PaymentMethod; amount_paise: number }>(
     db,
-    'SELECT received_on, method, amount_paise FROM payments WHERE voided_at IS NULL AND received_on BETWEEN ? AND ?',
+    "SELECT received_on, method, amount_paise FROM payments WHERE voided_at IS NULL AND kind = 'receipt' AND received_on BETWEEN ? AND ?",
     range.from,
     range.to,
   );

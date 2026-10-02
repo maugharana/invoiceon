@@ -20,6 +20,9 @@ export type Route =
   | { name: 'invoice-new'; customerId: string | null; advance: AdvancePreset | null; /** An earlier invoice to start from (Duplicate). */ copyFrom: string | null }
   | { name: 'payments' }
   | { name: 'dues' }
+  | { name: 'cheques' }
+  | { name: 'accounts' }
+  | { name: 'reconcile' }
   | { name: 'invoice'; id: string }
   | { name: 'proformas'; status: 'all' | ProformaStatus }
   | { name: 'proforma-new'; customerId: string | null; /** An earlier quote to start from (Duplicate). */ copyFrom: string | null }
@@ -37,7 +40,7 @@ export type Route =
   | { name: 'print-invoices'; ids: string[] }
   | { name: 'reports'; tab: ReportTab; period: PeriodSpec; /** Stock valuation date; null means today. */ asOf: string | null };
 
-export const REPORT_TABS = ['sales', 'profit', 'margin', 'gst', 'daybook', 'stock', 'movement', 'movers', 'receivables', 'quotes'] as const;
+export const REPORT_TABS = ['sales', 'profit', 'margin', 'gst', 'daybook', 'stock', 'movement', 'movers', 'receivables', 'quotes', 'purchases', 'accountbook'] as const;
 export type ReportTab = (typeof REPORT_TABS)[number];
 
 /** Money a customer has just paid, carried into the New invoice screen so it's recorded in the same step as the invoice. */
@@ -94,7 +97,11 @@ export function parseHash(hash: string): Route {
       if (parts[1] === 'invoices') return { name: 'print-invoices', ids: (params.get('ids') ?? '').split(',').map(decodeURIComponent).filter(Boolean) };
       return { name: 'dashboard' };
     case 'payments':
-      return parts[1] === 'dues' ? { name: 'dues' } : { name: 'payments' };
+      if (parts[1] === 'dues') return { name: 'dues' };
+      if (parts[1] === 'cheques') return { name: 'cheques' };
+      if (parts[1] === 'accounts') return { name: 'accounts' };
+      if (parts[1] === 'reconcile') return { name: 'reconcile' };
+      return { name: 'payments' };
     case 'reports': {
       const tab: ReportTab = (REPORT_TABS as readonly string[]).includes(parts[1] ?? '') ? (parts[1] as ReportTab) : 'sales';
       const preset = params.get('period');
@@ -147,6 +154,9 @@ export const sectionOf = (route: Route): Section => {
       return 'customers';
     case 'payments':
     case 'dues':
+    case 'cheques':
+    case 'accounts':
+    case 'reconcile':
       return 'payments';
   }
 };
@@ -180,6 +190,9 @@ export const paths = {
   expenses: (category?: string) => (category ? `/expenses?category=${encodeURIComponent(category)}` : '/expenses'),
   payments: '/payments',
   dues: '/payments/dues',
+  cheques: '/payments/cheques',
+  accounts: '/payments/accounts',
+  reconcile: '/payments/reconcile',
   reports: (tab: ReportTab = 'sales', period?: PeriodSpec, asOf?: string | null) => {
     const q = new URLSearchParams();
     if (period && period.preset !== 'this-month') q.set('period', period.preset);

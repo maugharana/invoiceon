@@ -2,7 +2,7 @@ import { Ban, BellRing, Download, FileText, HandCoins, Plus, SearchX, Undo2 } fr
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { paymentsCsv } from '../../../shared/csv';
 import { formatDate, todayIso } from '../../../shared/gst';
-import { PAYMENT_METHODS, PAYMENT_METHOD_LABEL, type DuesRow, type Payment, type PaymentMethod } from '../../../shared/types';
+import { CHEQUE_STATUS_LABEL, PAYMENT_METHODS, PAYMENT_METHOD_LABEL, type DuesRow, type Payment, type PaymentMethod } from '../../../shared/types';
 import { ConfirmDialog } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { DateRangeFilter, Pager, SortableTh, sortBy, usePager, useSort, type DateRangeValue } from '../../components/listTools';
@@ -16,10 +16,15 @@ import { navigate, paths } from '../../lib/router';
 import { RecordPaymentModal } from './RecordPaymentModal';
 import { RemindersModal } from './RemindersModal';
 
-function Tabs({ tab }: { tab: 'payments' | 'dues' }) {
+export type PaymentsTab = 'payments' | 'dues' | 'cheques' | 'accounts' | 'reconcile';
+
+function Tabs({ tab }: { tab: PaymentsTab }) {
   const tabs = [
     { id: 'payments', label: 'Payments', href: paths.payments },
     { id: 'dues', label: 'Dues', href: paths.dues },
+    { id: 'cheques', label: 'Cheques', href: paths.cheques },
+    { id: 'accounts', label: 'Cash & accounts', href: paths.accounts },
+    { id: 'reconcile', label: 'Match bank statement', href: paths.reconcile },
   ] as const;
   return (
     <div className="mb-6 flex gap-6 border-b border-line" role="tablist">
@@ -33,7 +38,7 @@ function Tabs({ tab }: { tab: 'payments' | 'dues' }) {
 }
 
 /** Shared frame for Payments and Dues: title, the four headline figures, the tabs. */
-function PaymentsShell({ tab, children }: { tab: 'payments' | 'dues'; children: ReactNode }) {
+export function PaymentsShell({ tab, children }: { tab: PaymentsTab; children: ReactNode }) {
   const summary = useQuery(() => api.paymentsSummary());
   const [recording, setRecording] = useState(false);
   const s = summary.data;
@@ -105,7 +110,9 @@ function VoidPaymentDialog({ payment, onClose }: { payment: Payment; onClose: ()
 export function PaymentsPage() {
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
-  const [status, setStatus] = useState<'all' | 'advance' | 'voided'>('all');
+  const [status, setStatus] = useState<'all' | 'advance' | 'voided' | 'writeoff' | 'unreconciled'>('all');
+  const settings = useQuery(() => api.getSettings());
+  const accountName = (id: string) => settings.data?.paymentAccounts.find((a) => a.id === id)?.name ?? '';
   const [voiding, setVoiding] = useState<Payment | null>(null);
   const [dates, setDates] = useState<DateRangeValue>({});
   const [method, setMethod] = useState<'' | PaymentMethod>('');
@@ -163,6 +170,8 @@ export function PaymentsPage() {
                   { value: 'all', label: 'All' },
                   { value: 'advance', label: 'Advance held' },
                   { value: 'voided', label: 'Reversed' },
+                  { value: 'writeoff', label: 'Written off' },
+                  { value: 'unreconciled', label: 'Not matched' },
                 ]}
               />
               <Button icon={<Download className="h-4 w-4" />} disabled={sorted.length === 0} onClick={() => void saveCsv(`payments-${todayIso()}.csv`, paymentsCsv(sorted), 'Payments saved')}>
@@ -199,8 +208,13 @@ export function PaymentsPage() {
                         )}
                       </td>
                       <td className="td">
-                        {PAYMENT_METHOD_LABEL[p.method]}
+                        {p.kind === 'writeoff' ? 'Written off' : PAYMENT_METHOD_LABEL[p.method]}
                         {p.reference && <div className="num text-xs text-ink-muted">{p.reference}</div>}
+                        <div className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-ink-muted">
+                          {p.accountId && accountName(p.accountId) && <span>{accountName(p.accountId)}</span>}
+                          {p.chequeStatus && <span>{CHEQUE_STATUS_LABEL[p.chequeStatus]}{p.chequeDate ? ` · ${formatDate(p.chequeDate)}` : ''}</span>}
+                          {p.reconciledOn && <span className="text-status-paid-fg">matched to bank</span>}
+                        </div>
                       </td>
                       <td className="td">
                         {p.voided ? (
@@ -281,6 +295,7 @@ export function DuesPage() {
                 Send reminders
               </Button>
             </div>
+            <InstalmentsDue />
             {/* How old is what you're owed? */}
             <Card className="mb-6 p-6">
               <h2 className="mb-4 text-base">How late is it?</h2>
@@ -331,6 +346,12 @@ export function DuesPage() {
                           {r.oldestDueDate && <> · oldest due {formatDate(r.oldestDueDate)}</>}
                           {r.advancePaise > 0 && <span className="text-status-partial-fg"> · <Money paise={r.advancePaise} fractionDigits={0} /> advance held</span>}
                         </div>
+                        {r.promisedOn && (
+                          <div className={`whitespace-nowrap text-xs ${r.promisedOn < todayIso() ? 'text-status-overdue-fg' : 'text-brand'}`}>
+                            Promised <Money paise={r.promisedPaise} fractionDigits={0} /> by {formatDate(r.promisedOn)}
+                            {r.promisedOn < todayIso() && ' — missed'}
+                          </div>
+                        )}
                       </td>
                       <Cell paise={r.currentPaise} />
                       <Cell paise={r.days1to30Paise} />
@@ -355,6 +376,35 @@ export function DuesPage() {
       {reminding && d && <RemindersModal rows={d.rows} businessName={settings.data?.businessName ?? ''} upiId={settings.data?.upiId ?? ''} template={settings.data?.msgDue ?? ''} onClose={() => setReminding(false)} />}
       {paying?.customerId && <CustomerPaymentModal customerId={paying.customerId} onClose={() => setPaying(null)} />}
     </PaymentsShell>
+  );
+}
+
+/** Instalments on invoices that fall due in the next week or are already late. Hidden when there are none. */
+function InstalmentsDue() {
+  const due = useQuery(() => api.instalmentsDue());
+  const rows = due.data ?? [];
+  if (rows.length === 0) return null;
+  return (
+    <Card className="mb-6 p-6">
+      <h2 className="mb-3 text-base">Instalments due</h2>
+      <ul className="divide-y divide-line/70">
+        {rows.map((n) => (
+          <li key={n.id} className="flex items-center justify-between gap-4 py-2">
+            <span>
+              <a href={`#${paths.invoice(n.invoiceId)}`} className="num transition-colors hover:text-brand">{n.invoiceNumber}</a>
+              <span className="text-ink-muted"> · {n.customerName} · instalment {n.position + 1}</span>
+            </span>
+            <span className="flex items-center gap-4">
+              <span className={`num text-xs ${n.status === 'overdue' ? 'text-status-overdue-fg' : 'text-ink-muted'}`}>
+                {n.status === 'overdue' ? 'was due ' : 'due '}
+                {formatDate(n.dueDate)}
+              </span>
+              <Money paise={n.amountPaise - n.paidPaise} />
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Card>
   );
 }
 

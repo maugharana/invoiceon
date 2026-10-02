@@ -6,7 +6,7 @@ import { formatMoney } from '../../../shared/money';
 import { PERIOD_LABEL, PERIOD_PRESETS, resolvePeriod, type PeriodPreset, type PeriodSpec } from '../../../shared/periods';
 import { PAYMENT_METHOD_LABEL } from '../../../shared/types';
 import { SalesChart, bucketLabel } from '../../components/SalesChart';
-import { DayBookTab, MarginTab, MoversTab, MovementTab, ProfitTab, QuotesTab, ReceivablesTab } from './MoreReports';
+import { AccountBookTab, DayBookTab, MarginTab, MoversTab, MovementTab, ProfitTab, PurchasesTab, QuotesTab, ReceivablesTab } from './MoreReports';
 import { ExportButton, PrintButton, Section, useReportExport } from './parts';
 import { Button, Card, EmptyState, ErrorNote, Field, Figure, Input, Money, PageHeader, Segmented, Spinner, TypePill } from '../../components/ui';
 import { api } from '../../lib/api';
@@ -26,6 +26,8 @@ const TABS: { id: ReportTab; label: string }[] = [
   { id: 'movers', label: 'Fast & slow' },
   { id: 'receivables', label: 'Receivables' },
   { id: 'quotes', label: 'Quotes' },
+  { id: 'purchases', label: 'Purchases & input GST' },
+  { id: 'accountbook', label: 'Account book' },
 ];
 
 /** These reports aren't about a stretch of dates: stock is as of a day, the rest look back a fixed way or at today. */
@@ -593,6 +595,8 @@ export function ReportsPage({ tab, period, asOf }: { tab: ReportTab; period: Per
       {tab === 'movers' && <MoversTab />}
       {tab === 'receivables' && <ReceivablesTab />}
       {tab === 'quotes' && <QuotesTab period={period} />}
+      {tab === 'purchases' && <PurchasesTab period={period} />}
+      {tab === 'accountbook' && <AccountBookTab period={period} />}
     </ReportsShell>
   );
 }

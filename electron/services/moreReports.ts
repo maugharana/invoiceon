@@ -4,7 +4,7 @@ import type { QuotesReport } from '../../shared/types';
 import type { DayBook, DayBookEntry, DayBookMode, MarginBy, MarginLine, MarginReport, MarginRow, MoverClass, MoverRow, MoversReport, PaymentMethod, ProfitAndLoss, ProfitLossFigures, StockMovementReport, StockMovementRow } from '../../shared/types';
 import { all, type Db } from '../db/connection';
 import { UserError } from './common';
-import { listExpenses, overviewOf } from './expenses';
+import { listExpenses, netOf, overviewOf } from './expenses';
 import { listProformas } from './proformas';
 import { listDesigns } from './inventory';
 import { checkRange, loadInvoices, type LoadedInvoice } from './reports';
@@ -20,7 +20,8 @@ function figuresFor(db: Db, range: Range): ProfitLossFigures {
     invoices.flatMap((i) => i.lines),
     (l) => l.cost,
   );
-  const expenses = overviewOf(listExpenses(db, range));
+  // Input GST is claimed back rather than lost, so profit is worked out on what the spending cost before it (as sales are before GST).
+  const expenses = overviewOf(listExpenses(db, range).map((e) => ({ ...e, amountPaise: netOf(e) })));
   const grossProfitPaise = salesPaise - costOfGoodsPaise;
   return {
     invoiceCount: invoices.length,
@@ -273,17 +274,17 @@ export function dayBook(db: Db, range: Range, mode: DayBookMode): DayBook {
   const receipts = (where: string, ...p: string[]) =>
     all<{ received_on: string; method: PaymentMethod; amount_paise: number; reference: string; note: string; name: string | null; created_at: string }>(
       db,
-      `SELECT p.received_on, p.method, p.amount_paise, p.reference, p.note, c.name, p.created_at FROM payments p LEFT JOIN customers c ON c.id = p.customer_id WHERE p.voided_at IS NULL AND ${where} ORDER BY p.received_on, p.created_at`,
+      `SELECT p.received_on, p.method, p.amount_paise, p.reference, p.note, c.name, p.created_at FROM payments p LEFT JOIN customers c ON c.id = p.customer_id WHERE p.voided_at IS NULL AND p.kind = 'receipt' AND ${where} ORDER BY p.received_on, p.created_at`,
       ...p,
     ).filter((r) => inMode(r.method));
   const spendings = (where: string, ...p: string[]) =>
     all<{ expense_date: string; method: PaymentMethod; amount_paise: number; category: string; vendor: string; reference: string; created_at: string }>(
       db,
-      `SELECT expense_date, method, amount_paise, category, vendor, reference, created_at FROM expenses WHERE deleted_at IS NULL AND ${where} ORDER BY expense_date, created_at`,
+      `SELECT COALESCE(paid_on, expense_date) AS expense_date, method, amount_paise, category, vendor, reference, created_at FROM expenses WHERE deleted_at IS NULL AND status = 'paid' AND ${where} ORDER BY COALESCE(paid_on, expense_date), created_at`,
       ...p,
     ).filter((r) => inMode(r.method));
 
-  const opening = mode === 'all' ? null : sum(receipts('p.received_on < ?', range.from), (r) => r.amount_paise) - sum(spendings('expense_date < ?', range.from), (r) => r.amount_paise);
+  const opening = mode === 'all' ? null : sum(receipts('p.received_on < ?', range.from), (r) => r.amount_paise) - sum(spendings('COALESCE(paid_on, expense_date) < ?', range.from), (r) => r.amount_paise);
 
   const entries: (DayBookEntry & { order: string })[] = [];
   if (mode === 'all') {
@@ -294,7 +295,7 @@ export function dayBook(db: Db, range: Range, mode: DayBookMode): DayBook {
   for (const r of receipts('p.received_on BETWEEN ? AND ?', range.from, range.to)) {
     entries.push({ order: `${r.received_on}2${r.created_at}`, date: r.received_on, kind: 'receipt', party: r.name ?? 'Walk-in customer', detail: [r.reference, r.note].filter(Boolean).join(' · ') || 'Payment received', method: r.method, inPaise: r.amount_paise, outPaise: 0, invoicedPaise: 0, balancePaise: null });
   }
-  for (const r of spendings('expense_date BETWEEN ? AND ?', range.from, range.to)) {
+  for (const r of spendings('COALESCE(paid_on, expense_date) BETWEEN ? AND ?', range.from, range.to)) {
     entries.push({ order: `${r.expense_date}3${r.created_at}`, date: r.expense_date, kind: 'expense', party: r.vendor || r.category, detail: [r.category, r.reference].filter(Boolean).join(' · '), method: r.method, inPaise: 0, outPaise: r.amount_paise, invoicedPaise: 0, balancePaise: null });
   }
   entries.sort((a, b) => a.order.localeCompare(b.order));

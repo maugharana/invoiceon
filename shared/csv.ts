@@ -1,6 +1,6 @@
 import { INVOICE_STATUS_LABEL } from './gst';
 import { STOCK_STATUS_LABEL } from './stock';
-import type { Customer, DayBook, DesignSummary, QuotesReport, DuesReport, Expense, ExpensesBreakdown, MarginReport, MoversReport, ProfitAndLoss, StockMovementReport, StockMovementRow, GstReport, InvoiceSummary, Payment, ProformaSummary, SalesReport, StockReport } from './types';
+import type { AccountBook, Customer, DayBook, DesignSummary, PurchasesReport, QuotesReport, DuesReport, Expense, ExpensesBreakdown, MarginReport, MoversReport, ProfitAndLoss, StockMovementReport, StockMovementRow, GstReport, InvoiceSummary, Payment, ProformaSummary, SalesReport, StockReport } from './types';
 import { PAYMENT_METHOD_LABEL, PROFORMA_STATUS_LABEL } from './types';
 
 type Row = (string | number)[];
@@ -184,6 +184,30 @@ export function marginCsv(r: MarginReport): string {
     ...r.rows.map((m) => [m.name, m.pieces, m.invoiceCount, rs(m.revenuePaise), rs(m.costPaise), rs(m.profitPaise), m.marginPercent === null ? '' : m.marginPercent.toFixed(1)]),
     ['Total', r.totals.pieces, '', rs(r.totals.revenuePaise), rs(r.totals.costPaise), rs(r.totals.profitPaise), r.totals.marginPercent === null ? '' : r.totals.marginPercent.toFixed(1)],
   ]);
+}
+
+export function purchasesCsv(r: PurchasesReport): string {
+  return toCsv([
+    ['Purchases and input GST', `${r.range.from} to ${r.range.to}`],
+    [],
+    ['Date', 'Vendor', 'Vendor GSTIN', 'Category', 'Taxable value', 'GST', 'Total'],
+    ...r.entries.map((e) => [e.date, e.vendor, e.vendorGstin, e.category, rs(e.taxablePaise), rs(e.gstPaise), rs(e.totalPaise)]),
+    ['Total', '', '', '', rs(r.taxablePaise), rs(r.gstPaise), rs(r.totalPaise)],
+    [],
+    ['Spending with no GST recorded', rs(r.withoutGstPaise)],
+  ]);
+}
+
+export function accountBookCsv(b: AccountBook): string {
+  const kind = { receipt: 'Received', expense: 'Paid', 'transfer-in': 'Moved in', 'transfer-out': 'Moved out' } as const;
+  const rows: Row[] = [['Account book', `${b.range.from} to ${b.range.to}`]];
+  for (const a of b.accounts) {
+    rows.push([], [a.name, 'Opening', rs(a.openingPaise)], ['Date', 'Type', 'Party', 'Details', 'Money in', 'Money out', 'Balance']);
+    for (const e of a.entries) rows.push([e.date, kind[e.kind], e.party, e.detail, e.inPaise ? rs(e.inPaise) : '', e.outPaise ? rs(e.outPaise) : '', rs(e.balancePaise)]);
+    rows.push(['Closing', '', '', '', rs(a.inPaise), rs(a.outPaise), rs(a.closingPaise)]);
+  }
+  rows.push([], ['All accounts', '', '', '', '', '', rs(b.totalClosingPaise)]);
+  return toCsv(rows);
 }
 
 export function quotesCsv(r: QuotesReport): string {

@@ -1,10 +1,13 @@
 import { existsSync, statSync } from 'node:fs';
+import { addDays, todayIso } from '../shared/gst';
 import { join } from 'node:path';
 import type { Api, Envelope } from '../shared/api';
 import { backupNow, listBackups } from './backup';
 import type { Db } from './db/connection';
 import { UserError } from './services/common';
+import * as accounts from './services/accounts';
 import * as customers from './services/customers';
+import * as instalments from './services/instalments';
 import { dashboardNow, dashboardOverview } from './services/dashboard';
 import { festivalComparison } from './services/festival';
 import * as bulk from './services/bulk';
@@ -154,6 +157,21 @@ export function createApi(db: Db, host?: Host, dataDir?: string): Api {
     paymentRecord: async (input) => payments.recordPayment(db, input),
     paymentVoid: async (id, reason) => payments.voidPayment(db, id, reason),
     invoiceApplyAdvance: async (invoiceId) => invoices.applyAdvanceToInvoice(db, invoiceId),
+    paymentChequeStatus: async (id, status, reason) => payments.setChequeStatus(db, id, status, reason ?? ''),
+    paymentsReconcile: async (ids, on) => payments.setReconciled(db, ids, on ?? null),
+    reconcilePreview: async (text, accountId) => accounts.reconcilePreview(db, text, accountId ?? ''),
+    paymentWriteOff: async (input) => payments.writeOffBalance(db, input),
+    accountBook: async (range) => accounts.accountBook(db, range),
+    transfersList: async () => accounts.listTransfers(db),
+    transferCreate: async (input) => accounts.createTransfer(db, input),
+    transferDelete: async (id) => accounts.deleteTransfer(db, id),
+    dayCloseGet: async (day) => accounts.dayClose(db, day),
+    dayCloseSave: async (day, counted, note) => accounts.closeDay(db, day, counted, note),
+    dayClosesList: async () => accounts.listCloses(db),
+    instalmentsList: async (invoiceId) => instalments.listInstalments(db, invoiceId),
+    instalmentsSet: async (invoiceId, plan) => instalments.setInstalments(db, invoiceId, plan),
+    instalmentsClear: async (invoiceId) => instalments.clearInstalments(db, invoiceId),
+    instalmentsDue: async (onOrBefore) => instalments.dueInstalments(db, onOrBefore ?? addDays(todayIso(), 7)),
     paymentsSummary: async () => receivables.paymentsSummary(db),
 
     customerLedger: async (customerId) => receivables.customerLedger(db, customerId),
@@ -188,6 +206,22 @@ export function createApi(db: Db, host?: Host, dataDir?: string): Api {
     expensesOverview: async (query) => expenses.expensesOverview(db, query ?? {}),
     expenseCreate: async (input) => expenses.createExpense(db, input),
     expenseUpdate: async (id, input) => expenses.updateExpense(db, id, input),
+    expenseMarkPaid: async (id, input) => expenses.markExpensePaid(db, id, input),
+    payables: async () => expenses.payablesSummary(db),
+    vendorsList: async (query) => expenses.listVendors(db, query ?? {}),
+    vendorGet: async (id) => expenses.getVendor(db, id),
+    vendorCreate: async (input) => expenses.createVendor(db, input),
+    vendorUpdate: async (id, input) => expenses.updateVendor(db, id, input),
+    vendorArchive: async (id) => expenses.archiveVendor(db, id),
+    recurringList: async () => expenses.listRecurring(db),
+    recurringCreate: async (input) => expenses.createRecurring(db, input),
+    recurringUpdate: async (id, input) => expenses.updateRecurring(db, id, input),
+    recurringDelete: async (id) => expenses.deleteRecurring(db, id),
+    recurringDue: async () => expenses.dueRecurring(db),
+    recurringRun: async () => expenses.runRecurring(db),
+    budgetStatus: async () => expenses.budgetStatus(db),
+    gstNet: async (range) => expenses.gstNet(db, range),
+    reportPurchases: async (range) => expenses.purchasesReport(db, range),
     expenseDelete: async (id) => expenses.deleteExpense(db, id),
 
     proformasList: async (query) => proformas.listProformas(db, query ?? {}),

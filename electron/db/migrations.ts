@@ -390,6 +390,96 @@ CREATE UNIQUE INDEX ux_quote_templates_name ON quote_templates (name COLLATE NOC
 ALTER TABLE payments ADD COLUMN proforma_id TEXT REFERENCES proformas (id);
 `;
 
+// Stage 13: money in more detail. Payments know which account they went into, can be write-offs, and cheques can be post-dated
+// and tracked; bank statements can be matched (reconciled_on); balances can be settled in instalments; the cash drawer can be
+// counted at the end of the day; money can move between accounts. Expenses gain vendors, input GST, the account they were paid
+// from, an unpaid state, and recurring templates.
+const V11 = `
+ALTER TABLE payments ADD COLUMN kind TEXT NOT NULL DEFAULT 'receipt' CHECK (kind IN ('receipt','writeoff'));
+ALTER TABLE payments ADD COLUMN account_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE payments ADD COLUMN cheque_date TEXT;
+ALTER TABLE payments ADD COLUMN cheque_status TEXT CHECK (cheque_status IS NULL OR cheque_status IN ('pending','deposited','cleared','bounced'));
+ALTER TABLE payments ADD COLUMN reconciled_on TEXT;
+CREATE INDEX ix_payments_cheque ON payments (cheque_status, cheque_date) WHERE cheque_status IS NOT NULL;
+
+CREATE TABLE instalments (
+  id           TEXT PRIMARY KEY,
+  invoice_id   TEXT NOT NULL REFERENCES invoices (id),
+  position     INTEGER NOT NULL,
+  due_date     TEXT NOT NULL,
+  amount_paise INTEGER NOT NULL CHECK (amount_paise > 0),
+  created_at   TEXT NOT NULL,
+  deleted_at   TEXT
+);
+CREATE INDEX ix_instalments_invoice ON instalments (invoice_id);
+
+CREATE TABLE cash_closes (
+  id             TEXT PRIMARY KEY,
+  day            TEXT NOT NULL,
+  expected_paise INTEGER NOT NULL,
+  counted_paise  INTEGER NOT NULL CHECK (counted_paise >= 0),
+  note           TEXT NOT NULL DEFAULT '',
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL
+);
+CREATE UNIQUE INDEX ux_cash_closes_day ON cash_closes (day);
+
+CREATE TABLE account_transfers (
+  id            TEXT PRIMARY KEY,
+  from_account  TEXT NOT NULL,
+  to_account    TEXT NOT NULL,
+  amount_paise  INTEGER NOT NULL CHECK (amount_paise > 0),
+  transfer_date TEXT NOT NULL,
+  note          TEXT NOT NULL DEFAULT '',
+  created_at    TEXT NOT NULL,
+  deleted_at    TEXT
+);
+
+-- The people and businesses money is paid to. Raw-material suppliers are vendors too.
+CREATE TABLE vendors (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  phone      TEXT NOT NULL DEFAULT '',
+  gstin      TEXT NOT NULL DEFAULT '',
+  address    TEXT NOT NULL DEFAULT '',
+  notes      TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
+);
+CREATE UNIQUE INDEX ux_vendors_name ON vendors (name COLLATE NOCASE) WHERE deleted_at IS NULL;
+-- Everyone already typed into "Paid to" becomes a vendor (spelt the way it was first entered).
+INSERT INTO vendors (id, name, created_at, updated_at)
+  SELECT lower(hex(randomblob(16))), MIN(vendor), MIN(created_at), MIN(created_at) FROM expenses WHERE vendor <> '' AND deleted_at IS NULL GROUP BY lower(vendor);
+
+ALTER TABLE expenses ADD COLUMN vendor_id TEXT REFERENCES vendors (id);
+UPDATE expenses SET vendor_id = (SELECT v.id FROM vendors v WHERE v.name = expenses.vendor COLLATE NOCASE AND v.deleted_at IS NULL) WHERE vendor <> '';
+ALTER TABLE expenses ADD COLUMN gst_paise INTEGER NOT NULL DEFAULT 0 CHECK (gst_paise >= 0);
+ALTER TABLE expenses ADD COLUMN account_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE expenses ADD COLUMN status TEXT NOT NULL DEFAULT 'paid' CHECK (status IN ('paid','unpaid'));
+ALTER TABLE expenses ADD COLUMN due_date TEXT;
+ALTER TABLE expenses ADD COLUMN paid_on TEXT;
+UPDATE expenses SET paid_on = expense_date;
+ALTER TABLE expenses ADD COLUMN recurring_id TEXT;
+
+CREATE TABLE recurring_expenses (
+  id           TEXT PRIMARY KEY,
+  category     TEXT NOT NULL,
+  vendor       TEXT NOT NULL DEFAULT '',
+  amount_paise INTEGER NOT NULL CHECK (amount_paise > 0),
+  gst_paise    INTEGER NOT NULL DEFAULT 0 CHECK (gst_paise >= 0),
+  method       TEXT NOT NULL CHECK (method IN ('cash','upi','bank','cheque','card','other')),
+  account_id   TEXT NOT NULL DEFAULT '',
+  note         TEXT NOT NULL DEFAULT '',
+  frequency    TEXT NOT NULL CHECK (frequency IN ('weekly','monthly','quarterly','yearly')),
+  next_date    TEXT NOT NULL,
+  end_date     TEXT,
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL,
+  deleted_at   TEXT
+);
+`;
+
 // Append new migrations to the end; never edit one that has shipped.
 const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 1, sql: V1 },
@@ -402,6 +492,7 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 8, sql: V8 },
   { version: 9, sql: V9 },
   { version: 10, sql: V10 },
+  { version: 11, sql: V11 },
 ];
 
 /** Brings a database up to date. `upTo` stops early at a version, which only the tests use, to build an older database to upgrade. */

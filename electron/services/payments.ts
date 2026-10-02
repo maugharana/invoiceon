@@ -1,9 +1,10 @@
 import { isIsoDate, todayIso } from '../../shared/gst';
 import { formatMoney } from '../../shared/money';
 import { matchesAll } from '../../shared/search';
-import { PAYMENT_METHODS, type InvoicePayment, type Payment, type PaymentAllocation, type PaymentInput, type PaymentMethod, type PaymentQuery } from '../../shared/types';
+import { CHEQUE_STATUS_LABEL, PAYMENT_METHODS, type ChequeStatus, type InvoicePayment, type Payment, type PaymentAllocation, type PaymentInput, type PaymentKind, type PaymentMethod, type PaymentQuery } from '../../shared/types';
 import { all, get, run, tx, type Db } from '../db/connection';
 import { UserError, newId, nowIso, optionalText, requireInt } from './common';
+import { getSettings } from './settings';
 
 const MAX_PAISE = 100_000_000_00;
 
@@ -50,7 +51,7 @@ function unappliedPayments(db: Db, customerId: string): Unapplied[] {
   return all<Unapplied>(
     db,
     `SELECT p.id, p.amount_paise - COALESCE((SELECT SUM(a.amount_paise) FROM payment_allocations a WHERE a.payment_id = p.id AND a.released_at IS NULL), 0) AS unapplied
-     FROM payments p WHERE p.customer_id = ? AND p.voided_at IS NULL ORDER BY p.received_on, p.created_at, p.rowid`,
+     FROM payments p WHERE p.customer_id = ? AND p.voided_at IS NULL AND p.kind = 'receipt' ORDER BY p.received_on, p.created_at, p.rowid`,
     customerId,
   ).filter((r) => r.unapplied > 0);
 }
@@ -80,6 +81,8 @@ export function applyAdvance(db: Db, customerId: string, invoiceId: string, max:
 // ── Recording ───────────────────────────────────────────────────────────────
 export interface PaymentDraft extends Omit<PaymentInput, 'method'> {
   method: PaymentMethod;
+  /** A write-off settles a balance without money arriving. Only the write-off function sets this. */
+  kind?: PaymentKind;
 }
 
 /** Validates and writes a payment and its allocations. Callers wrap it in their own transaction when it belongs to a bigger step. */
@@ -90,6 +93,19 @@ export function recordPaymentTx(db: Db, input: PaymentDraft): string {
   if (input.receivedOn > todayIso()) throw new UserError('The payment date can\'t be in the future.');
   const reference = optionalText(input.reference, 'Reference', 60);
   const note = optionalText(input.note, 'Note', 200);
+  const kind: PaymentKind = input.kind ?? 'receipt';
+
+  // Which account it went into must be one that exists in Settings.
+  const accountId = input.accountId ?? '';
+  if (accountId && !getSettings(db).paymentAccounts.some((a) => a.id === accountId)) throw new UserError('Choose the account from the list.');
+
+  // A cheque can carry the date written on it. It starts out waiting to be deposited, and is tracked from there.
+  const chequeDate = input.chequeDate || null;
+  if (chequeDate !== null) {
+    if (input.method !== 'cheque') throw new UserError('A cheque date only goes with a cheque payment.');
+    if (!isIsoDate(chequeDate)) throw new UserError('Enter a valid date for the cheque.');
+  }
+  const chequeStatus: ChequeStatus | null = chequeDate !== null ? 'pending' : null;
 
   if (input.customerId && !get(db, 'SELECT 1 AS x FROM customers WHERE id = ? AND deleted_at IS NULL', input.customerId)) throw new UserError('That customer no longer exists.');
 
@@ -121,7 +137,11 @@ export function recordPaymentTx(db: Db, input: PaymentDraft): string {
 
   const id = newId();
   const now = nowIso();
-  run(db, 'INSERT INTO payments (id, customer_id, amount_paise, method, reference, received_on, note, proforma_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', id, input.customerId ?? null, amount, input.method, reference, input.receivedOn, note, proformaId, now, now);
+  run(
+    db,
+    'INSERT INTO payments (id, customer_id, amount_paise, method, reference, received_on, note, proforma_id, kind, account_id, cheque_date, cheque_status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    id, input.customerId ?? null, amount, input.method, reference, input.receivedOn, note, proformaId, kind, accountId, chequeDate, chequeStatus, now, now,
+  );
   for (const al of allocations) addAllocation(db, id, al.invoiceId, al.amountPaise);
   return id;
 }
@@ -144,6 +164,12 @@ interface PaymentRow {
   voided_at: string | null;
   void_reason: string;
   created_at: string;
+  kind: PaymentKind;
+  account_id: string;
+  cheque_date: string | null;
+  cheque_status: ChequeStatus | null;
+  reconciled_on: string | null;
+  proforma_id: string | null;
 }
 
 const SELECT = `SELECT p.*, c.name AS customer_name FROM payments p LEFT JOIN customers c ON c.id = p.customer_id`;
@@ -171,6 +197,12 @@ function toPayment(db: Db, r: PaymentRow): Payment {
     voided,
     voidReason: r.void_reason,
     createdAt: r.created_at,
+    kind: r.kind,
+    accountId: r.account_id,
+    chequeDate: r.cheque_date,
+    chequeStatus: r.cheque_status,
+    reconciledOn: r.reconciled_on,
+    proformaId: r.proforma_id,
   };
 }
 
@@ -187,6 +219,10 @@ export function listPayments(db: Db, query: PaymentQuery = {}): Payment[] {
     where.push('p.customer_id = ?');
     params.push(query.customerId);
   }
+  if (query.accountId !== undefined && query.accountId !== '') {
+    where.push('p.account_id = ?');
+    params.push(query.accountId);
+  }
   const rows = all<PaymentRow>(db, `${SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY p.received_on DESC, p.created_at DESC, p.rowid DESC`, ...params);
   if (query.from && !isIsoDate(query.from)) throw new UserError('Enter a valid "from" date.');
   if (query.to && !isIsoDate(query.to)) throw new UserError('Enter a valid "to" date.');
@@ -195,7 +231,23 @@ export function listPayments(db: Db, query: PaymentQuery = {}): Payment[] {
     .map((r) => toPayment(db, r))
     .filter((p) => (!query.method || p.method === query.method) && (!query.from || p.receivedOn >= query.from) && (!query.to || p.receivedOn <= query.to))
     .filter((p) => matchesAll(`${p.customerName} ${p.reference} ${p.method} ${p.allocations.map((a) => a.invoiceNumber).join(' ')}`, query.search))
-    .filter((p) => (query.status === 'advance' ? !p.voided && p.advancePaise > 0 : query.status === 'voided' ? p.voided : true));
+    .filter((p) => {
+      switch (query.status) {
+        case 'advance':
+          return !p.voided && p.kind === 'receipt' && p.advancePaise > 0;
+        case 'voided':
+          return p.voided;
+        case 'writeoff':
+          return p.kind === 'writeoff';
+        case 'cheque':
+          return p.chequeStatus !== null;
+        // Money that came in by bank, UPI, card or cheque and has not yet been ticked off against a statement.
+        case 'unreconciled':
+          return !p.voided && p.kind === 'receipt' && p.method !== 'cash' && p.reconciledOn === null;
+        default:
+          return true;
+      }
+    });
 }
 
 // ── Reversing ───────────────────────────────────────────────────────────────
@@ -219,6 +271,69 @@ export function releaseInvoicePayments(db: Db, invoiceId: string, reason: string
   );
   for (const a of live) {
     run(db, 'UPDATE payment_allocations SET released_at = ? WHERE id = ?', nowIso(), a.id);
-    if (a.customer_id === null) run(db, "UPDATE payments SET voided_at = ?, void_reason = ?, updated_at = ? WHERE id = ? AND voided_at IS NULL", nowIso(), reason, nowIso(), a.payment_id);
+    // A walk-in's money goes back across the counter, and a write-off was never money: neither becomes an advance.
+    const kind = get<{ kind: PaymentKind }>(db, 'SELECT kind FROM payments WHERE id = ?', a.payment_id)?.kind;
+    if (a.customer_id === null || kind === 'writeoff') run(db, "UPDATE payments SET voided_at = ?, void_reason = ?, updated_at = ? WHERE id = ? AND voided_at IS NULL", nowIso(), reason, nowIso(), a.payment_id);
   }
+}
+
+// ── Cheques ─────────────────────────────────────────────────────────────────
+const CHEQUE_NEXT: Record<ChequeStatus, ChequeStatus[]> = { pending: ['deposited', 'cleared', 'bounced'], deposited: ['cleared', 'bounced'], cleared: [], bounced: [] };
+
+/**
+ * Moves a tracked cheque along: waiting to be deposited, deposited, cleared. A cheque counts as received from the day you record
+ * it; if it bounces the payment is reversed, so the invoices it paid owe the money again.
+ */
+export function setChequeStatus(db: Db, id: string, status: ChequeStatus, reason = ''): Payment {
+  const payment = getPayment(db, id);
+  if (payment.chequeStatus === null) throw new UserError('This payment is not a tracked cheque.');
+  if (!(status in CHEQUE_STATUS_LABEL)) throw new UserError('Choose where the cheque has got to.');
+  if (!CHEQUE_NEXT[payment.chequeStatus].includes(status)) throw new UserError(`A cheque that is "${CHEQUE_STATUS_LABEL[payment.chequeStatus].toLowerCase()}" can't be marked "${CHEQUE_STATUS_LABEL[status].toLowerCase()}".`);
+  return tx(db, () => {
+    run(db, 'UPDATE payments SET cheque_status = ?, updated_at = ? WHERE id = ?', status, nowIso(), id);
+    if (status === 'bounced') return voidPayment(db, id, optionalText(reason, 'Reason', 150) ? `Cheque bounced — ${reason.trim()}` : 'Cheque bounced');
+    return getPayment(db, id);
+  });
+}
+
+// ── Bank statement matching ─────────────────────────────────────────────────
+/** Ticks payments off as matched against a bank statement on `on`, or clears the tick when `on` is null. */
+export function setReconciled(db: Db, ids: string[], on: string | null): number {
+  const list = [...new Set(ids)];
+  if (list.length === 0) throw new UserError('Choose at least one payment.');
+  if (on !== null && (!isIsoDate(on) || on > todayIso())) throw new UserError('Enter a valid date, not in the future.');
+  tx(db, () => {
+    for (const id of list) {
+      const p = getPayment(db, id);
+      if (p.voided) throw new UserError('A reversed payment can not be matched to a statement.');
+      if (p.kind !== 'receipt' || p.method === 'cash') throw new UserError('Only bank, UPI, card and cheque receipts are matched against a statement.');
+      run(db, 'UPDATE payments SET reconciled_on = ?, updated_at = ? WHERE id = ?', on, nowIso(), id);
+    }
+  });
+  return list.length;
+}
+
+// ── Write-offs ──────────────────────────────────────────────────────────────
+/**
+ * Clears a small balance you have decided not to chase. It settles the invoice like a payment would, but no money came in, so it
+ * is kept apart: it never counts as received, in reports or on the day book. Reverse it like a payment if you change your mind.
+ */
+export function writeOffBalance(db: Db, input: { invoiceId: string; amountPaise: number; reason?: string }): Payment {
+  const inv = outstandingOf(db, input.invoiceId);
+  const amount = requireInt(input.amountPaise, 'Amount', { min: 1, max: MAX_PAISE });
+  if (amount > inv.outstanding) throw new UserError(`${inv.number} only has ${formatMoney(inv.outstanding)} left to pay.`);
+  const reason = optionalText(input.reason ?? '', 'Reason', 150);
+  const id = tx(db, () =>
+    recordPaymentTx(db, {
+      customerId: inv.customerId,
+      amountPaise: amount,
+      method: 'other',
+      reference: '',
+      receivedOn: todayIso(),
+      note: reason ? `Written off — ${reason}` : 'Written off',
+      allocations: [{ invoiceId: input.invoiceId, amountPaise: amount }],
+      kind: 'writeoff',
+    }),
+  );
+  return getPayment(db, id);
 }

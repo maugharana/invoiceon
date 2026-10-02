@@ -3,6 +3,7 @@ import { PAYMENT_METHOD_LABEL, type DuesBuckets, type DuesReport, type DuesRow, 
 import { all, type Db } from '../db/connection';
 import { getCustomer, listCustomers } from './customers';
 import { listInvoices } from './invoices';
+import { openDueNotes } from './notes';
 import { getPayment } from './payments';
 
 // ── Customer ledger ─────────────────────────────────────────────────────────
@@ -37,12 +38,18 @@ export function customerLedger(db: Db, customerId: string): Ledger {
     }
   }
 
-  const payments = all<{ id: string; voided_at: string | null; void_reason: string; received_on: string; created_at: string; amount_paise: number; method: PaymentMethod; reference: string }>(
+  const payments = all<{ id: string; voided_at: string | null; void_reason: string; received_on: string; created_at: string; amount_paise: number; method: PaymentMethod; reference: string; kind: 'receipt' | 'writeoff'; note: string }>(
     db,
-    'SELECT id, voided_at, void_reason, received_on, created_at, amount_paise, method, reference FROM payments WHERE customer_id = ?',
+    'SELECT id, voided_at, void_reason, received_on, created_at, amount_paise, method, reference, kind, note FROM payments WHERE customer_id = ?',
     customerId,
   );
   for (const p of payments) {
+    if (p.kind === 'writeoff') {
+      const on = getPayment(db, p.id).allocations.map((a) => a.invoiceNumber).join(', ');
+      events.push({ date: p.received_on, at: p.created_at, kind: 'writeoff', description: `Written off${on ? ` — ${on}` : ''}${p.note.replace(/^Written off/, '') ? ` ${p.note.replace(/^Written off/, '').trim()}` : ''}`, debit: 0, credit: p.amount_paise });
+      if (p.voided_at) events.push({ date: localDateOf(p.voided_at), at: p.voided_at, kind: 'payment-voided', description: `Write-off reversed${p.void_reason ? ` — ${p.void_reason}` : ''}`, debit: p.amount_paise, credit: 0 });
+      continue;
+    }
     const detail = getPayment(db, p.id);
     const via = [PAYMENT_METHOD_LABEL[p.method], p.reference].filter(Boolean).join(' · ');
     const invoicesPaid = detail.allocations.map((a) => a.invoiceNumber).join(', ');
@@ -60,8 +67,10 @@ export function customerLedger(db: Db, customerId: string): Ledger {
     return { date: e.date, kind: e.kind, description: e.description, invoiceId: e.invoiceId, debitPaise: e.debit, creditPaise: e.credit, balancePaise: balance };
   });
 
-  const received = payments.filter((p) => !p.voided_at).reduce((s, p) => s + p.amount_paise, 0);
-  return { customer, entries, billedPaise: customer.billedPaise, receivedPaise: received, balancePaise: customer.billedPaise - received };
+  const live = payments.filter((p) => !p.voided_at);
+  const received = live.filter((p) => p.kind === 'receipt').reduce((s, p) => s + p.amount_paise, 0);
+  const writtenOff = live.filter((p) => p.kind === 'writeoff').reduce((s, p) => s + p.amount_paise, 0);
+  return { customer, entries, billedPaise: customer.billedPaise, receivedPaise: received, writtenOffPaise: writtenOff, balancePaise: customer.billedPaise - received - writtenOff };
 }
 
 // ── Dues ────────────────────────────────────────────────────────────────────
@@ -91,7 +100,7 @@ export function duesReport(db: Db): DuesReport {
     let row = rows.get(key);
     if (!row) {
       const c = inv.customerId ? customers.get(inv.customerId) : undefined;
-      row = { customerId: inv.customerId, customerName: c?.name ?? (inv.customerId ? inv.buyerName : 'Walk-in customers'), phone: c?.phone ?? '', openInvoices: 0, outstandingPaise: 0, overduePaise: 0, oldestDueDate: null, advancePaise: c?.advancePaise ?? 0, ...emptyBuckets() };
+      row = { customerId: inv.customerId, customerName: c?.name ?? (inv.customerId ? inv.buyerName : 'Walk-in customers'), phone: c?.phone ?? '', openInvoices: 0, outstandingPaise: 0, overduePaise: 0, oldestDueDate: null, advancePaise: c?.advancePaise ?? 0, promisedOn: null, promisedPaise: 0, ...emptyBuckets() };
       rows.set(key, row);
     }
     const due = inv.dueDate ?? inv.issueDate;
@@ -102,6 +111,14 @@ export function duesReport(db: Db): DuesReport {
     if (!row.oldestDueDate || due < row.oldestDueDate) row.oldestDueDate = due;
     addToBucket(row, past, owed);
     addToBucket(totals, past, owed);
+  }
+
+  // What people have promised, from the open promises noted against them or their invoices.
+  for (const n of openDueNotes(db, { kind: 'promise' })) {
+    const row = rows.get(n.customerId ?? 'walk-in');
+    if (!row || !n.dueDate) continue;
+    row.promisedPaise += n.amountPaise;
+    if (!row.promisedOn || n.dueDate < row.promisedOn) row.promisedOn = n.dueDate;
   }
 
   const list = [...rows.values()].sort((a, b) => b.overduePaise - a.overduePaise || b.outstandingPaise - a.outstandingPaise);
@@ -117,7 +134,7 @@ export function duesReport(db: Db): DuesReport {
 // ── Summary ─────────────────────────────────────────────────────────────────
 export function paymentsSummary(db: Db): PaymentsSummary {
   const month = todayIso().slice(0, 7);
-  const monthPayments = all<{ amount_paise: number }>(db, "SELECT amount_paise FROM payments WHERE voided_at IS NULL AND received_on LIKE ? || '%'", month);
+  const monthPayments = all<{ amount_paise: number }>(db, "SELECT amount_paise FROM payments WHERE voided_at IS NULL AND kind = 'receipt' AND received_on LIKE ? || '%'", month);
   const dues = duesReport(db);
   const withAdvance = listCustomers(db).filter((c) => c.advancePaise > 0);
   return {

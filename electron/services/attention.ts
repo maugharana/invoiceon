@@ -28,7 +28,7 @@ function reversedPayments(db: Db, today: string): AttentionItem[] {
     db,
     `SELECT p.id, p.customer_id, c.name, p.amount_paise, p.void_reason, p.voided_at
      FROM payments p LEFT JOIN customers c ON c.id = p.customer_id
-     WHERE p.voided_at IS NOT NULL AND p.voided_at >= ? ORDER BY p.voided_at DESC LIMIT ?`,
+     WHERE p.voided_at IS NOT NULL AND p.kind = 'receipt' AND p.voided_at >= ? ORDER BY p.voided_at DESC LIMIT ?`,
     addDays(today, -REVERSED_WITHIN_DAYS),
     MAX_ITEMS,
   );

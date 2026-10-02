@@ -65,6 +65,7 @@ const FIELDS: { [K in keyof Settings]: Field<K> } = {
   proformaTerms: text('proforma_terms'),
   expenseCategories: json<string[]>('expense_categories', DEFAULT_EXPENSE_CATEGORIES),
   paymentAccounts: json<PaymentAccount[]>('payment_accounts', []),
+  expenseBudgets: json<Record<string, number>>('expense_budgets', {}),
   notifyLowStock: bool('notify_low_stock', true),
   notifyOverdue: bool('notify_overdue', true),
   paperSize: text('paper_size', 'A4'),
@@ -178,8 +179,21 @@ function validate(patch: Partial<Settings>): Partial<Settings> {
       if (names.has(name.toLowerCase())) throw new UserError(`You already have an account called “${name}”.`);
       names.add(name.toLowerCase());
       if (!(PAYMENT_ACCOUNT_KINDS as readonly string[]).includes(a.kind)) throw new UserError(`Choose a type for “${name}”.`);
-      return { id: requireText(a.id, 'Account id', 60), name, kind: a.kind, details: optionalText(a.details ?? '', 'Account details', 200) };
+      const opening = a.openingPaise ?? 0;
+      if (!Number.isInteger(opening) || Math.abs(opening) > 100_000_000_000) throw new UserError(`The opening balance of “${name}” should be a whole number of paise.`);
+      return { id: requireText(a.id, 'Account id', 60), name, kind: a.kind, details: optionalText(a.details ?? '', 'Account details', 200), openingPaise: opening };
     });
+  }
+  if (patch.expenseBudgets !== undefined) {
+    const raw = patch.expenseBudgets;
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw new UserError('Budgets must be a list of categories with an amount each.');
+    const budgets: Record<string, number> = {};
+    for (const [name, amount] of Object.entries(raw)) {
+      const category = requireText(name, 'Budget category', 40);
+      const paise = requireInt(amount, `The budget for ${category}`, { max: 100_000_000_000 });
+      if (paise > 0) budgets[category] = paise; // a zero budget means "no limit", so it is simply not kept
+    }
+    v.expenseBudgets = budgets;
   }
   if (patch.notifyLowStock !== undefined) v.notifyLowStock = !!patch.notifyLowStock;
   if (patch.notifyOverdue !== undefined) v.notifyOverdue = !!patch.notifyOverdue;

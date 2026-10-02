@@ -1,4 +1,4 @@
-import { Download, Pencil, Plus, Receipt, SearchX, Table2, Trash2, Upload } from 'lucide-react';
+import { CircleCheck, Download, Pencil, Plus, Receipt, SearchX, Table2, Trash2, Upload } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { expensesBreakdownCsv, expensesCsv } from '../../../shared/csv';
 import { formatDate, todayIso } from '../../../shared/gst';
@@ -7,11 +7,12 @@ import { PAYMENT_METHOD_LABEL, type Expense } from '../../../shared/types';
 import { ConfirmDialog } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { Pager, SortableTh, sortBy, usePager, useSort } from '../../components/listTools';
-import { Button, Card, EmptyState, ErrorNote, Figure, IconButton, Money, PageHeader, SearchInput, Select, TableSkeleton } from '../../components/ui';
+import { Button, Card, EmptyState, ErrorNote, Figure, IconButton, Money, PageHeader, Pill, SearchInput, Segmented, Select, TableSkeleton } from '../../components/ui';
 import { api, errorMessage } from '../../lib/api';
 import { useQuery, useRefresh } from '../../lib/data';
 import { useCsvExport } from '../../lib/exportCsv';
 import { plural } from '../../lib/format';
+import { BudgetCard, MarkPaidModal, RecurringPanel, VendorsPanel } from './ExpenseExtras';
 import { ExpenseFormModal } from './ExpenseFormModal';
 import { ImportExpensesModal } from './ImportExpensesModal';
 
@@ -30,6 +31,10 @@ export function ExpensesPage({ category: initialCategory }: { category: string |
   const [deleting, setDeleting] = useState<Expense | null>(null);
   const [breakdownOpen, setBreakdownOpen] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [view, setView] = useState<'entries' | 'vendors' | 'standing'>('entries');
+  const [vendorId, setVendorId] = useState('');
+  const [onlyUnpaid, setOnlyUnpaid] = useState(false);
+  const [paying, setPaying] = useState<Expense | null>(null);
   const sort = useSort<'date' | 'category' | 'vendor' | 'method' | 'amount'>('date', 'desc');
   const saveCsv = useCsvExport();
 
@@ -44,11 +49,14 @@ export function ExpensesPage({ category: initialCategory }: { category: string |
     const r = resolvePeriod({ preset: period });
     return { from: r.from, to: r.to > todayIso() ? todayIso() : r.to };
   }, [period]);
-  const query = { search: debounced, category: category || undefined, ...range };
+  const query = { search: debounced, category: category || undefined, vendorId: vendorId || undefined, status: onlyUnpaid ? ('unpaid' as const) : undefined, ...range };
 
-  const list = useQuery(() => api.expensesList(query), [debounced, category, period]);
-  const overview = useQuery(() => api.expensesOverview(query), [debounced, category, period]);
-  const breakdown = useQuery(() => api.expensesBreakdown(query), [debounced, category, period]);
+  const list = useQuery(() => api.expensesList(query), [debounced, category, period, vendorId, onlyUnpaid]);
+  const overview = useQuery(() => api.expensesOverview(query), [debounced, category, period, vendorId, onlyUnpaid]);
+  const breakdown = useQuery(() => api.expensesBreakdown(query), [debounced, category, period, vendorId, onlyUnpaid]);
+  const budgets = useQuery(() => api.budgetStatus());
+  const payables = useQuery(() => api.payables());
+  const dueStanding = useQuery(() => api.recurringDue());
   const everything = useQuery(() => api.expensesOverview());
   const settings = useQuery(() => api.getSettings());
   const none = everything.data?.count === 0;
@@ -60,6 +68,7 @@ export function ExpensesPage({ category: initialCategory }: { category: string |
     return [...names.values()].sort((a, b) => a.localeCompare(b));
   }, [settings.data, everything.data]);
 
+  const lookupVendor = list.data?.find((e) => e.vendorId === vendorId)?.vendor ?? 'one vendor';
   const o = overview.data;
   const top = o?.byCategory[0];
   const b = breakdown.data;
@@ -75,7 +84,7 @@ export function ExpensesPage({ category: initialCategory }: { category: string |
     return sortBy(rows, (e) => e.date, sort.dir);
   }, [list.data, sort.key, sort.dir]);
   const pager = usePager(sorted);
-  useEffect(() => pager.setPage(0), [debounced, category, period, sort.key, sort.dir]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => pager.setPage(0), [debounced, category, period, vendorId, onlyUnpaid, sort.key, sort.dir]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <>
@@ -101,6 +110,44 @@ export function ExpensesPage({ category: initialCategory }: { category: string |
         </Card>
       ) : (
         <>
+          <div className="mb-6">
+            <Segmented
+              label="Show"
+              value={view}
+              onChange={setView}
+              options={[
+                { value: 'entries', label: 'Expenses' },
+                { value: 'vendors', label: 'Vendors' },
+                { value: 'standing', label: 'Standing expenses' },
+              ]}
+            />
+          </div>
+
+          {view === 'vendors' && <VendorsPanel onOpen={(id) => { setVendorId(id); setView('entries'); }} />}
+          {view === 'standing' && <RecurringPanel />}
+
+          {view === 'entries' && (
+          <>
+          {(dueStanding.data?.length ?? 0) > 0 && (
+            <div className="mb-4 flex items-center justify-between gap-4 rounded-lg bg-status-partial-bg px-4 py-3 text-status-partial-fg">
+              <span>{plural(dueStanding.data!.reduce((s, d) => s + d.dates.length, 0), 'standing expense')} {dueStanding.data!.reduce((s, d) => s + d.dates.length, 0) === 1 ? 'has' : 'have'} come due.</span>
+              <Button className="h-8 text-xs" onClick={() => setView('standing')}>
+                Review
+              </Button>
+            </div>
+          )}
+          {payables.data && payables.data.unpaidCount > 0 && (
+            <div className={`mb-4 flex items-center justify-between gap-4 rounded-lg px-4 py-3 ${payables.data.overdueCount > 0 ? 'bg-status-overdue-bg text-status-overdue-fg' : 'bg-canvas text-ink-muted'}`}>
+              <span>
+                You owe <Money paise={payables.data.unpaidPaise} fractionDigits={0} /> on {plural(payables.data.unpaidCount, 'unpaid bill')}
+                {payables.data.overdueCount > 0 && <> — <Money paise={payables.data.overduePaise} fractionDigits={0} /> is past its due date</>}.
+              </span>
+              <Button className="h-8 text-xs" onClick={() => setOnlyUnpaid((v) => !v)}>
+                {onlyUnpaid ? 'Show all' : 'Show only unpaid'}
+              </Button>
+            </div>
+          )}
+          <BudgetCard lines={budgets.data ?? []} onPick={(c) => setCategory(c)} />
           <div className="mb-8 grid grid-cols-3 gap-6">
             <Figure
               label="Spent"
@@ -138,6 +185,11 @@ export function ExpensesPage({ category: initialCategory }: { category: string |
                 ))}
               </Select>
             </div>
+            {vendorId && (
+              <Button className="h-9 text-xs" onClick={() => setVendorId('')} title="Show every vendor again">
+                Vendor: {lookupVendor} ✕
+              </Button>
+            )}
             <div className="w-40">
               <Select value={period} onChange={(e) => setPeriod(e.target.value as Period)} aria-label="Period">
                 {PERIODS.map((p) => (
@@ -229,7 +281,7 @@ export function ExpensesPage({ category: initialCategory }: { category: string |
             {list.loading ? (
               <TableSkeleton />
             ) : list.data?.length === 0 ? (
-              <EmptyState icon={<SearchX className="h-6 w-6" />} title="No expenses match" body="Try a different search, category or period." actions={<Button onClick={() => { setSearch(''); setCategory(''); setPeriod('all'); }}>Clear filters</Button>} />
+              <EmptyState icon={<SearchX className="h-6 w-6" />} title="No expenses match" body="Try a different search, category or period." actions={<Button onClick={() => { setSearch(''); setCategory(''); setPeriod('all'); setVendorId(''); setOnlyUnpaid(false); }}>Clear filters</Button>} />
             ) : (
               <table className="w-full">
                 <thead>
@@ -246,7 +298,10 @@ export function ExpensesPage({ category: initialCategory }: { category: string |
                   {pager.pageItems.map((e) => (
                     <tr key={e.id} className="animate-fade-in border-b border-line/70 transition-colors duration-150 last:border-0 hover:bg-canvas">
                       <td className="td num whitespace-nowrap text-ink-muted">{formatDate(e.date)}</td>
-                      <td className="td">{e.category}</td>
+                      <td className="td">
+                        {e.category}
+                        {e.recurringId && <div className="text-xs text-ink-muted">standing expense</div>}
+                      </td>
                       <td className="td">
                         {e.vendor || <span className="text-ink-muted">—</span>}
                         {e.note && <div className="text-xs text-ink-muted">{e.note}</div>}
@@ -257,9 +312,24 @@ export function ExpensesPage({ category: initialCategory }: { category: string |
                       </td>
                       <td className="td text-right">
                         <Money paise={e.amountPaise} />
+                        {e.gstPaise > 0 && (
+                          <div className="text-xs text-ink-muted">
+                            incl. GST <Money paise={e.gstPaise} />
+                          </div>
+                        )}
+                        {e.status === 'unpaid' && (
+                          <div className="mt-0.5">
+                            <Pill tone={e.dueDate && e.dueDate < todayIso() ? 'overdue' : 'partial'}>{e.dueDate && e.dueDate < todayIso() ? 'Overdue' : 'To pay'}{e.dueDate ? ` · ${formatDate(e.dueDate)}` : ''}</Pill>
+                          </div>
+                        )}
                       </td>
                       <td className="td">
                         <div className="flex justify-end gap-0.5">
+                          {e.status === 'unpaid' && (
+                            <IconButton label={`Mark ${e.category} bill paid`} onClick={() => setPaying(e)}>
+                              <CircleCheck className="h-4 w-4" />
+                            </IconButton>
+                          )}
                           <IconButton label={`Edit ${e.category} expense`} onClick={() => setEditing(e)}>
                             <Pencil className="h-4 w-4" />
                           </IconButton>
@@ -275,8 +345,12 @@ export function ExpensesPage({ category: initialCategory }: { category: string |
             )}
           </Card>
           {list.data && list.data.length > 0 && <Pager pager={pager} noun="expense" />}
+          </>
+          )}
         </>
       )}
+
+      {paying && <MarkPaidModal expense={paying} onClose={() => setPaying(null)} />}
 
       {importing && <ImportExpensesModal onClose={() => setImporting(false)} />}
       {editing && <ExpenseFormModal expense={editing === 'new' ? undefined : editing} defaultCategory={category} onClose={() => setEditing(null)} />}

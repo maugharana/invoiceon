@@ -1,3 +1,4 @@
+import type { Paise } from './money';
 import type {
   BulkAddResult,
   BulkDesignAction,
@@ -7,6 +8,24 @@ import type {
   StockTakeResult,
   BulkSareeRow,
   Customer,
+  AccountBook,
+  AccountTransfer,
+  AccountTransferInput,
+  BudgetLine,
+  ChequeStatus,
+  DayClose,
+  DueInstalment,
+  GstNet,
+  Instalment,
+  InstalmentInput,
+  PayablesSummary,
+  PaymentMethod,
+  PurchasesReport,
+  ReconcilePreview,
+  RecurringExpense,
+  RecurringExpenseInput,
+  Vendor,
+  VendorInput,
   ProformaRevision,
   QuoteStage,
   QuoteTemplate,
@@ -181,6 +200,28 @@ export interface Api {
   /** Puts a customer's held advance toward one of their open invoices. Returns the invoice as it stands afterwards. */
   invoiceApplyAdvance(invoiceId: string): Promise<Invoice>;
   paymentsSummary(): Promise<PaymentsSummary>;
+  /** Moves a tracked cheque along. A bounced cheque reverses the payment. */
+  paymentChequeStatus(id: string, status: ChequeStatus, reason?: string): Promise<Payment>;
+  /** Ticks payments off as matched against a bank statement on that day, or clears the tick (null). */
+  paymentsReconcile(ids: string[], on: string | null): Promise<number>;
+  /** Reads a pasted bank statement and proposes which payment each money-in line is. Changes nothing. */
+  reconcilePreview(statementText: string, accountId?: string): Promise<ReconcilePreview>;
+  /** Clears a small balance on an invoice without any money arriving. Never counts as received. */
+  paymentWriteOff(input: { invoiceId: string; amountPaise: Paise; reason?: string }): Promise<Payment>;
+
+  accountBook(range: { from: string; to: string }): Promise<AccountBook>;
+  transfersList(): Promise<AccountTransfer[]>;
+  transferCreate(input: AccountTransferInput): Promise<AccountTransfer>;
+  transferDelete(id: string): Promise<void>;
+  dayCloseGet(day: string): Promise<DayClose>;
+  dayCloseSave(day: string, countedPaise: Paise, note: string): Promise<DayClose>;
+  dayClosesList(): Promise<DayClose[]>;
+
+  instalmentsList(invoiceId: string): Promise<Instalment[]>;
+  instalmentsSet(invoiceId: string, plan: InstalmentInput[]): Promise<Instalment[]>;
+  instalmentsClear(invoiceId: string): Promise<void>;
+  /** Instalments not fully paid that fall due by this day (default: in the next week), overdue ones included. */
+  instalmentsDue(onOrBefore?: string): Promise<DueInstalment[]>;
 
   customerLedger(customerId: string): Promise<Ledger>;
   /** Who owes what, aged by how long past due. */
@@ -227,6 +268,26 @@ export interface Api {
   expenseCreate(input: ExpenseInput): Promise<Expense>;
   expenseUpdate(id: string, input: ExpenseInput): Promise<Expense>;
   expenseDelete(id: string): Promise<void>;
+  /** Settles a bill that was owed. */
+  expenseMarkPaid(id: string, input: { paidOn: string; method: PaymentMethod; accountId?: string; reference?: string }): Promise<Expense>;
+  payables(): Promise<PayablesSummary>;
+  vendorsList(query?: { search?: string }): Promise<Vendor[]>;
+  vendorGet(id: string): Promise<Vendor>;
+  vendorCreate(input: VendorInput): Promise<Vendor>;
+  vendorUpdate(id: string, input: VendorInput): Promise<Vendor>;
+  vendorArchive(id: string): Promise<void>;
+  recurringList(): Promise<RecurringExpense[]>;
+  recurringCreate(input: RecurringExpenseInput): Promise<RecurringExpense>;
+  recurringUpdate(id: string, input: RecurringExpenseInput): Promise<RecurringExpense>;
+  recurringDelete(id: string): Promise<void>;
+  /** Standing expenses that have come due and not yet been entered. */
+  recurringDue(): Promise<{ recurring: RecurringExpense; dates: string[] }[]>;
+  /** Enters everything that is due and moves each standing expense on. Returns how many entries were made. */
+  recurringRun(): Promise<number>;
+  /** This month's spending against each category's budget. */
+  budgetStatus(): Promise<BudgetLine[]>;
+  gstNet(range: { from: string; to: string }): Promise<GstNet>;
+  reportPurchases(range: { from: string; to: string }): Promise<PurchasesReport>;
 
   proformasList(query?: ProformaQuery): Promise<ProformaSummary[]>;
   proformaGet(id: string): Promise<Proforma>;

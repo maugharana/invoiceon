@@ -17,6 +17,8 @@ import { useQuery, useRefresh } from '../../lib/data';
 import { navigate, paths } from '../../lib/router';
 import { RecordPaymentModal } from '../payments/RecordPaymentModal';
 import { DeliveryCard } from './DeliveryCard';
+import { InstalmentsCard } from './InstalmentsCard';
+import { WriteOffModal } from './WriteOffModal';
 
 export function InvoicePage({ id }: { id: string }) {
   const toast = useToast();
@@ -28,6 +30,7 @@ export function InvoicePage({ id }: { id: string }) {
   const settings = useQuery(() => api.getSettings());
   const [busy, setBusy] = useState<'pdf' | 'print' | 'advance' | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [writingOff, setWritingOff] = useState(false);
   const [paying, setPaying] = useState(false);
   const [reason, setReason] = useState('');
 
@@ -163,9 +166,14 @@ ${message.body}`)) ? toast.success('Message copied — paste it anywhere') : toa
               <div className="mb-2 flex items-center justify-between">
                 <div className="text-xs font-medium text-ink-muted">Payments</div>
                 {balance > 0 && (
-                  <Button className="h-8 px-3 text-xs" icon={<HandCoins className="h-3.5 w-3.5" />} onClick={() => setPaying(true)}>
-                    Record payment
-                  </Button>
+                  <span className="flex gap-2">
+                    <Button className="h-8 px-3 text-xs" onClick={() => setWritingOff(true)} title="Clear a small balance you have decided not to chase">
+                      Write off
+                    </Button>
+                    <Button className="h-8 px-3 text-xs" icon={<HandCoins className="h-3.5 w-3.5" />} onClick={() => setPaying(true)}>
+                      Record payment
+                    </Button>
+                  </span>
                 )}
               </div>
               {inv.payments.length === 0 ? (
@@ -197,6 +205,7 @@ ${message.body}`)) ? toast.success('Message copied — paste it anywhere') : toa
         </Card>
       )}
 
+      {!cancelled && <InstalmentsCard invoice={inv} />}
       {!cancelled && <DeliveryCard invoice={inv} />}
       {!cancelled && <NotesPanel subjectType="invoice" subjectId={inv.id} kinds={['promise', 'followup', 'call', 'note']} title="Follow-up and promises" />}
 
@@ -207,6 +216,7 @@ ${message.body}`)) ? toast.success('Message copied — paste it anywhere') : toa
         </div>
       </div>
 
+      {writingOff && <WriteOffModal invoice={inv} onClose={() => setWritingOff(false)} />}
       {paying && <RecordPaymentModal invoice={inv} customer={customer.data} onClose={() => setPaying(false)} />}
       {cancelling && (
         <ConfirmDialog

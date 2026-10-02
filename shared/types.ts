@@ -15,6 +15,8 @@ export interface PaymentAccount {
   kind: PaymentAccountKind;
   /** Free text: account number and IFSC, the UPI id, and so on. */
   details: string;
+  /** What was in it before you started recording here. Can be negative for an overdraft. */
+  openingPaise?: Paise;
 }
 
 export interface Settings {
@@ -68,6 +70,8 @@ export interface Settings {
   // ── Lists you maintain ──
   expenseCategories: string[];
   paymentAccounts: PaymentAccount[];
+  /** A monthly limit for each expense category, in paise. A category not listed has no limit. */
+  expenseBudgets: Record<string, Paise>;
   // ── Notifications: badges in the sidebar ──
   notifyLowStock: boolean;
   notifyOverdue: boolean;
@@ -370,6 +374,10 @@ export interface PaymentInput {
   note: string;
   /** How much of the payment goes to which invoice. Whatever is left over is held as the customer's advance. */
   allocations: { invoiceId: string; amountPaise: Paise }[];
+  /** The account it went into. Optional. */
+  accountId?: string;
+  /** For a cheque, the date on it. A date after today makes it a post-dated cheque to track. */
+  chequeDate?: string | null;
   /** A deposit against this quote: held as the customer's advance and put toward the invoice when the quote is invoiced. */
   proformaId?: string | null;
 }
@@ -391,11 +399,27 @@ export interface Payment {
   voided: boolean;
   voidReason: string;
   createdAt: string;
+  /** A write-off clears a small balance without any money arriving. It never counts as received. */
+  kind: PaymentKind;
+  /** The payment account it went into (Settings → Payment accounts). Empty for entries made before accounts were linked. */
+  accountId: string;
+  /** For a cheque: the date written on it (it may be post-dated), and where it has got to. */
+  chequeDate: string | null;
+  chequeStatus: ChequeStatus | null;
+  /** The day it was matched against a bank statement. */
+  reconciledOn: string | null;
+  /** The quote it is a deposit for. */
+  proformaId: string | null;
 }
+export type PaymentKind = 'receipt' | 'writeoff';
+export type ChequeStatus = 'pending' | 'deposited' | 'cleared' | 'bounced';
+export const CHEQUE_STATUS_LABEL: Record<ChequeStatus, string> = { pending: 'To deposit', deposited: 'Deposited', cleared: 'Cleared', bounced: 'Bounced' };
 
 export interface PaymentQuery {
   search?: string;
-  status?: 'all' | 'advance' | 'voided';
+  status?: 'all' | 'advance' | 'voided' | 'writeoff' | 'cheque' | 'unreconciled';
+  /** Only payments into this account. */
+  accountId?: string;
   customerId?: string;
   /** Only payments received with this method. */
   method?: PaymentMethod;
@@ -416,7 +440,7 @@ export interface InvoicePayment {
 // ── Ledger & dues ───────────────────────────────────────────────────────────
 export interface LedgerEntry {
   date: string;
-  kind: 'invoice' | 'invoice-cancelled' | 'payment' | 'payment-voided';
+  kind: 'invoice' | 'invoice-cancelled' | 'payment' | 'payment-voided' | 'writeoff';
   description: string;
   invoiceId?: string;
   debitPaise: Paise;
@@ -429,8 +453,11 @@ export interface Ledger {
   customer: Customer;
   entries: LedgerEntry[];
   billedPaise: Paise;
+  /** Money that actually arrived. Write-offs are not in it. */
   receivedPaise: Paise;
-  /** billed − received. Positive = owes, negative = advance credit. */
+  /** Balances you chose not to chase. */
+  writtenOffPaise: Paise;
+  /** billed − received − written off. Positive = owes, negative = advance credit. */
   balancePaise: Paise;
 }
 
@@ -452,6 +479,9 @@ export interface DuesRow extends DuesBuckets {
   overduePaise: Paise;
   oldestDueDate: string | null;
   advancePaise: Paise;
+  /** An open promise to pay: the earliest day they said and how much. */
+  promisedOn: string | null;
+  promisedPaise: Paise;
 }
 
 export interface DuesReport extends DuesBuckets {
@@ -769,7 +799,20 @@ export interface Expense {
   reference: string;
   note: string;
   createdAt: string;
+  vendorId: string | null;
+  /** The input GST included in the amount, which can be set off against the GST you owe. */
+  gstPaise: Paise;
+  /** The account it was paid from. */
+  accountId: string;
+  /** 'unpaid' is a bill you owe and haven't paid yet. */
+  status: ExpenseStatus;
+  dueDate: string | null;
+  /** The day the money actually left. For an unpaid bill, null. */
+  paidOn: string | null;
+  /** The standing expense that made this entry. */
+  recurringId: string | null;
 }
+export type ExpenseStatus = 'paid' | 'unpaid';
 
 export interface ExpenseInput {
   date: string;
@@ -779,6 +822,13 @@ export interface ExpenseInput {
   method: PaymentMethod;
   reference: string;
   note: string;
+  gstPaise?: Paise;
+  accountId?: string;
+  /** Defaults to paid. */
+  status?: ExpenseStatus;
+  dueDate?: string | null;
+  /** When it was paid, if different from the expense date. */
+  paidOn?: string | null;
 }
 
 export interface ExpenseQuery {
@@ -786,6 +836,91 @@ export interface ExpenseQuery {
   category?: string;
   from?: string;
   to?: string;
+  status?: ExpenseStatus;
+  vendorId?: string;
+}
+
+/** A person or business money is paid to; raw-material suppliers are vendors too. */
+export interface VendorInput {
+  name: string;
+  phone: string;
+  gstin: string;
+  address: string;
+  notes: string;
+}
+export interface Vendor extends VendorInput {
+  id: string;
+  /** Everything spent with them, and how many entries that was. */
+  spendPaise: Paise;
+  expenseCount: number;
+  /** Bills not yet paid. */
+  unpaidPaise: Paise;
+  lastSpentOn: string | null;
+}
+
+export const RECURRING_FREQUENCIES = ['weekly', 'monthly', 'quarterly', 'yearly'] as const;
+export type RecurringFrequency = (typeof RECURRING_FREQUENCIES)[number];
+export const RECURRING_LABEL: Record<RecurringFrequency, string> = { weekly: 'Every week', monthly: 'Every month', quarterly: 'Every 3 months', yearly: 'Every year' };
+
+export interface RecurringExpenseInput {
+  category: string;
+  vendor: string;
+  amountPaise: Paise;
+  gstPaise?: Paise;
+  method: PaymentMethod;
+  accountId?: string;
+  note: string;
+  frequency: RecurringFrequency;
+  /** The next day an entry is due. */
+  nextDate: string;
+  /** Stops after this day. Optional. */
+  endDate?: string | null;
+}
+export interface RecurringExpense extends Required<Omit<RecurringExpenseInput, 'endDate'>> {
+  id: string;
+  endDate: string | null;
+}
+
+/** A category's spending this month against its budget. */
+export interface BudgetLine {
+  category: string;
+  budgetPaise: Paise;
+  spentPaise: Paise;
+  /** Spent as a share of the budget. */
+  percent: number;
+  /** near = 80% or more; over = past the budget. */
+  status: 'ok' | 'near' | 'over';
+}
+
+/** Output GST on sales less input GST on purchases, for a stretch of dates. */
+export interface GstNet {
+  range: { from: string; to: string };
+  outputPaise: Paise;
+  inputPaise: Paise;
+  /** Output less input. Negative means a credit to carry forward. */
+  netPaise: Paise;
+}
+
+/** Spending with GST shown separately, for claiming input tax. */
+export interface PurchasesReport {
+  range: { from: string; to: string };
+  totalPaise: Paise;
+  gstPaise: Paise;
+  taxablePaise: Paise;
+  /** Entries with GST on them, oldest first. */
+  entries: { id: string; date: string; vendor: string; vendorGstin: string; category: string; totalPaise: Paise; gstPaise: Paise; taxablePaise: Paise }[];
+  byVendor: { vendor: string; gstin: string; totalPaise: Paise; gstPaise: Paise }[];
+  byMonth: { month: string; totalPaise: Paise; gstPaise: Paise }[];
+  /** Spending in the range with no GST recorded. */
+  withoutGstPaise: Paise;
+}
+
+/** Bills owed and when. */
+export interface PayablesSummary {
+  unpaidPaise: Paise;
+  unpaidCount: number;
+  overduePaise: Paise;
+  overdueCount: number;
 }
 
 export interface ExpensesOverview {
@@ -968,8 +1103,12 @@ export interface DashboardMonth {
   range: { from: string; to: string };
   invoiceCount: number;
   invoicedPaise: Paise;
-  /** GST charged on this month's invoices, by invoice date (when the tax falls due). Input credit isn't tracked yet. */
+  /** GST charged on this month's invoices, by invoice date (when the tax falls due). */
   gstPaise: Paise;
+  /** GST paid on this month's purchases, which can be set off against it. */
+  inputGstPaise: Paise;
+  /** gstPaise less inputGstPaise. Negative means a credit to carry forward. */
+  netGstPaise: Paise;
   cgstPaise: Paise;
   sgstPaise: Paise;
   igstPaise: Paise;
@@ -1293,4 +1432,92 @@ export interface DueNote extends Note {
   customerName: string;
   /** The invoice or quote number; empty for a note on the customer. */
   subjectLabel: string;
+}
+
+// ── Accounts: where the money is ────────────────────────────────────────────
+export interface AccountEntry {
+  date: string;
+  kind: 'receipt' | 'expense' | 'transfer-in' | 'transfer-out';
+  party: string;
+  detail: string;
+  inPaise: Paise;
+  outPaise: Paise;
+  /** The account's balance after this line. */
+  balancePaise: Paise;
+}
+export interface AccountBookAccount {
+  /** Empty for the entries that were made before accounts were linked. */
+  accountId: string;
+  name: string;
+  kind: PaymentAccountKind | null;
+  openingPaise: Paise;
+  inPaise: Paise;
+  outPaise: Paise;
+  closingPaise: Paise;
+  entries: AccountEntry[];
+}
+export interface AccountBook {
+  range: { from: string; to: string };
+  accounts: AccountBookAccount[];
+  totalClosingPaise: Paise;
+}
+
+export interface AccountTransferInput {
+  fromAccountId: string;
+  toAccountId: string;
+  amountPaise: Paise;
+  date: string;
+  note: string;
+}
+export interface AccountTransfer extends AccountTransferInput {
+  id: string;
+}
+
+/** Counting the cash drawer at the end of a day against what the books say should be in it. */
+export interface DayClose {
+  day: string;
+  expectedPaise: Paise;
+  /** Null until the day has been closed. */
+  countedPaise: Paise | null;
+  /** counted − expected. Negative means the drawer is short. */
+  differencePaise: Paise | null;
+  note: string;
+  closedAt: string | null;
+}
+
+// ── Instalments ─────────────────────────────────────────────────────────────
+export interface InstalmentInput {
+  dueDate: string;
+  amountPaise: Paise;
+}
+export interface Instalment extends InstalmentInput {
+  id: string;
+  position: number;
+  /** How much of it the payments on the invoice cover, filling the instalments in date order. */
+  paidPaise: Paise;
+  status: 'paid' | 'upcoming' | 'overdue';
+}
+export interface DueInstalment extends Instalment {
+  invoiceId: string;
+  invoiceNumber: string;
+  customerId: string | null;
+  customerName: string;
+}
+
+// ── Bank statement matching ─────────────────────────────────────────────────
+export interface ReconcileProposal {
+  row: number;
+  date: string;
+  description: string;
+  creditPaise: Paise;
+  paymentId: string | null;
+  customerName: string;
+  reason: 'reference' | 'date' | null;
+}
+export interface ReconcilePreview {
+  proposals: ReconcileProposal[];
+  problems: { row: number; message: string }[];
+  skippedDebits: number;
+  /** Payments still without a statement line. */
+  unmatchedPayments: Payment[];
 }

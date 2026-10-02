@@ -101,7 +101,7 @@ export function CustomerPage({ id }: { id: string }) {
         <Figure label="Total billed" sub="Excludes cancelled">
           <Money paise={c.billedPaise} fractionDigits={0} />
         </Figure>
-        <Figure label="Received">
+        <Figure label="Received" sub={ledger.data && ledger.data.writtenOffPaise > 0 ? `Plus ${formatMoney(ledger.data.writtenOffPaise, { fractionDigits: 0 })} written off` : undefined}>
           <Money paise={received} fractionDigits={0} />
         </Figure>
         <Figure label="Invoices">{c.invoiceCount}</Figure>

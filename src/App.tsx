@@ -14,6 +14,7 @@ import { NewInvoicePage } from './pages/invoices/NewInvoicePage';
 import { PrintInvoicePage, PrintInvoicesPage } from './pages/invoices/PrintInvoicePage';
 import { PrintReceiptPage, PrintStatementPage } from './pages/PrintOtherPages';
 import { ExpensesPage } from './pages/expenses/ExpensesPage';
+import { AccountsPage, ChequesPage, ReconcilePage } from './pages/payments/MoneyPages';
 import { DuesPage, PaymentsPage } from './pages/payments/PaymentsPage';
 import { ProformaPage } from './pages/proformas/ProformaPage';
 import { ProformasPage } from './pages/proformas/ProformasPage';
@@ -42,6 +43,12 @@ function renderRoute(route: Route) {
       return <PaymentsPage />;
     case 'dues':
       return <DuesPage />;
+    case 'cheques':
+      return <ChequesPage />;
+    case 'accounts':
+      return <AccountsPage />;
+    case 'reconcile':
+      return <ReconcilePage />;
     case 'invoice':
       return <InvoicePage id={route.id} />;
     case 'proformas':
