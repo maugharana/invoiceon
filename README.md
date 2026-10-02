@@ -182,18 +182,18 @@ On the New invoice and New proforma screens, the item box ends with **Not in inv
 
 ## How a saree is named
 
-Code: `shared/nomenclature.ts`, migration 15, `tests/nomenclature.test.ts`. A saree is entered as separate choices, and its name is built from them the same way every time:
+Code: `shared/nomenclature.ts`, migrations 15 and 16, `tests/nomenclature.test.ts`. A saree is entered as separate choices, and its name is built from them the same way every time:
 
 ```
-Banarasi Katan Silk Kadhua Saree with Zardozi Work and Aari Work, Lalima         the design
-Maroon Banarasi Katan Silk Kadhua Saree with Zardozi Work and Aari Work, Lalima  one colour of it
+Banarasi Katan Silk Kadhua Butidar Saree with Zardozi Work and Aari Work, Lalima         the design
+Maroon Banarasi Katan Silk Kadhua Butidar Saree with Zardozi Work and Aari Work, Lalima  one colour of it
 ```
 
-- **Order: weave style, fabric, technique, "Saree", special work, then the shop's own special name last.** Shoppers search weave plus fabric plus "saree" ("banarasi silk saree" is about 74,000 searches a month in India), and search engines and AI assistants weigh the first words of a title most. The special name goes last so it never pushes those words out. Colour joins the front only for one piece, because a design comes in several colours.
-- **Fields:** `designs.weave_style`, `fabric`, `technique`, `work` (one or more, comma separated) and the existing `nickname` (the special name, one word). Weave style and colour are required in the quick-add dialog; the rest are optional and skipped in the name.
-- **Names built, not typed.** A design given no name gets one from its choices (only when a weave style, technique or work is set, so a fabric alone never becomes a name). A name typed by hand is kept. The Design form offers "Use …" when the built name differs from the typed one.
+- **Order: weave style, fabric, technique, pattern, "Saree", special work, then the shop's own special name last.** Shoppers search weave plus fabric plus "saree" ("banarasi silk saree" is about 74,000 searches a month in India), and search engines and AI assistants weigh the first words of a title most. The special name goes last so it never pushes those words out. Colour joins the front only for one piece, because a design comes in several colours.
+- **Fields:** `designs.weave_style`, `fabric`, `technique`, `pattern` (one only: a Jaal saree is not a Butidar one, so they are different designs), `work` (one or more, comma separated) and the existing `nickname` (the special name: a word or a phrase up to 40 characters, like "Rang Bahar"). Weave style and colour are required in the quick-add dialog; the rest are optional and skipped in the name.
+- **Names built, not typed.** A design given no name gets one from its choices (only when a weave style, technique, pattern or work is set, so a fabric alone never becomes a name). A name typed by hand is kept. The Design form offers "Use …" when the built name differs from the typed one.
 - **Pick lists** (`catalogueOptions`): a starting set of common weave styles, fabrics, techniques, works and colours (`DEFAULT_OPTIONS`, most searched first), then anything the shop added (`catalogue_options`), then anything already in stock. A choice typed into a list is remembered when the saree is saved. `ChoiceInput` is the control: type to narrow, pick, or add what is not there.
-- **Not done yet:** the Add sarees sheet still takes a typed name. `BulkSareeRow` and `bulkAddSarees` already accept weave style, technique and work, so adding those columns to the sheet is only screen work.
+- **Not done yet:** the Add sarees sheet still takes a typed name. `BulkSareeRow` and `bulkAddSarees` already accept weave style, technique, pattern and work, so adding those columns to the sheet is only screen work.
 
 ## Customers, quotes, money, materials and the shell (stages 8–15)
 

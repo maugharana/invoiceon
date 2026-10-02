@@ -29,6 +29,7 @@ export function DesignFormModal({ design, suggestedCode = '', onClose, onSaved }
   const [fabric, setFabric] = useState(design?.fabric ?? '');
   const [weaveStyle, setWeaveStyle] = useState(design?.weaveStyle ?? '');
   const [technique, setTechnique] = useState(design?.technique ?? '');
+  const [pattern, setPattern] = useState(design?.pattern ?? '');
   const [work, setWork] = useState(design?.work ?? '');
   const [hsn, setHsn] = useState(design?.hsnCode ?? '');
   const [price, setPrice] = useState(design?.defaultPricePaise ?? 0);
@@ -39,7 +40,7 @@ export function DesignFormModal({ design, suggestedCode = '', onClose, onSaved }
   const everything = useQuery(() => api.designsList());
   const choices = useQuery(() => api.catalogueOptions());
   const lists = choices.data ?? DEFAULT_OPTIONS;
-  const suggestedName = buildDesignName({ weaveStyle, fabric, technique, work, specialName: nickname.trim() });
+  const suggestedName = buildDesignName({ weaveStyle, fabric, technique, pattern, work, specialName: nickname.trim() });
   const suggestions = tagCounts((everything.data ?? []).map((d) => d.tags)).map((t) => t.tag);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -49,7 +50,7 @@ export function DesignFormModal({ design, suggestedCode = '', onClose, onSaved }
     setSaving(true);
     setError(null);
     const rate = gstRate.trim() === '' ? null : Number(gstRate);
-    const input = { code, name, nickname: nickname.trim(), fabric, weaveStyle, technique, work, hsnCode: hsn, description, defaultPricePaise: price, gstRatePercent: rate, tags, supplierId: supplierId || null };
+    const input = { code, name, nickname: nickname.trim(), fabric, weaveStyle, technique, pattern, work, hsnCode: hsn, description, defaultPricePaise: price, gstRatePercent: rate, tags, supplierId: supplierId || null };
     try {
       const saved = design ? await api.designUpdate(design.id, input) : await api.designCreate(input);
       refresh();
@@ -88,8 +89,8 @@ export function DesignFormModal({ design, suggestedCode = '', onClose, onSaved }
             )}
           </Field>
         </div>
-        <Field label="Special name" hint="Your own one-word name for this saree, like “Lalima”. Optional. It goes last in the full name, and search finds it." error={/\s/.test(nickname.trim()) ? 'Use one word, with no spaces' : undefined}>
-          <Input value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="Lalima" maxLength={20} className="max-w-[12rem]" />
+        <Field label="Special name" hint="Your own name for this saree, a word or a phrase, like “Lalima” or “Rang Bahar”. Optional. It goes last in the full name, and search finds it.">
+          <Input value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="Lalima" maxLength={40} className="max-w-sm" />
         </Field>
         <div className="grid grid-cols-2 gap-4">
           <Field label="Weave style">
@@ -100,6 +101,9 @@ export function DesignFormModal({ design, suggestedCode = '', onClose, onSaved }
           </Field>
           <Field label="Technique" hint="How it is woven">
             <ChoiceInput options={lists.technique} value={technique} onChange={setTechnique} placeholder="Kadhua, Phekua…" aria-label="Technique" />
+          </Field>
+          <Field label="Pattern" hint="Butidar or Jaal, one only">
+            <ChoiceInput options={lists.pattern} value={pattern} onChange={setPattern} placeholder="Butidar, Jaal…" aria-label="Pattern" />
           </Field>
           <Field label="Special work" hint="You can pick more than one">
             <ChoiceInput multi options={lists.work} value={work} onChange={setWork} placeholder="Zardozi, Aari…" aria-label="Special work" />

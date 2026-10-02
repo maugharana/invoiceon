@@ -170,7 +170,7 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
         <>
           <div className="mb-4 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <SearchInput value={search} onChange={setSearch} placeholder="Search name, short name, code, color or SKU" />
+              <SearchInput value={search} onChange={setSearch} placeholder="Search name, special name, code, color or SKU" />
               <Button icon={<SlidersHorizontal className="h-4 w-4" />} onClick={() => setShowFilters((v) => !v)} aria-expanded={showFilters}>
                 Filters{active ? ' · on' : ''}
               </Button>

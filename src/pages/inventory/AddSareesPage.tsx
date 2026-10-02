@@ -46,7 +46,7 @@ interface Column {
 
 const COLUMNS: Column[] = [
   { field: 'name', label: 'Saree name', title: 'Rows with the same name become one design with several colours', width: 'min-w-[10rem]', placeholder: 'e.g. Mau Silk Butidar', list: 'saree-names', required: true },
-  { field: 'nickname', label: 'Short name', title: 'A special one-word name for the saree, like Kadhua. Taken from the first row that has one in each design.', width: 'w-[6rem]', placeholder: 'Kadhua' },
+  { field: 'nickname', label: 'Special name', title: 'Your own name for the saree, a word or a short phrase, like Lalima or Rang Bahar. Taken from the first row that has one in each design.', width: 'w-[6rem]', placeholder: 'Kadhua' },
   { field: 'sku', label: 'Saree ID', title: 'The SKU: your own code for this piece. Leave blank and one is made for you.', width: 'w-[5.75rem]', placeholder: 'auto' },
   { field: 'color', label: 'Colour', title: 'Colour', width: 'w-[5.75rem]', placeholder: 'Maroon', list: 'saree-colors', required: true },
   { field: 'size', label: 'Size', title: 'Length', width: 'w-[5rem]', placeholder: '6.3 m', list: 'saree-sizes', required: true },
@@ -81,7 +81,6 @@ function toCount(text: string): number | null {
 /** What is wrong with a row before it is even sent, in words. */
 function problemsOf(r: SheetRow): string | null {
   if (!r.name.trim()) return 'Saree name is required.';
-  if (/\s/.test(r.nickname.trim())) return 'Short name must be one word.';
   if (!r.color.trim()) return 'Colour is required.';
   if (!r.size.trim()) return 'Size is required.';
   if (toPaise(r.mrp) === null) return "MRP isn't a valid amount.";
@@ -449,7 +448,7 @@ function RowFragment({ children }: { children: React.ReactNode }) {
 
 /** Which cell an error message is about, so that cell can be marked. */
 function problemFieldOf(r: SheetRow, message: string): Field | null {
-  if (/short name/i.test(message)) return 'nickname';
+  if (/special name/i.test(message)) return 'nickname';
   if (/name/i.test(message) && !r.name.trim()) return 'name';
   if (/colour/i.test(message)) return 'color';
   if (/size/i.test(message)) return 'size';

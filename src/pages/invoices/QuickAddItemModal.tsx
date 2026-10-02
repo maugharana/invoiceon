@@ -17,15 +17,16 @@ export function QuickAddItemModal({ initialName, quote, onClose, onAdded }: { in
   const options = useQuery(() => api.catalogueOptions());
   const lists = options.data ?? DEFAULT_OPTIONS;
 
-  // What was typed in the item box is a weave style when it matches one (Banarasi), otherwise the saree's special name when it is one word.
+  // What was typed in the item box is a weave style when it matches one (Banarasi), otherwise the saree's special name.
   const typed = initialName.trim();
   const typedWeave = DEFAULT_OPTIONS.weaveStyle.find((w) => w.toLowerCase() === typed.toLowerCase()) ?? '';
   const [weaveStyle, setWeaveStyle] = useState(typedWeave);
   const [fabric, setFabric] = useState('');
   const [technique, setTechnique] = useState('');
+  const [pattern, setPattern] = useState('');
   const [work, setWork] = useState('');
   const [color, setColor] = useState('');
-  const [nickname, setNickname] = useState(!typedWeave && typed && !/\s/.test(typed) ? typed : '');
+  const [nickname, setNickname] = useState(!typedWeave ? typed : '');
   const [size, setSize] = useState('6.3 m');
   const [price, setPrice] = useState(0);
   const [cost, setCost] = useState(0);
@@ -37,16 +38,16 @@ export function QuickAddItemModal({ initialName, quote, onClose, onAdded }: { in
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const title = useMemo(() => buildPieceTitle({ weaveStyle, fabric, technique, work, specialName: nickname }, color), [weaveStyle, fabric, technique, work, nickname, color]);
+  const title = useMemo(() => buildPieceTitle({ weaveStyle, fabric, technique, pattern, work, specialName: nickname }, color), [weaveStyle, fabric, technique, pattern, work, nickname, color]);
   const pieces = toNumber(stock);
-  const problem = !weaveStyle.trim() ? 'Choose the weave style.' : !color.trim() ? 'Choose the colour.' : /\s/.test(nickname.trim()) ? 'The special name must be one word.' : !size.trim() ? 'Enter the size.' : price <= 0 ? 'Enter the selling price.' : !Number.isInteger(pieces) || pieces < 0 ? 'Pieces in stock should be a whole number, 0 or more.' : null;
+  const problem = !weaveStyle.trim() ? 'Choose the weave style.' : !color.trim() ? 'Choose the colour.' : !size.trim() ? 'Enter the size.' : price <= 0 ? 'Enter the selling price.' : !Number.isInteger(pieces) || pieces < 0 ? 'Pieces in stock should be a whole number, 0 or more.' : null;
 
   async function save() {
     if (problem) return;
     setSaving(true);
     setError(null);
     // The name is left empty on purpose: it is built from the choices, here and everywhere else, the same way.
-    const row: BulkSareeRow = { name: '', weaveStyle, technique, work, nickname: nickname.trim(), sku, color, size, fabric, hsn, mrpPaise: mrp, sellPricePaise: price, costPaise: cost, stock: pieces, reorderLevel: 0 };
+    const row: BulkSareeRow = { name: '', weaveStyle, technique, pattern, work, nickname: nickname.trim(), sku, color, size, fabric, hsn, mrpPaise: mrp, sellPricePaise: price, costPaise: cost, stock: pieces, reorderLevel: 0 };
     try {
       onAdded(await api.inventoryQuickAdd(row));
     } catch (err) {
@@ -87,14 +88,17 @@ export function QuickAddItemModal({ initialName, quote, onClose, onAdded }: { in
           <Field label="Technique" hint="How it is woven">
             <ChoiceInput options={lists.technique} value={technique} onChange={setTechnique} placeholder="Kadhua, Phekua…" aria-label="Technique" />
           </Field>
+          <Field label="Pattern" hint="Butidar or Jaal, one only">
+            <ChoiceInput options={lists.pattern} value={pattern} onChange={setPattern} placeholder="Butidar, Jaal…" aria-label="Pattern" />
+          </Field>
           <Field label="Special work" hint="You can pick more than one">
             <ChoiceInput multi options={lists.work} value={work} onChange={setWork} placeholder="Zardozi, Aari…" aria-label="Special work" />
           </Field>
           <Field label="Colour">
             <ChoiceInput options={lists.colour} value={color} onChange={setColor} placeholder="Maroon, Emerald Green…" aria-label="Colour" />
           </Field>
-          <Field label="Special name" hint="Your own one-word name for it. It goes last in the title.">
-            <Input value={nickname} onChange={(e) => setNickname(e.target.value)} maxLength={20} placeholder="Lalima" />
+          <Field label="Special name" hint="Your own name for it, a word or a phrase. It goes last in the title.">
+            <Input value={nickname} onChange={(e) => setNickname(e.target.value)} maxLength={40} placeholder="Lalima, Rang Bahar…" />
           </Field>
         </div>
         <div className="rounded-lg border border-line bg-canvas px-3 py-2">

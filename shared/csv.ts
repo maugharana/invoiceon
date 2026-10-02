@@ -109,8 +109,8 @@ export function invoicesCsv(rows: InvoiceSummary[]): string {
 /** The designs as listed, with their stock and what it is worth at cost. */
 export function designsCsv(rows: DesignSummary[]): string {
   return toCsv([
-    ['Code', 'Design', 'Short name', 'Fabric', 'HSN', 'Variants', 'In stock', 'Stock value (cost)', 'Default price (excl. GST)', 'Status'],
-    ...rows.map((d) => [d.code, d.name, d.nickname, d.fabric, d.hsnCode, d.variantCount, d.totalStock, rs(d.stockValuePaise), rs(d.defaultPricePaise), STOCK_STATUS_LABEL[d.status]]),
+    ['Code', 'Design', 'Special name', 'Weave style', 'Technique', 'Pattern', 'Special work', 'Fabric', 'HSN', 'Variants', 'In stock', 'Stock value (cost)', 'Default price (excl. GST)', 'Status'],
+    ...rows.map((d) => [d.code, d.name, d.nickname, d.weaveStyle, d.technique, d.pattern, d.work, d.fabric, d.hsnCode, d.variantCount, d.totalStock, rs(d.stockValuePaise), rs(d.defaultPricePaise), STOCK_STATUS_LABEL[d.status]]),
   ]);
 }
 

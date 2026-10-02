@@ -318,11 +318,13 @@ export interface DesignSummary {
   id: string;
   code: string;
   name: string;
-  /** A special one-word name for the saree, e.g. "Kadhua". Empty when it has none. */
+  /** The shop's own special name for the saree, a word or a short phrase, e.g. "Lalima" or "Rangbahar". Empty when it has none. */
   nickname: string;
   fabric: string;
   /** How it is woven in the Banarasi sense: Kadhua, Phekua… Empty when not set. */
   technique: string;
+  /** The pattern woven all over it: Butidar, Jaal… one only. Empty when not set. */
+  pattern: string;
   /** The weaving tradition: Banarasi, Kanjivaram, Chanderi… Empty when not set. */
   weaveStyle: string;
   /** Special work done on it, one or more separated by commas: Zardozi Work, Aari Work. */
@@ -364,6 +366,7 @@ export interface DesignInput {
   fabric: string;
   weaveStyle?: string;
   technique?: string;
+  pattern?: string;
   /** One or more works, separated by commas. */
   work?: string;
   hsnCode: string;
@@ -432,9 +435,10 @@ export interface BulkSareeRow {
   name: string;
   weaveStyle?: string;
   technique?: string;
+  pattern?: string;
   /** One or more works, separated by commas. */
   work?: string;
-  /** The special one-word name. Optional; taken from the first row that has one in each design. */
+  /** The special name. Optional; taken from the first row that has one in each design. */
   nickname?: string;
   /** The Saree ID. Left blank to generate one from the design code, colour and size. */
   sku: string;
@@ -1377,7 +1381,7 @@ export interface DeadStock {
 export interface ReorderRow {
   designId: string;
   designName: string;
-  /** The saree's one-word name, or ''. */
+  /** The saree's special name, or ''. */
   nickname: string;
   color: string;
   size: string;
@@ -1826,4 +1830,4 @@ export interface Notification {
 }
 
 /** The pick lists for entering a saree: what every shop starts with, plus what this shop added or already uses. */
-export type CatalogueOptions = Record<'weaveStyle' | 'fabric' | 'technique' | 'work' | 'colour', string[]>;
+export type CatalogueOptions = Record<'weaveStyle' | 'fabric' | 'technique' | 'pattern' | 'work' | 'colour', string[]>;

@@ -39,7 +39,7 @@ Stop it with `Ctrl+C`.
 Inventory → **Add sarees** (or the **+** button, or press **S** with it open).
 
 - **One row is one piece**: a saree in one colour and size. Rows with the same *Saree name* become one design with several colours; a name you already have adds the new colours to that design (the row says "Adds to MG-003").
-- **Short name** is a special one-word name for the saree, like "Kadhua" for Banarasi Katan Kadhua. It's optional, taken from the first row that has one in each design, and shows in the Inventory list just before the ID. Search and the invoice item picker find sarees by it.
+- **Special name** is your own name for the saree, a word or a short phrase, like "Lalima" or "Rang Bahar". It's optional, taken from the first row that has one in each design, and shows in the Inventory list just before the ID. Search and the invoice item picker find sarees by it.
 - **Saree ID (SKU)** is optional: leave it blank and one is made from the design code, colour and size.
 - **MRP** is the printed price with GST. **SP** (selling price) and **CP** (cost price) are before GST, and SP and CP are what invoices and margins use. You get a warning (never a block) if SP is above MRP or below CP.
 - **Paste from Excel or Google Sheets**: copy the cells (in the order Name, Short name, ID, Colour, Size, MRP, SP, CP, Stock), click the first cell here, paste. A header row is skipped automatically. *More columns* adds Fabric, HSN and reorder level.

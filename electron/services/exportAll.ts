@@ -33,7 +33,7 @@ export function exportEverything(db: Db): { fileName: string; base64: string; fi
     },
     {
       name: 'designs.csv',
-      content: toCsv([['Code', 'Name', 'Short name', 'Fabric', 'HSN', 'Description', 'Default price'], ...designs.map((d) => [d.code, d.name, d.nickname, d.fabric, d.hsnCode, d.description, rs(d.defaultPricePaise)])]),
+      content: toCsv([['Code', 'Name', 'Special name', 'Weave style', 'Technique', 'Pattern', 'Special work', 'Fabric', 'HSN', 'Description', 'Default price'], ...designs.map((d) => [d.code, d.name, d.nickname, d.weaveStyle, d.technique, d.pattern, d.work, d.fabric, d.hsnCode, d.description, rs(d.defaultPricePaise)])]),
     },
     {
       name: 'variants.csv',

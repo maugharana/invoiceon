@@ -37,6 +37,7 @@ interface DesignRow {
   fabric: string;
   weave_style: string;
   technique: string;
+  pattern: string;
   work: string;
   hsn_code: string;
   description: string;
@@ -184,6 +185,7 @@ function summarise(d: DesignRow, variants: Variant[], sales: DesignSales | undef
     fabric: d.fabric,
     weaveStyle: d.weave_style,
     technique: d.technique,
+    pattern: d.pattern,
     work: d.work,
     hsnCode: d.hsn_code,
     description: d.description,
@@ -225,7 +227,7 @@ export function listDesigns(db: Db, query: DesignQuery = {}): DesignSummary[] {
   return designs
     .filter((d) => {
       const vs = byDesign.get(d.id) ?? [];
-      return matchesAll([d.code, d.name, d.nickname, d.fabric, d.tags, suppliers.get(d.supplier_id ?? '') ?? '', ...vs.flatMap((v) => [v.sku, v.color])].join(' '), query.search);
+      return matchesAll([d.code, d.name, d.nickname, d.weave_style, d.technique, d.pattern, d.work, d.fabric, d.tags, suppliers.get(d.supplier_id ?? '') ?? '', ...vs.flatMap((v) => [v.sku, v.color])].join(' '), query.search);
     })
     .map((d) => summarise(d, byDesign.get(d.id) ?? [], sales.get(d.id), suppliers))
     .filter((s) => {
@@ -262,10 +264,11 @@ function rememberOption(db: Db, kind: CatalogueKind, label: string): void {
   run(db, 'INSERT OR IGNORE INTO catalogue_options (id, kind, label, created_at) VALUES (?, ?, ?, ?)', newId(), kind, text, nowIso());
 }
 
-function rememberDesignOptions(db: Db, v: { weaveStyle: string; fabric: string; technique: string; work: string }): void {
+function rememberDesignOptions(db: Db, v: { weaveStyle: string; fabric: string; technique: string; pattern: string; work: string }): void {
   rememberOption(db, 'weaveStyle', v.weaveStyle);
   rememberOption(db, 'fabric', v.fabric);
   rememberOption(db, 'technique', v.technique);
+  rememberOption(db, 'pattern', v.pattern);
   for (const w of splitWorks(v.work)) rememberOption(db, 'work', w);
 }
 
@@ -279,6 +282,7 @@ export function catalogueOptions(db: Db): CatalogueOptions {
     weaveStyle: all<{ v: string }>(db, "SELECT DISTINCT weave_style AS v FROM designs WHERE deleted_at IS NULL AND weave_style <> ''").map((r) => r.v),
     fabric: all<{ v: string }>(db, "SELECT DISTINCT fabric AS v FROM designs WHERE deleted_at IS NULL AND fabric <> ''").map((r) => r.v),
     technique: all<{ v: string }>(db, "SELECT DISTINCT technique AS v FROM designs WHERE deleted_at IS NULL AND technique <> ''").map((r) => r.v),
+    pattern: all<{ v: string }>(db, "SELECT DISTINCT pattern AS v FROM designs WHERE deleted_at IS NULL AND pattern <> ''").map((r) => r.v),
     work: all<{ v: string }>(db, "SELECT work AS v FROM designs WHERE deleted_at IS NULL AND work <> ''").flatMap((r) => splitWorks(r.v)),
     colour: all<{ v: string }>(db, "SELECT DISTINCT color AS v FROM variants WHERE deleted_at IS NULL AND color <> ''").map((r) => r.v),
   };
@@ -298,19 +302,17 @@ export function catalogueOptions(db: Db): CatalogueOptions {
 }
 
 /**
- * The name built from the choices, or empty when none of weave style, technique or work is set. A fabric alone is not enough to name a
+ * The name built from the choices, or empty when none of weave style, technique, pattern or work is set. A fabric alone is not enough to name a
  * saree by, so a missing name stays an error, as it always was, rather than quietly becoming "Pure Silk Saree".
  */
-function nameFromChoices(p: { weaveStyle?: string; fabric?: string; technique?: string; work?: string; nickname?: string }): string {
-  if (!p.weaveStyle?.trim() && !p.technique?.trim() && !splitWorks(p.work).length) return '';
-  return buildDesignName({ weaveStyle: p.weaveStyle, fabric: p.fabric, technique: p.technique, work: splitWorks(p.work).join(', '), specialName: p.nickname });
+function nameFromChoices(p: { weaveStyle?: string; fabric?: string; technique?: string; pattern?: string; work?: string; nickname?: string }): string {
+  if (!p.weaveStyle?.trim() && !p.technique?.trim() && !p.pattern?.trim() && !splitWorks(p.work).length) return '';
+  return buildDesignName({ weaveStyle: p.weaveStyle, fabric: p.fabric, technique: p.technique, pattern: p.pattern, work: splitWorks(p.work).join(', '), specialName: p.nickname });
 }
 
-/** The special short name: optional, and one word, so it can be said, typed and searched in a moment. */
+/** The shop's own special name for a saree: optional, a word or a short phrase ("Lalima", "Rang Bahar"). Spacing is tidied. */
 function validateNickname(value: unknown): string {
-  const nickname = optionalText(value, 'Short name', 20);
-  if (/\s/.test(nickname)) throw new UserError('The short name must be one word, like "Kadhua".');
-  return nickname;
+  return optionalText(value, 'Special name', 40).replace(/\s+/g, ' ');
 }
 
 /** A design's own GST rate: empty means "use the usual rate", otherwise a number from 0 to 100. */
@@ -327,17 +329,19 @@ function validateDesign(db: Db, input: DesignInput) {
   const fabric = optionalText(input.fabric, 'Fabric', 60);
   const weaveStyle = optionalText(input.weaveStyle, 'Weave style', 40);
   const technique = optionalText(input.technique, 'Technique', 40);
+  const pattern = optionalText(input.pattern, 'Pattern', 40);
   const work = splitWorks(optionalText(input.work, 'Work', 200)).join(', ');
   // A name typed by hand wins; with none, it is built from the choices.
   const typed = typeof input.name === 'string' ? input.name.trim() : '';
   return {
     supplierId,
     code: requireText(input.code, 'Design code', 30),
-    name: requireText(typed || nameFromChoices({ weaveStyle, fabric, technique, work, nickname }), 'Design name'),
+    name: requireText(typed || nameFromChoices({ weaveStyle, fabric, technique, pattern, work, nickname }), 'Design name'),
     nickname,
     fabric,
     weaveStyle,
     technique,
+    pattern,
     work,
     hsn: optionalText(input.hsnCode, 'HSN code', 12),
     description: optionalText(input.description, 'Description', 500),
@@ -352,7 +356,7 @@ export function createDesign(db: Db, input: DesignInput): DesignDetail {
   const id = newId();
   const now = nowIso();
   try {
-    run(db, 'INSERT INTO designs (id, code, name, nickname, fabric, weave_style, technique, work, hsn_code, description, default_price_paise, gst_rate_percent, tags, supplier_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', id, v.code, v.name, v.nickname, v.fabric, v.weaveStyle, v.technique, v.work, v.hsn, v.description, v.price, v.gstRate, v.tags, v.supplierId, now, now);
+    run(db, 'INSERT INTO designs (id, code, name, nickname, fabric, weave_style, technique, pattern, work, hsn_code, description, default_price_paise, gst_rate_percent, tags, supplier_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', id, v.code, v.name, v.nickname, v.fabric, v.weaveStyle, v.technique, v.pattern, v.work, v.hsn, v.description, v.price, v.gstRate, v.tags, v.supplierId, now, now);
   } catch (err) {
     if (isUniqueViolation(err)) throw new UserError(`Design code "${v.code}" is already in use.`);
     throw err;
@@ -365,7 +369,7 @@ export function updateDesign(db: Db, id: string, input: DesignInput): DesignDeta
   const v = validateDesign(db, input);
   getDesign(db, id);
   try {
-    run(db, 'UPDATE designs SET code = ?, name = ?, nickname = ?, fabric = ?, weave_style = ?, technique = ?, work = ?, hsn_code = ?, description = ?, default_price_paise = ?, gst_rate_percent = ?, tags = ?, supplier_id = ?, updated_at = ? WHERE id = ?', v.code, v.name, v.nickname, v.fabric, v.weaveStyle, v.technique, v.work, v.hsn, v.description, v.price, v.gstRate, v.tags, v.supplierId, nowIso(), id);
+    run(db, 'UPDATE designs SET code = ?, name = ?, nickname = ?, fabric = ?, weave_style = ?, technique = ?, pattern = ?, work = ?, hsn_code = ?, description = ?, default_price_paise = ?, gst_rate_percent = ?, tags = ?, supplier_id = ?, updated_at = ? WHERE id = ?', v.code, v.name, v.nickname, v.fabric, v.weaveStyle, v.technique, v.pattern, v.work, v.hsn, v.description, v.price, v.gstRate, v.tags, v.supplierId, nowIso(), id);
   } catch (err) {
     if (isUniqueViolation(err)) throw new UserError(`Design code "${v.code}" is already in use.`);
     throw err;
@@ -388,6 +392,7 @@ export function duplicateDesign(db: Db, id: string): DesignDetail {
       fabric: source.fabric,
       weaveStyle: source.weaveStyle,
       technique: source.technique,
+      pattern: source.pattern,
       work: source.work,
       hsnCode: source.hsnCode,
       description: source.description,
@@ -559,6 +564,7 @@ export function bulkAddSarees(db: Db, rows: BulkSareeRow[]): BulkAddResult {
         nickname: validateNickname(r.nickname ?? ''),
         weaveStyle: optionalText(r.weaveStyle, 'Weave style', 40),
         technique: optionalText(r.technique, 'Technique', 40),
+        pattern: optionalText(r.pattern, 'Pattern', 40),
         work: splitWorks(optionalText(r.work, 'Work', 200)).join(', '),
         sku: optionalText(r.sku, 'Saree ID', 40),
         color: requireText(r.color, 'Colour', 40),
@@ -643,6 +649,7 @@ export function bulkAddSarees(db: Db, rows: BulkSareeRow[]): BulkAddResult {
           fabric: group.find((r) => r.fabric)?.fabric ?? '',
           weaveStyle: group.find((r) => r.weaveStyle)?.weaveStyle ?? '',
           technique: group.find((r) => r.technique)?.technique ?? '',
+          pattern: group.find((r) => r.pattern)?.pattern ?? '',
           work: group.find((r) => r.work)?.work ?? '',
           hsnCode: group.find((r) => r.hsn)?.hsn ?? '',
           description: '',

@@ -639,6 +639,11 @@ CREATE TABLE catalogue_options (
 CREATE UNIQUE INDEX ux_catalogue_options ON catalogue_options (kind, label COLLATE NOCASE);
 `;
 
+const V16 = `
+-- The pattern woven all over a saree (Butidar, Jaal…): one choice, kept apart from the special work done on it.
+ALTER TABLE designs ADD COLUMN pattern TEXT NOT NULL DEFAULT '';
+`;
+
 const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 1, sql: V1 },
   { version: 2, sql: V2 },
@@ -655,6 +660,7 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 13, sql: V13 },
   { version: 14, sql: V14 },
   { version: 15, sql: V15 },
+  { version: 16, sql: V16 },
 ];
 
 /** Brings a database up to date. `upTo` stops early at a version, which only the tests use, to build an older database to upgrade. */

@@ -176,5 +176,6 @@ describe('upgrading a book from before raw-material stock and places', () => {
     migrate(db);
     expect({ ...db.prepare("SELECT name, weave_style, technique, work FROM designs WHERE id = 'd1'").get() }).toEqual({ name: 'Butidar', weave_style: '', technique: '', work: '' });
     expect(db.prepare('SELECT COUNT(*) AS n FROM catalogue_options').get()).toEqual({ n: 0 });
+    expect({ ...db.prepare("SELECT pattern FROM designs WHERE id = 'd1'").get() }).toEqual({ pattern: '' });
   });
 });

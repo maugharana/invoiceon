@@ -11,6 +11,12 @@ describe('saree names', () => {
     expect(buildPieceTitle(p, 'Maroon')).toBe('Maroon Banarasi Katan Silk Kadhua Saree with Zardozi Work, Lalima');
   });
 
+  it('puts the pattern after the technique, and keeps a phrase as the special name', () => {
+    const p = { weaveStyle: 'Banarasi', fabric: 'Katan Silk', technique: 'Kadhua', pattern: 'Jaal', specialName: 'Rang Bahar' };
+    expect(buildDesignName(p)).toBe('Banarasi Katan Silk Kadhua Jaal Saree, Rang Bahar');
+    expect(buildPieceTitle({ ...p, pattern: 'Butidar' }, 'Wine')).toBe('Wine Banarasi Katan Silk Kadhua Butidar Saree, Rang Bahar');
+  });
+
   it('skips what is not set, and joins several works in plain English', () => {
     expect(buildDesignName({ weaveStyle: 'Chanderi', fabric: 'Pure Silk' })).toBe('Chanderi Pure Silk Saree');
     expect(buildDesignName({ weaveStyle: 'Banarasi', work: 'Zardozi Work, Aari Work' })).toBe('Banarasi Saree with Zardozi Work and Aari Work');
@@ -39,6 +45,7 @@ const row = (over: Partial<BulkSareeRow> = {}): BulkSareeRow => ({
   weaveStyle: 'Banarasi',
   fabric: 'Katan Silk',
   technique: 'Kadhua',
+  pattern: '',
   work: 'Zardozi Work',
   nickname: 'Lalima',
   sku: '',
@@ -80,6 +87,18 @@ describe('entering a saree by its choices', () => {
     expect(design!.variants[0]).toMatchObject({ baseCostPaise: 1200000, sellPricePaise: 1850000 });
   });
 
+  it('keeps one pattern per design, and offers it as a choice next time', async () => {
+    const api = createApi(db);
+    const made = await api.inventoryQuickAdd(row({ pattern: 'Jaal', work: '' }));
+    expect(made.designName).toBe('Banarasi Katan Silk Kadhua Jaal Saree, Lalima');
+    expect((await api.designsList())[0]).toMatchObject({ pattern: 'Jaal' });
+    // A Butidar piece is a different design from a Jaal one, never a colour of it.
+    await api.inventoryQuickAdd(row({ pattern: 'Butidar', work: '' }));
+    expect(await api.designsList()).toHaveLength(2);
+    await api.inventoryQuickAdd(row({ pattern: 'Kamal Buti', work: '', color: 'Wine' }));
+    expect((await api.catalogueOptions()).pattern).toContain('Kamal Buti');
+  });
+
   it('lets a design be named by hand, and builds the name when none is given', async () => {
     const api = createApi(db);
     const handmade = await api.designCreate({ code: 'MG-900', name: 'Our Special Piece', fabric: '', hsnCode: '', description: '', defaultPricePaise: 0, weaveStyle: 'Paithani' });
@@ -101,6 +120,7 @@ describe('pick lists', () => {
     expect(start.weaveStyle.slice(0, 3)).toEqual(['Banarasi', 'Kanjivaram', 'Chanderi']);
     expect(start.technique).toContain('Kadhua');
     expect(start.work).toContain('Zardozi Work');
+    expect(start.pattern).toEqual(expect.arrayContaining(['Butidar', 'Jaal']));
 
     await api.inventoryQuickAdd(row({ technique: 'Dhaga Buti', work: 'Aari Work, Sona Chandi Work', color: 'Peacock Teal', weaveStyle: 'banarasi' }));
     const after = await api.catalogueOptions();

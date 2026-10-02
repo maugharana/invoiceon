@@ -125,7 +125,7 @@ describe('bulk add sarees', () => {
   });
 });
 
-describe('short (one-word) names', () => {
+describe('special names', () => {
   const designNamed = (name: string) => inventory.listDesigns(db).find((d) => d.name === name)!;
 
   it('are stored on the design, taken from the first row that has one, and searchable', () => {
@@ -135,11 +135,14 @@ describe('short (one-word) names', () => {
     expect(inventory.listDesigns(db, { search: 'nothing' })).toHaveLength(0);
   });
 
-  it('must be one word', () => {
-    const result = inventory.bulkAddSarees(db, [row({ nickname: 'Two words' })]);
-    expect(result.errors[0]!.message).toMatch(/one word/);
-    expect(() => inventory.createDesign(db, { code: 'X-1', name: 'X', nickname: 'a b', fabric: '', hsnCode: '', description: '', defaultPricePaise: 1 })).toThrow(/one word/);
-    expect(() => inventory.createDesign(db, { code: 'X-2', name: 'X', nickname: 'x'.repeat(21), fabric: '', hsnCode: '', description: '', defaultPricePaise: 1 })).toThrow(/too long/);
+  it('can be a phrase, are tidied, and stop at a sensible length', () => {
+    const result = inventory.bulkAddSarees(db, [row({ name: 'Two words', nickname: '  Rang   Bahar ' })]);
+    expect(result.errors).toEqual([]);
+    expect(designNamed('Two words').nickname).toBe('Rang Bahar');
+    expect(inventory.listDesigns(db, { search: 'bahar' })).toHaveLength(1);
+    const d = inventory.createDesign(db, { code: 'X-1', name: 'X', nickname: 'Mau Rani Gulabi Rang', fabric: '', hsnCode: '', description: '', defaultPricePaise: 1 });
+    expect(d.nickname).toBe('Mau Rani Gulabi Rang');
+    expect(() => inventory.createDesign(db, { code: 'X-2', name: 'X', nickname: 'x'.repeat(41), fabric: '', hsnCode: '', description: '', defaultPricePaise: 1 })).toThrow(/too long/);
   });
 
   it('are optional, and a design that already has one keeps it', () => {
