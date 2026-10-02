@@ -13,6 +13,7 @@ export type Route =
   | { name: 'dashboard' }
   | { name: 'inventory'; status: 'all' | 'low' | 'out' }
   | { name: 'materials' }
+  | { name: 'production' }
   | { name: 'inventory-add' }
   | { name: 'stock-take' }
   | { name: 'design'; id: string }
@@ -65,6 +66,7 @@ export function parseHash(hash: string): Route {
   switch (parts[0]) {
     case 'inventory': {
       if (parts[1] === 'materials') return { name: 'materials' };
+      if (parts[1] === 'production') return { name: 'production' };
       if (parts[1] === 'add') return { name: 'inventory-add' };
       if (parts[1] === 'stock-take') return { name: 'stock-take' };
       if (parts[1] === 'designs' && id) return { name: 'design', id };
@@ -148,6 +150,7 @@ export const sectionOf = (route: Route): Section => {
       return 'dashboard';
     case 'inventory':
     case 'materials':
+    case 'production':
     case 'inventory-add':
     case 'stock-take':
     case 'design':
@@ -192,6 +195,7 @@ export const paths = {
   dashboard: '/dashboard',
   inventory: (status?: 'low' | 'out') => (status ? `/inventory?status=${status}` : '/inventory'),
   materials: '/inventory/materials',
+  production: '/inventory/production',
   addSarees: '/inventory/add',
   stockTake: '/inventory/stock-take',
   design: (id: string) => `/inventory/designs/${encodeURIComponent(id)}`,

@@ -7,6 +7,7 @@ import { DesignPage } from './pages/inventory/DesignPage';
 import { InventoryPage } from './pages/inventory/InventoryPage';
 import { AddSareesPage } from './pages/inventory/AddSareesPage';
 import { MaterialsPage } from './pages/inventory/MaterialsPage';
+import { ProductionPage } from './pages/inventory/ProductionPage';
 import { StockTakePage } from './pages/inventory/StockTakePage';
 import { CreditNotePage, CreditNotesPage } from './pages/invoices/CreditNotePages';
 import { PrintLabelsPage } from './pages/inventory/Labels';
@@ -33,6 +34,8 @@ function renderRoute(route: Route) {
       return <InventoryPage initialFilter={route.status} />;
     case 'materials':
       return <MaterialsPage />;
+    case 'production':
+      return <ProductionPage />;
     case 'inventory-add':
       return <AddSareesPage />;
     case 'stock-take':

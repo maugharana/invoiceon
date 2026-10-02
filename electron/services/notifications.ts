@@ -1,6 +1,7 @@
 import { addDays, formatDate, todayIso } from '../../shared/gst';
 import { formatMoney } from '../../shared/money';
 import type { AttentionItem, Notification } from '../../shared/types';
+import { overdueOrders } from './production';
 import { OCCASION_WARNING_DAYS, belowCost, dueNotes, expiringQuotes, lowMargin, lowMaterials, occasions, reversedPayments } from './attention';
 import type { Db } from '../db/connection';
 import { budgetStatus, dueRecurring, listExpenses, payablesSummary } from './expenses';
@@ -77,6 +78,12 @@ export function notifications(db: Db, today: string = todayIso()): Notification[
       detail: `${money(b.spentPaise)} of ${money(b.budgetPaise)} spent this month`,
       link: { to: 'path', path: `/expenses?category=${encodeURIComponent(b.category)}` },
     });
+  }
+
+  // Work that was due to come in.
+  const late = overdueOrders(db);
+  if (late.length > 0) {
+    out.push({ kind: 'production-late', id: 'production-late', severity: 'soon', title: `${plural(late.length, 'production order')} late`, detail: late.slice(0, 3).map((o) => `${o.designName} ${o.color}${o.vendorName ? ` (${o.vendorName})` : ''}`).join(', '), link: { to: 'path', path: '/inventory/production' } });
   }
 
   // Stock and prices.

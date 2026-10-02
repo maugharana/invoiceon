@@ -70,6 +70,9 @@ import type {
   FestivalComparison,
   ReorderRow,
   DataInfo,
+  ProductionOrder,
+  ProductionOrderInput,
+  ProductionQuery,
   Photo,
   PhotoInput,
   PhotoOwner,
@@ -259,6 +262,19 @@ export interface Api {
   paymentVoid(id: string, reason: string): Promise<Payment>;
   /** Hands back advance or credit a customer is holding. Money out. */
   paymentRefund(input: RefundInput): Promise<Payment[]>;
+
+  // Production orders and job work
+  productionList(query?: ProductionQuery): Promise<ProductionOrder[]>;
+  productionGet(id: string): Promise<ProductionOrder>;
+  productionCreate(input: ProductionOrderInput): Promise<ProductionOrder>;
+  productionUpdate(id: string, input: ProductionOrderInput): Promise<ProductionOrder>;
+  /** Hands the raw materials over for the whole order. */
+  productionIssueMaterials(id: string): Promise<ProductionOrder>;
+  /** Pieces came back: they go on the shelf, and the wage becomes a bill to whoever made them. */
+  productionReceive(id: string, input: { qty: number; receivedOn?: string }): Promise<ProductionOrder>;
+  /** Finish with fewer pieces than planned; unused materials go back to the shelf. */
+  productionCloseShort(id: string): Promise<ProductionOrder>;
+  productionCancel(id: string): Promise<ProductionOrder>;
 
   // Photos
   photosList(ownerType: PhotoOwner, ownerId: string): Promise<Photo[]>;

@@ -8,6 +8,7 @@ import { UserError, isUniqueViolation, newId, nowIso, optionalText, requireInt }
 import { getCustomer } from './customers';
 import { getVariant, recordMovement } from './inventory';
 import { advanceHeld, applyAdvance, loadPaid, paidFor, paymentsOnInvoice, recordPaymentTx, releaseInvoicePayments } from './payments';
+import { heldByQuotes } from './reservations';
 import { getSettings } from './settings';
 
 const MAX_PAISE = 100_000_000_00;
@@ -232,6 +233,7 @@ export function listInvoices(db: Db, query: InvoiceQuery = {}): InvoiceSummary[]
 }
 
 export function variantsForSale(db: Db): SaleVariant[] {
+  const held = heldByQuotes(db);
   return all<{
     id: string;
     design_id: string;
@@ -264,6 +266,7 @@ export function variantsForSale(db: Db): SaleVariant[] {
     size: r.size,
     sku: r.sku,
     barcode: r.barcode,
+    held: held.get(r.id)?.qty ?? 0,
     stock: r.stock,
     sellPricePaise: r.sell_price_paise,
   }));
@@ -393,7 +396,11 @@ export function priceLines(db: Db, settings: Settings, lines: DocumentInput['lin
   return { items, totals };
 }
 
-export function createInvoice(db: Db, input: InvoiceInput): Invoice {
+/**
+ * Issues an invoice. `exceptQuoteId` is the quote this invoice is being made from: pieces held by that quote are its own to take,
+ * while pieces held by any other live quote are not for sale.
+ */
+export function createInvoice(db: Db, input: InvoiceInput, opts: { exceptQuoteId?: string } = {}): Invoice {
   const settings = getSettings(db);
 
   if (input.dueDate !== null && !isIsoDate(input.dueDate)) throw new UserError('Enter a valid due date.');
@@ -434,7 +441,13 @@ export function createInvoice(db: Db, input: InvoiceInput): Invoice {
       throw err;
     }
 
+    const held = heldByQuotes(db, opts.exceptQuoteId ?? '');
     for (const i of items) {
+      const h = held.get(i.variant.id);
+      if (h && i.variant.stock - i.l.qty < h.qty) {
+        const free = Math.max(0, i.variant.stock - h.qty);
+        throw new UserError(`Only ${free} of ${i.variant.sku} can be sold: ${h.qty} ${h.qty === 1 ? 'is' : 'are'} being held for ${h.quotes.length === 1 ? 'quote' : 'quotes'} ${h.quotes.join(', ')}.`);
+      }
       run(
         db,
         'INSERT INTO invoice_lines (id, invoice_id, variant_id, position, design_name, color, size, sku, hsn, qty, unit_price_paise, amount_paise, unit_cost_paise, gst_rate_percent, line_discount_paise, note, taxable_paise, tax_paise) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',

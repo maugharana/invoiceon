@@ -3,6 +3,7 @@ import { mulPaise } from '../../shared/money';
 import { matchesAll } from '../../shared/search';
 import { designStatus, variantStatus } from '../../shared/stock';
 import { normalizeTags } from '../../shared/tags';
+import { heldByQuotes } from './reservations';
 import {
   MANUAL_STOCK_REASONS,
   type BomLine,
@@ -106,6 +107,7 @@ export function loadVariants(db: Db, filter: { designId?: string; variantId?: st
     if (list) list.push(line);
     else bomByVariant.set(b.variant_id, [line]);
   }
+  const held = heldByQuotes(db);
   // Where each variant's pieces are kept. The shop is whatever is not somewhere else, so it needs no rows of its own.
   const places = new Map(all<{ id: string; name: string }>(db, 'SELECT id, name FROM locations WHERE deleted_at IS NULL').map((l) => [l.id, l.name]));
   const shop = all<{ id: string; name: string }>(db, 'SELECT id, name FROM locations WHERE is_default = 1 AND deleted_at IS NULL')[0] ?? { id: 'shop', name: 'Shop' };
@@ -126,6 +128,7 @@ export function loadVariants(db: Db, filter: { designId?: string; variantId?: st
       designId: r.design_id,
       sku: r.sku,
       barcode: r.barcode,
+      heldQty: held.get(r.id)?.qty ?? 0,
       color: r.color,
       size: r.size,
       stock: r.stock,

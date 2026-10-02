@@ -5,6 +5,7 @@ import { all, get, run, tx, type Db } from '../db/connection';
 import { UserError, isUniqueViolation, newId, nowIso, optionalText } from './common';
 import { brandingOf, checkDocument, createInvoice, getInvoice, priceLines, sellerSnapshot, taxByRate } from './invoices';
 import { advanceHeld, applyAdvance } from './payments';
+import { heldByQuotes } from './reservations';
 import { getSettings } from './settings';
 
 interface Row {
@@ -31,6 +32,7 @@ interface Row {
   igst_paise: number;
   round_off_paise: number;
   total_paise: number;
+  reserve_stock: number;
   notes: string;
   status: 'open' | 'converted' | 'cancelled';
   stage: QuoteStage;
@@ -126,6 +128,7 @@ function toProforma(db: Db, r: Row): Proforma {
   );
   return {
     ...toSummary(r),
+    reserveStock: r.reserve_stock === 1,
     seller: { bank: '', footer: '', upiId: '', ...JSON.parse(r.seller_json) },
     branding: brandingOf(db),
     buyer: JSON.parse(r.buyer_json),
@@ -186,6 +189,7 @@ export function createProforma(db: Db, input: ProformaInput): Proforma {
   const id = newId();
   tx(db, () => {
     const { items, totals } = priceLines(db, settings, input.lines, discount, intraState);
+    if (input.reserve) checkCanHold(db, items, '');
     const fy = financialYear(input.issueDate);
     const seq = nextSequence(db, fy);
     const number = formatInvoiceNumber(settings.proformaPrefix, fy, seq);
@@ -194,10 +198,10 @@ export function createProforma(db: Db, input: ProformaInput): Proforma {
       run(
         db,
         `INSERT INTO proformas (id, number, fy, seq, type, customer_id, seller_json, buyer_json, place_of_supply, issue_date, valid_until, gst_rate_percent, prices_include_gst, intra_state,
-           subtotal_paise, line_discount_paise, discount_paise, taxable_paise, cgst_paise, sgst_paise, igst_paise, round_off_paise, total_paise, notes, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           subtotal_paise, line_discount_paise, discount_paise, taxable_paise, cgst_paise, sgst_paise, igst_paise, round_off_paise, total_paise, notes, reserve_stock, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id, number, fy, seq, type, customer?.id ?? null, JSON.stringify(seller), JSON.stringify(buyer), placeOfSupply, input.issueDate, input.validUntil, settings.gstRatePercent, settings.pricesIncludeGst ? 1 : 0, intraState ? 1 : 0,
-        totals.subtotalPaise, totals.lineDiscountPaise, totals.discountPaise, totals.taxablePaise, totals.cgstPaise, totals.sgstPaise, totals.igstPaise, totals.roundOffPaise, totals.totalPaise, notes, now, now,
+        totals.subtotalPaise, totals.lineDiscountPaise, totals.discountPaise, totals.taxablePaise, totals.cgstPaise, totals.sgstPaise, totals.igstPaise, totals.roundOffPaise, totals.totalPaise, notes, input.reserve ? 1 : 0, now, now,
       );
     } catch (err) {
       if (isUniqueViolation(err)) throw new UserError('Another proforma took that number a moment ago. Please try again.');
@@ -209,6 +213,16 @@ export function createProforma(db: Db, input: ProformaInput): Proforma {
 }
 
 type Priced = ReturnType<typeof priceLines>;
+
+/** A quote can hold only pieces that are really there and not already promised to another live quote. */
+function checkCanHold(db: Db, items: Priced['items'], exceptQuoteId: string): void {
+  const held = heldByQuotes(db, exceptQuoteId);
+  for (const i of items) {
+    const other = held.get(i.variant.id)?.qty ?? 0;
+    const free = Math.max(0, i.variant.stock - other);
+    if (i.l.qty > free) throw new UserError(`Only ${free} of ${i.variant.sku} can be held: ${i.variant.stock} in stock${other > 0 ? `, ${other} already held for other quotes` : ''}. Lower the quantity, or turn off holding for this quote.`);
+  }
+}
 
 function insertLines(db: Db, proformaId: string, items: Priced['items'], totals: Priced['totals']): void {
   for (const i of items) {
@@ -245,10 +259,11 @@ export function updateProforma(db: Db, id: string, input: ProformaInput): Profor
     run(
       db,
       `UPDATE proformas SET type = ?, customer_id = ?, seller_json = ?, buyer_json = ?, place_of_supply = ?, issue_date = ?, valid_until = ?, gst_rate_percent = ?, prices_include_gst = ?, intra_state = ?,
-         subtotal_paise = ?, line_discount_paise = ?, discount_paise = ?, taxable_paise = ?, cgst_paise = ?, sgst_paise = ?, igst_paise = ?, round_off_paise = ?, total_paise = ?, notes = ?, updated_at = ? WHERE id = ?`,
+         subtotal_paise = ?, line_discount_paise = ?, discount_paise = ?, taxable_paise = ?, cgst_paise = ?, sgst_paise = ?, igst_paise = ?, round_off_paise = ?, total_paise = ?, notes = ?, reserve_stock = ?, updated_at = ? WHERE id = ?`,
       type, customer?.id ?? null, JSON.stringify(seller), JSON.stringify(buyer), placeOfSupply, input.issueDate, input.validUntil, settings.gstRatePercent, settings.pricesIncludeGst ? 1 : 0, intraState ? 1 : 0,
-      totals.subtotalPaise, totals.lineDiscountPaise, totals.discountPaise, totals.taxablePaise, totals.cgstPaise, totals.sgstPaise, totals.igstPaise, totals.roundOffPaise, totals.totalPaise, notes, nowIso(), id,
+      totals.subtotalPaise, totals.lineDiscountPaise, totals.discountPaise, totals.taxablePaise, totals.cgstPaise, totals.sgstPaise, totals.igstPaise, totals.roundOffPaise, totals.totalPaise, notes, input.reserve ? 1 : 0, nowIso(), id,
     );
+    if (input.reserve) checkCanHold(db, items, id);
     // The lines belong to this quote alone, so they are replaced as a set.
     run(db, 'DELETE FROM proforma_lines WHERE proforma_id = ?', id);
     insertLines(db, id, items, totals);
@@ -322,7 +337,7 @@ export function convertProforma(db: Db, id: string, pick?: { variantId: string; 
         const l = quoted.get(w.variantId)!;
         return { variantId: w.variantId, qty: w.qty, unitPricePaise: l.unitPricePaise, discountPaise: partDiscount(w), ratePercent: l.ratePercent, note: l.note };
       }),
-    });
+    }, { exceptQuoteId: id });
     const now = nowIso();
     run(db, 'INSERT INTO proforma_invoices (proforma_id, invoice_id, created_at) VALUES (?, ?, ?)', id, invoice.id, now);
     for (const w of wanted) run(db, 'UPDATE proforma_lines SET invoiced_qty = invoiced_qty + ? WHERE proforma_id = ? AND variant_id = ?', w.qty, id, w.variantId);

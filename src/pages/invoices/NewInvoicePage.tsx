@@ -211,7 +211,7 @@ function ItemPicker({ variants, taken, onPick, allowOutOfStock = false }: { vari
                   </span>
                   <span className="shrink-0 text-right">
                     <Money paise={v.sellPricePaise} fractionDigits={0} className="block" />
-                    <span className={`num block text-xs ${out ? 'text-status-overdue-fg' : 'text-ink-muted'}`}>{v.stock <= 0 ? 'Out of stock' : `${v.stock} in stock`}{taken.has(v.variantId) ? ' · on invoice' : ''}</span>
+                    <span className={`num block text-xs ${out ? 'text-status-overdue-fg' : 'text-ink-muted'}`}>{v.stock <= 0 ? 'Out of stock' : `${v.stock} in stock`}{v.held > 0 ? ` · ${v.held} held for quotes` : ''}{taken.has(v.variantId) ? ' · on invoice' : ''}</span>
                   </span>
                 </button>
               </li>
@@ -239,6 +239,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
   const [issueDate, setIssueDate] = useState(todayIso());
   const [dueDate, setDueDate] = useState(todayIso());
   const dueTouched = useRef(false);
+  const [reserve, setReserve] = useState(false);
   const [discount, setDiscount] = useState(0);
   const [notes, setNotes] = useState('');
   const templates = useQuery(() => (quote ? api.quoteTemplatesList() : Promise.resolve([])), [quote]);
@@ -322,6 +323,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
       setDueDate('validUntil' in inv ? inv.validUntil : (inv.dueDate ?? inv.issueDate));
       dueTouched.current = true;
     }
+    if (editId && 'reserveStock' in inv) setReserve(inv.reserveStock);
     setType(inv.type);
     setCustomerId(inv.customerId);
     if (!inv.customerId && inv.buyer.name && inv.buyer.name !== 'Walk-in customer') setBuyerName(inv.buyer.name);
@@ -381,7 +383,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
     const typed = l.rate.trim() === '' ? null : Number(l.rate);
     const typedValid = typed === null || isValidRate(typed);
     const worked = (override: number | null) => resolveRate({ override, designRate: v?.gstRatePercent ?? null, qty: validQty ? qty : 1, netPaise: amount - discount }, shop);
-    return { line: l, variant: v, qty, validQty, amount, discount, typed: typedValid ? typed : null, typedValid, rate: worked(typedValid ? typed : null), autoRate: worked(null), short: !quote && v && validQty && qty > v.stock };
+    return { line: l, variant: v, qty, validQty, amount, discount, typed: typedValid ? typed : null, typedValid, rate: worked(typedValid ? typed : null), autoRate: worked(null), short: !quote && v && validQty && qty > v.stock - v.held };
   });
   /** What goes to the server for a line: only what was typed. The rate is left out unless one was typed, so it is worked out there. */
   const lineInput = (r: (typeof rows)[number]): LineInput => ({
@@ -438,7 +440,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
     setError(null);
     try {
       if (quote) {
-        const input = { type, customerId, buyerName: customerId ? undefined : buyerName, issueDate, validUntil: dueDate, discountPaise: discount, notes, lines: rows.map(lineInput) };
+        const input = { type, customerId, buyerName: customerId ? undefined : buyerName, issueDate, validUntil: dueDate, discountPaise: discount, notes, lines: rows.map(lineInput), reserve };
         const p = editId ? await api.proformaUpdate(editId, input) : await api.proformaCreate(input);
         refresh();
         toast.success(editId ? `Proforma ${p.number} updated` : `Proforma ${p.number} created`);
@@ -576,7 +578,17 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
                 />
               </Field>
             </div>
+            {quote && (
+              <label className="flex cursor-pointer items-start gap-3">
+                <input type="checkbox" checked={reserve} onChange={(e) => setReserve(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#0F6E56]" />
+                <span>
+                  Hold these pieces for the customer
+                  <span className="block text-xs text-ink-muted">They stay on the shelf but can't be sold to anyone else until the quote expires, is invoiced, or is marked lost.</span>
+                </span>
+              </label>
+            )}
           </Card>
+
 
           {quote && !editId && !copyFrom && lines.length === 0 && (templates.data?.length ?? 0) > 0 && (
             <Card className="flex flex-wrap items-center gap-3 p-4">
@@ -625,7 +637,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
                         <div className="text-xs text-ink-muted">
                           {r.variant?.color} · {r.variant?.size} · {r.variant?.sku}
                         </div>
-                        {r.short && <div className="mt-1 text-xs text-status-overdue-fg">Only {r.variant?.stock} in stock</div>}
+                        {r.short && <div className="mt-1 text-xs text-status-overdue-fg">Only {Math.max(0, (r.variant?.stock ?? 0) - (r.variant?.held ?? 0))} can be sold{(r.variant?.held ?? 0) > 0 ? ` (${r.variant?.held} held for quotes)` : ''}</div>}
                         {!more.has(r.line.variantId) && (
                           <button type="button" onClick={() => setMore((s) => new Set(s).add(r.line.variantId))} className="mt-1 text-xs text-brand hover:underline">
                             {r.line.discount > 0 || r.typed !== null || r.line.note ? 'Edit discount, GST, note' : 'Discount, GST, note'}

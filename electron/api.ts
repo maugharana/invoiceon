@@ -26,6 +26,7 @@ import * as materials from './services/materials';
 import * as notes from './services/notes';
 import * as payments from './services/payments';
 import * as photos from './services/photos';
+import * as production from './services/production';
 import * as proformas from './services/proformas';
 import * as purchases from './services/purchases';
 import * as receivables from './services/receivables';
@@ -227,6 +228,15 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
     paymentRecord: async (input) => payments.recordPayment(db, input),
     paymentVoid: async (id, reason) => payments.voidPayment(db, id, reason),
     paymentRefund: async (input) => payments.refundAdvance(db, input),
+
+    productionList: async (query) => production.listOrders(db, query ?? {}),
+    productionGet: async (id) => production.getOrder(db, id),
+    productionCreate: async (input) => production.createOrder(db, input),
+    productionUpdate: async (id, input) => production.updateOrder(db, id, input),
+    productionIssueMaterials: async (id) => production.issueMaterials(db, id),
+    productionReceive: async (id, input) => production.receivePieces(db, id, input),
+    productionCloseShort: async (id) => production.closeShort(db, id),
+    productionCancel: async (id) => production.cancelOrder(db, id),
 
     photosList: async (type, id) => photos.listPhotos(db, type, id),
     photoGet: async (id) => photos.getPhotoImage(db, id),

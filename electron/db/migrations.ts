@@ -741,6 +741,53 @@ ALTER TABLE variants ADD COLUMN barcode TEXT NOT NULL DEFAULT '';
 CREATE UNIQUE INDEX ux_variants_barcode ON variants (barcode) WHERE barcode <> '' AND deleted_at IS NULL;
 `;
 
+// 18: holding stock for a quote, and production orders (making sarees in-house or giving the work to a karigar).
+//   A production order takes raw materials out when the work starts and puts finished pieces on the shelf as they come back, in as
+//   many parts as they arrive. The wage for the pieces received becomes a bill to the karigar. production_materials remembers
+//   what was handed over, so anything unused can be taken back if the order is closed short or cancelled.
+const V18 = `
+ALTER TABLE proformas ADD COLUMN reserve_stock INTEGER NOT NULL DEFAULT 0;
+
+CREATE TABLE production_orders (
+  id          TEXT PRIMARY KEY,
+  number      TEXT NOT NULL UNIQUE,
+  fy          TEXT NOT NULL,
+  seq         INTEGER NOT NULL,
+  variant_id  TEXT NOT NULL REFERENCES variants (id),
+  qty         INTEGER NOT NULL CHECK (qty > 0),
+  received_qty INTEGER NOT NULL DEFAULT 0 CHECK (received_qty >= 0),
+  vendor_id   TEXT REFERENCES vendors (id),
+  wage_paise  INTEGER NOT NULL DEFAULT 0 CHECK (wage_paise >= 0),
+  status      TEXT NOT NULL DEFAULT 'planned' CHECK (status IN ('planned','making','done','cancelled')),
+  ordered_on  TEXT NOT NULL,
+  due_on      TEXT,
+  note        TEXT NOT NULL DEFAULT '',
+  closed_on   TEXT,
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL,
+  UNIQUE (fy, seq)
+);
+CREATE INDEX ix_production_status ON production_orders (status, due_on);
+
+CREATE TABLE production_materials (
+  order_id    TEXT NOT NULL REFERENCES production_orders (id),
+  material_id TEXT NOT NULL REFERENCES raw_materials (id),
+  qty         REAL NOT NULL,
+  PRIMARY KEY (order_id, material_id)
+);
+
+CREATE TABLE production_receipts (
+  id          TEXT PRIMARY KEY,
+  order_id    TEXT NOT NULL REFERENCES production_orders (id),
+  qty         INTEGER NOT NULL CHECK (qty > 0),
+  received_on TEXT NOT NULL,
+  wage_paise  INTEGER NOT NULL DEFAULT 0,
+  expense_id  TEXT,
+  created_at  TEXT NOT NULL
+);
+CREATE INDEX ix_production_receipts_order ON production_receipts (order_id);
+`;
+
 // Append new migrations to the end; never edit one that has shipped.
 // `rebuilds` marks a migration that replaces a table other tables point at (SQLite's documented way of changing a CHECK). Foreign keys
 // are switched off around it, and checked before it is committed, as SQLite's own instructions for that say.
@@ -762,6 +809,7 @@ const MIGRATIONS: { version: number; sql: string; rebuilds?: boolean }[] = [
   { version: 15, sql: V15, rebuilds: true },
   { version: 16, sql: V16 },
   { version: 17, sql: V17 },
+  { version: 18, sql: V18 },
 ];
 
 /** Brings a database up to date. `upTo` stops early at a version, which only the tests use, to build an older database to upgrade. */

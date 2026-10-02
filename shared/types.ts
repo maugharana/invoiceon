@@ -316,6 +316,8 @@ export interface Variant {
   status: Exclude<StockStatus, 'empty'>;
   /** Where the pieces are kept: the shop (where they are sold from) and any other place. Quantities add up to `stock`. */
   locations: { locationId: string; name: string; qty: number }[];
+  /** Pieces held for customers by quotes that are still live. They are still on the shelf but not for sale to anyone else. */
+  heldQty: number;
 }
 
 export interface DesignSummary {
@@ -897,11 +899,81 @@ export interface SaleVariant {
   gstRatePercent: number | null;
   /** The code on the piece's tag, if it came with one. Scanning this or the SKU finds the piece. */
   barcode: string;
+  /** Pieces held by live quotes. A sale can use only `stock − held`. */
+  held: number;
   color: string;
   size: string;
   sku: string;
   stock: number;
   sellPricePaise: Paise;
+}
+
+// ── Production ──────────────────────────────────────────────────────────────
+export type ProductionStatus = 'planned' | 'making' | 'done' | 'cancelled';
+export const PRODUCTION_STATUS_LABEL: Record<ProductionStatus, string> = { planned: 'Planned', making: 'Being made', done: 'Finished', cancelled: 'Cancelled' };
+
+export interface ProductionMaterial {
+  materialId: string;
+  name: string;
+  unit: string;
+  /** What the whole order needs, wastage included. */
+  neededQty: number;
+  /** What was handed over so far. */
+  issuedQty: number;
+  inStockQty: number;
+  /** How much more is needed than the shop has, when the materials have not been handed over yet. */
+  shortQty: number;
+}
+
+export interface ProductionReceipt {
+  id: string;
+  qty: number;
+  receivedOn: string;
+  wagePaise: Paise;
+  /** The bill raised for the wage, if there was one. */
+  expenseId: string | null;
+}
+
+export interface ProductionOrder {
+  id: string;
+  number: string;
+  variantId: string;
+  designName: string;
+  color: string;
+  size: string;
+  sku: string;
+  qty: number;
+  receivedQty: number;
+  remainingQty: number;
+  vendorId: string | null;
+  vendorName: string;
+  /** Paid per piece received, to the karigar. */
+  wagePaise: Paise;
+  status: ProductionStatus;
+  orderedOn: string;
+  dueOn: string | null;
+  overdue: boolean;
+  note: string;
+  materialsIssued: boolean;
+  materials: ProductionMaterial[];
+  receipts: ProductionReceipt[];
+  closedOn: string | null;
+  createdAt: string;
+}
+
+export interface ProductionOrderInput {
+  variantId: string;
+  qty: number;
+  /** Who is making it, when it is not made in-house (a vendor from your list). */
+  vendorId?: string | null;
+  wagePaise?: Paise;
+  dueOn?: string | null;
+  note?: string;
+}
+
+export interface ProductionQuery {
+  status?: 'all' | 'open' | ProductionStatus;
+  search?: string;
 }
 
 // ── Photos ──────────────────────────────────────────────────────────────────
@@ -1403,6 +1475,8 @@ export interface ProformaLine extends InvoiceLine {
 }
 
 export interface Proforma extends ProformaSummary {
+  /** The quote holds its pieces for the customer until it expires, is invoiced, lost or cancelled. */
+  reserveStock: boolean;
   seller: Party & { email: string; terms: string; bank: string; footer: string; upiId: string };
   branding: InvoiceBranding;
   buyer: Party;
@@ -1464,6 +1538,8 @@ export interface ProformaInput {
   discountPaise: Paise;
   notes: string;
   lines: LineInput[];
+  /** Hold the pieces for this customer until the quote expires. */
+  reserve?: boolean;
 }
 
 export interface ProformaQuery {
@@ -1995,6 +2071,7 @@ export type NotificationKind =
   | 'recurring-due'
   | 'bill-due'
   | 'budget'
+  | 'production-late'
   | 'instalment-due';
 export type NotificationLink = AttentionItem['link'] | { to: 'path'; path: string };
 export interface Notification {
