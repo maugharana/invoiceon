@@ -109,7 +109,15 @@ describe('unfinished invoice recovery', () => {
   const good = { savedAt: '2026-10-02T10:00:00Z', type: 'B2B', customerId: 'c1', buyerName: '', issueDate: '2026-10-02', dueDate: '2026-10-17', discountPaise: 5000, notes: 'Gift wrap', lines: [{ variantId: 'v1', qty: '2', price: 100000 }], receivedPaise: 20000, payMethod: 'upi' };
 
   it('reads back a good draft as it was saved', () => {
-    expect(parseInvoiceDraft(good)).toEqual(good);
+    // Items saved before they could carry a discount, rate or note come back without any.
+    expect(parseInvoiceDraft(good)).toEqual({ ...good, lines: [{ variantId: 'v1', qty: '2', price: 100000, discount: 0, rate: '', note: '' }] });
+    const withExtras = { ...good, lines: [{ variantId: 'v1', qty: '2', price: 100000, discount: 5000, rate: '12', note: 'Pre-washed' }] };
+    expect(parseInvoiceDraft(withExtras)).toEqual(withExtras);
+  });
+
+  it('drops an item discount, rate or note that is not valid', () => {
+    const d = parseInvoiceDraft({ ...good, lines: [{ variantId: 'v1', qty: '1', price: 1, discount: -5, rate: '12abc', note: 7 }, { variantId: 'v2', qty: '1', price: 1, rate: '5.255' }] });
+    expect(d!.lines).toEqual([{ variantId: 'v1', qty: '1', price: 1, discount: 0, rate: '', note: '' }, { variantId: 'v2', qty: '1', price: 1, discount: 0, rate: '', note: '' }]);
   });
 
   it('has nothing to restore without items or a customer', () => {
@@ -123,7 +131,7 @@ describe('unfinished invoice recovery', () => {
   it('repairs damaged fields instead of trusting them', () => {
     const d = parseInvoiceDraft({ type: 'weird', customerId: 5, buyerName: 9, issueDate: 'yesterday', dueDate: '10/10/2026', discountPaise: -4, notes: null, receivedPaise: 1.5, payMethod: 'barter', lines: [{ variantId: 'v', qty: 3, price: 'x' }, { variantId: '', qty: '1', price: 1 }, null, 'junk', { variantId: 'w', qty: '4', price: 250 }] });
     expect(d).toMatchObject({ type: 'B2C', customerId: null, buyerName: '', issueDate: '', dueDate: '', discountPaise: 0, notes: '', receivedPaise: 0, payMethod: 'cash' });
-    expect(d!.lines).toEqual([{ variantId: 'v', qty: '1', price: 0 }, { variantId: 'w', qty: '4', price: 250 }]);
+    expect(d!.lines).toEqual([{ variantId: 'v', qty: '1', price: 0, discount: 0, rate: '', note: '' }, { variantId: 'w', qty: '4', price: 250, discount: 0, rate: '', note: '' }]);
   });
 
   it('caps an absurd number of lines', () => {

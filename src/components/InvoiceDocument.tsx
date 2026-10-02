@@ -29,8 +29,9 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
   const tax = inv.type === 'B2B';
   const w = INVOICE_WORDS[inv.branding.language ?? 'en'];
   const cancelled = inv.status === 'cancelled';
-  const totalTax = inv.cgstPaise + inv.sgstPaise + inv.igstPaise;
-  const half = inv.gstRatePercent / 2;
+  // Which extra columns the lines need: a discount column only when some line has one, a GST column only when rates differ.
+  const hasLineDiscount = inv.lines.some((l) => l.discountPaise > 0);
+  const multiRate = inv.taxByRate.length > 1;
   const rateLabel = (r: number) => `${+r.toFixed(2)}%`; // 2.5%, 6%, 9%
   // A QR that opens a UPI payment for what is still owed (the whole total on a quote). Not on cancelled or settled invoices.
   const owed = proforma ? inv.totalPaise : inv.totalPaise - inv.paidPaise;
@@ -123,6 +124,8 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
             {tax && <th className="w-16 py-2 pr-2">HSN</th>}
             <th className="w-12 py-2 pr-2 text-right">{w.qty}</th>
             <th className="w-24 py-2 pr-2 text-right">{inv.pricesIncludeGst ? `${w.rate} incl. GST (₹)` : `${w.rate} (₹)`}</th>
+            {hasLineDiscount && <th className="w-20 py-2 pr-2 text-right">Disc. (₹)</th>}
+            {multiRate && <th className="w-12 py-2 pr-2 text-right">GST</th>}
             <th className="w-28 py-2 text-right">{w.amount} (₹)</th>
           </tr>
         </thead>
@@ -133,11 +136,14 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
               <td className="py-2 pr-2">
                 <div className="font-medium">{l.designName}</div>
                 <div className="text-ink-muted">{l.color} · {l.size} · {l.sku}</div>
+                {l.note && <div className="italic text-ink-muted">{l.note}</div>}
               </td>
               {tax && <td className="num py-2 pr-2">{l.hsn || '—'}</td>}
               <td className="num py-2 pr-2 text-right">{l.qty}</td>
               <td className="num py-2 pr-2 text-right">{amount(l.unitPricePaise)}</td>
-              <td className="num py-2 text-right">{amount(l.amountPaise)}</td>
+              {hasLineDiscount && <td className="num py-2 pr-2 text-right">{l.discountPaise > 0 ? amount(l.discountPaise) : '—'}</td>}
+              {multiRate && <td className="num py-2 pr-2 text-right">{rateLabel(l.ratePercent)}</td>}
+              <td className="num py-2 text-right">{amount(l.amountPaise - l.discountPaise)}</td>
             </tr>
           ))}
         </tbody>
@@ -156,18 +162,20 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
           )}
         </div>
         <div>
-          <Row label={inv.pricesIncludeGst ? `${w.subtotal} (incl. GST)` : w.subtotal} value={formatMoney(inv.subtotalPaise)} />
+          <Row label={inv.pricesIncludeGst ? `${w.subtotal} (incl. GST)` : w.subtotal} value={formatMoney(inv.subtotalPaise - inv.lineDiscountPaise)} />
           {inv.discountPaise > 0 && <Row label={w.discount} value={`− ${formatMoney(inv.discountPaise)}`} />}
-          {(inv.discountPaise > 0 || inv.pricesIncludeGst) && <Row label="Taxable value" value={formatMoney(inv.taxablePaise)} />}
-          {tax && inv.intraState ? (
-            <>
-              <Row label={`CGST @ ${rateLabel(half)}`} value={formatMoney(inv.cgstPaise)} />
-              <Row label={`SGST @ ${rateLabel(half)}`} value={formatMoney(inv.sgstPaise)} />
-            </>
-          ) : tax ? (
-            <Row label={`IGST @ ${rateLabel(inv.gstRatePercent)}`} value={formatMoney(inv.igstPaise)} />
-          ) : (
-            <Row label={`GST @ ${rateLabel(inv.gstRatePercent)}`} value={formatMoney(totalTax)} />
+          {(inv.discountPaise > 0 || inv.pricesIncludeGst || multiRate) && <Row label="Taxable value" value={formatMoney(inv.taxablePaise)} />}
+          {inv.taxByRate.map((g) =>
+            tax && inv.intraState ? (
+              <div key={g.ratePercent}>
+                <Row label={`CGST @ ${rateLabel(g.ratePercent / 2)}`} value={formatMoney(g.cgstPaise)} />
+                <Row label={`SGST @ ${rateLabel(g.ratePercent / 2)}`} value={formatMoney(g.sgstPaise)} />
+              </div>
+            ) : tax ? (
+              <Row key={g.ratePercent} label={`IGST @ ${rateLabel(g.ratePercent)}`} value={formatMoney(g.igstPaise)} />
+            ) : (
+              <Row key={g.ratePercent} label={`GST @ ${rateLabel(g.ratePercent)}`} value={formatMoney(g.taxPaise)} />
+            ),
           )}
           {inv.roundOffPaise !== 0 && <Row muted label="Round off" value={`${inv.roundOffPaise < 0 ? '− ' : '+ '}${formatMoney(Math.abs(inv.roundOffPaise))}`} />}
           <Row strong label={w.total} value={formatMoney(inv.totalPaise)} />
@@ -194,14 +202,16 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
             </tr>
           </thead>
           <tbody>
-            <tr className="num">
-              <td className="py-1.5 pr-2">GST @ {rateLabel(inv.gstRatePercent)}</td>
-              <td className="py-1.5 pr-2 text-right">{amount(inv.taxablePaise)}</td>
-              <td className="py-1.5 pr-2 text-right">{amount(inv.cgstPaise)}</td>
-              <td className="py-1.5 pr-2 text-right">{amount(inv.sgstPaise)}</td>
-              <td className="py-1.5 pr-2 text-right">{amount(inv.igstPaise)}</td>
-              <td className="py-1.5 text-right">{amount(totalTax)}</td>
-            </tr>
+            {inv.taxByRate.map((g) => (
+              <tr key={g.ratePercent} className="num">
+                <td className="py-1.5 pr-2">GST @ {rateLabel(g.ratePercent)}</td>
+                <td className="py-1.5 pr-2 text-right">{amount(g.taxablePaise)}</td>
+                <td className="py-1.5 pr-2 text-right">{amount(g.cgstPaise)}</td>
+                <td className="py-1.5 pr-2 text-right">{amount(g.sgstPaise)}</td>
+                <td className="py-1.5 pr-2 text-right">{amount(g.igstPaise)}</td>
+                <td className="py-1.5 text-right">{amount(g.taxPaise)}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       )}

@@ -1,4 +1,4 @@
-import { addDays, todayIso } from '../../shared/gst';
+import { addDays, isValidRate, todayIso } from '../../shared/gst';
 import { mulPaise } from '../../shared/money';
 import { matchesAll } from '../../shared/search';
 import { designStatus, variantStatus } from '../../shared/stock';
@@ -36,6 +36,7 @@ interface DesignRow {
   hsn_code: string;
   description: string;
   default_price_paise: number;
+  gst_rate_percent: number | null;
   tags: string;
   supplier_id: string | null;
   deleted_at: string | null;
@@ -179,6 +180,7 @@ function summarise(d: DesignRow, variants: Variant[], sales: DesignSales | undef
     hsnCode: d.hsn_code,
     description: d.description,
     defaultPricePaise: d.default_price_paise,
+    gstRatePercent: d.gst_rate_percent,
     tags: d.tags,
     supplierId: d.supplier_id,
     supplierName: d.supplier_id ? (suppliers.get(d.supplier_id) ?? '') : '',
@@ -250,6 +252,13 @@ function validateNickname(value: unknown): string {
   return nickname;
 }
 
+/** A design's own GST rate: empty means "use the usual rate", otherwise a number from 0 to 100. */
+function validateDesignRate(value: unknown): number | null {
+  if (value === undefined || value === null || value === '') return null;
+  if (!isValidRate(value)) throw new UserError('The GST rate should be a number from 0 to 100, with at most two decimals.');
+  return value;
+}
+
 function validateDesign(db: Db, input: DesignInput) {
   const supplierId = input.supplierId || null;
   if (supplierId && !get(db, 'SELECT 1 AS x FROM vendors WHERE id = ? AND deleted_at IS NULL', supplierId)) throw new UserError('That supplier no longer exists.');
@@ -262,6 +271,7 @@ function validateDesign(db: Db, input: DesignInput) {
     hsn: optionalText(input.hsnCode, 'HSN code', 12),
     description: optionalText(input.description, 'Description', 500),
     price: requireInt(input.defaultPricePaise, 'Default price', { max: MAX_PAISE }),
+    gstRate: validateDesignRate(input.gstRatePercent),
     tags: normalizeTags(input.tags),
   };
 }
@@ -271,7 +281,7 @@ export function createDesign(db: Db, input: DesignInput): DesignDetail {
   const id = newId();
   const now = nowIso();
   try {
-    run(db, 'INSERT INTO designs (id, code, name, nickname, fabric, hsn_code, description, default_price_paise, tags, supplier_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', id, v.code, v.name, v.nickname, v.fabric, v.hsn, v.description, v.price, v.tags, v.supplierId, now, now);
+    run(db, 'INSERT INTO designs (id, code, name, nickname, fabric, hsn_code, description, default_price_paise, gst_rate_percent, tags, supplier_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', id, v.code, v.name, v.nickname, v.fabric, v.hsn, v.description, v.price, v.gstRate, v.tags, v.supplierId, now, now);
   } catch (err) {
     if (isUniqueViolation(err)) throw new UserError(`Design code "${v.code}" is already in use.`);
     throw err;
@@ -283,7 +293,7 @@ export function updateDesign(db: Db, id: string, input: DesignInput): DesignDeta
   const v = validateDesign(db, input);
   getDesign(db, id);
   try {
-    run(db, 'UPDATE designs SET code = ?, name = ?, nickname = ?, fabric = ?, hsn_code = ?, description = ?, default_price_paise = ?, tags = ?, supplier_id = ?, updated_at = ? WHERE id = ?', v.code, v.name, v.nickname, v.fabric, v.hsn, v.description, v.price, v.tags, v.supplierId, nowIso(), id);
+    run(db, 'UPDATE designs SET code = ?, name = ?, nickname = ?, fabric = ?, hsn_code = ?, description = ?, default_price_paise = ?, gst_rate_percent = ?, tags = ?, supplier_id = ?, updated_at = ? WHERE id = ?', v.code, v.name, v.nickname, v.fabric, v.hsn, v.description, v.price, v.gstRate, v.tags, v.supplierId, nowIso(), id);
   } catch (err) {
     if (isUniqueViolation(err)) throw new UserError(`Design code "${v.code}" is already in use.`);
     throw err;
@@ -306,6 +316,7 @@ export function duplicateDesign(db: Db, id: string): DesignDetail {
       hsnCode: source.hsnCode,
       description: source.description,
       defaultPricePaise: source.defaultPricePaise,
+      gstRatePercent: source.gstRatePercent,
       tags: source.tags,
       supplierId: source.supplierId,
     });

@@ -1,4 +1,4 @@
-import { computeTotals, todayIso, addDays } from '../../shared/gst';
+import { computeInvoice, todayIso, addDays } from '../../shared/gst';
 import type { Invoice, Settings } from '../../shared/types';
 import { InvoiceDocument } from './InvoiceDocument';
 
@@ -8,11 +8,12 @@ import { InvoiceDocument } from './InvoiceDocument';
  */
 export function sampleInvoice(s: Settings): Invoice {
   const today = todayIso();
-  const lines = [
+  const base = [
     { id: 'l1', variantId: 'v1', designName: 'Mau Silk Butidar', color: 'Maroon', size: '6.3 m', sku: 'MG-001-MAR-6.3M', hsn: '5007', qty: 2, unitPricePaise: 980000 },
     { id: 'l2', variantId: 'v2', designName: 'Cotton Silk Chanderi', color: 'Sky blue', size: '5.5 m', sku: 'MG-004-SB-5.5M', hsn: '5208', qty: 3, unitPricePaise: 340000 },
   ].map((l) => ({ ...l, amountPaise: l.qty * l.unitPricePaise }));
-  const t = computeTotals({ lineAmounts: lines.map((l) => l.amountPaise), discountPaise: 0, ratePercent: s.gstRatePercent, intraState: true, inclusive: s.pricesIncludeGst });
+  const t = computeInvoice({ lines: base.map((l) => ({ amountPaise: l.amountPaise, ratePercent: s.gstRatePercent })), discountPaise: 0, intraState: true, inclusive: s.pricesIncludeGst, roundOff: s.roundOff });
+  const lines = base.map((l, i) => ({ ...l, discountPaise: 0, ratePercent: s.gstRatePercent, note: '', taxablePaise: t.lines[i]!.taxablePaise, taxPaise: t.lines[i]!.taxPaise }));
   const paid = 1000000;
   return {
     id: 'sample',
@@ -39,6 +40,8 @@ export function sampleInvoice(s: Settings): Invoice {
     pricesIncludeGst: s.pricesIncludeGst,
     intraState: true,
     subtotalPaise: t.subtotalPaise,
+    lineDiscountPaise: 0,
+    taxByRate: t.byRate,
     discountPaise: 0,
     taxablePaise: t.taxablePaise,
     cgstPaise: t.cgstPaise,

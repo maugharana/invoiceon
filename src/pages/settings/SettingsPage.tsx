@@ -34,7 +34,7 @@ interface SectionInfo {
 
 const SECTIONS: SectionInfo[] = [
   { id: 'business', label: 'Business Profile', icon: Building2, title: 'Business Profile', subtitle: 'Update your business information. It is printed at the top of every invoice.', saves: true },
-  { id: 'tax', label: 'Tax Profiles', icon: Percent, title: 'Tax Profiles', subtitle: 'The GST rate charged on your invoices.', saves: true },
+  { id: 'tax', label: 'Tax Profiles', icon: Percent, title: 'Tax Profiles', subtitle: 'The GST rates charged on your invoices, and how totals are rounded.', saves: true },
   { id: 'invoice', label: 'Invoice Settings', icon: FileText, title: 'Invoice Settings', subtitle: 'Numbering, terms and how your invoices and PDFs look. The preview updates as you type.', saves: true },
   { id: 'proforma', label: 'Proforma Settings', icon: ClipboardList, title: 'Proforma Settings', subtitle: 'Defaults for proforma invoices (quotes).', saves: true },
   { id: 'expenses', label: 'Expense Categories', icon: Tag, title: 'Expense Categories', subtitle: 'The headings you file business expenses under.', saves: true },

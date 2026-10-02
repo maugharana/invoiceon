@@ -30,6 +30,8 @@ export function proformaAsInvoice(p: Proforma): Invoice {
     pricesIncludeGst: p.pricesIncludeGst,
     intraState: p.intraState,
     subtotalPaise: p.subtotalPaise,
+    lineDiscountPaise: p.lineDiscountPaise,
+    taxByRate: p.taxByRate,
     discountPaise: p.discountPaise,
     taxablePaise: p.taxablePaise,
     cgstPaise: p.cgstPaise,

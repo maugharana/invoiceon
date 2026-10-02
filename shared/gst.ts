@@ -6,6 +6,9 @@ import type { Paise } from './money';
 
 export interface Totals {
   subtotalPaise: Paise;
+  /** What was taken off individual lines (before any discount on the whole invoice). */
+  lineDiscountPaise: Paise;
+  /** The discount on the whole invoice. */
   discountPaise: Paise;
   taxablePaise: Paise;
   cgstPaise: Paise;
@@ -16,24 +19,157 @@ export interface Totals {
   totalPaise: Paise;
 }
 
-/**
- * `inclusive` means the prices already contain GST: the subtotal and discount are tax-inclusive, the tax is carved out of
- * what's left (₹1,000 at 5% → ₹952.38 + ₹47.62) and the total is that same amount. Otherwise tax is added on top.
- */
-export function computeTotals(input: { lineAmounts: Paise[]; discountPaise: Paise; ratePercent: number; intraState: boolean; inclusive?: boolean }): Totals {
-  const subtotalPaise = input.lineAmounts.reduce((s, a) => s + a, 0);
-  const discountPaise = Math.min(Math.max(input.discountPaise, 0), subtotalPaise);
-  const payable = subtotalPaise - discountPaise;
-  const taxablePaise = input.inclusive ? Math.round((payable * 100) / (100 + input.ratePercent)) : payable;
-  const taxPaise = input.inclusive ? payable - taxablePaise : Math.round((taxablePaise * input.ratePercent) / 100);
-  // Intra-state supplies split the tax evenly between CGST and SGST; any odd paisa goes to SGST.
-  const cgstPaise = input.intraState ? Math.floor(taxPaise / 2) : 0;
-  const sgstPaise = input.intraState ? taxPaise - cgstPaise : 0;
-  const igstPaise = input.intraState ? 0 : taxPaise;
-  const raw = taxablePaise + taxPaise;
-  const totalPaise = Math.round(raw / 100) * 100; // invoices total to the whole rupee
-  return { subtotalPaise, discountPaise, taxablePaise, cgstPaise, sgstPaise, igstPaise, taxPaise, roundOffPaise: totalPaise - raw, totalPaise };
+/** How the grand total is brought to a round figure: the nearest rupee, always up, always down, or not at all (exact paise). */
+export type RoundOff = 'nearest' | 'up' | 'down' | 'none';
+export const ROUND_OFF_LABEL: Record<RoundOff, string> = { nearest: 'Nearest rupee', up: 'Up to the next rupee', down: 'Down to the rupee', none: 'No rounding (exact paise)' };
+
+export function roundTotal(rawPaise: Paise, policy: RoundOff = 'nearest'): Paise {
+  switch (policy) {
+    case 'up':
+      return Math.ceil(rawPaise / 100) * 100;
+    case 'down':
+      return Math.floor(rawPaise / 100) * 100;
+    case 'none':
+      return rawPaise;
+    default:
+      return Math.round(rawPaise / 100) * 100;
+  }
 }
+
+export interface PricedLine {
+  /** Quantity × price, before any discount. */
+  amountPaise: Paise;
+  /** Taken off this line only. */
+  discountPaise?: Paise;
+  ratePercent: number;
+}
+
+/** What one line works out to after the invoice-level discount is spread over it. Adds up exactly to the invoice. */
+export interface LineTax {
+  /** What the customer pays for it: the line less its own discount and its share of the invoice discount. Includes GST when prices do. */
+  payablePaise: Paise;
+  taxablePaise: Paise;
+  taxPaise: Paise;
+}
+
+/** One GST rate's share of an invoice, as the tax summary and the GST returns want it. */
+export interface RateGroup {
+  ratePercent: number;
+  taxablePaise: Paise;
+  cgstPaise: Paise;
+  sgstPaise: Paise;
+  igstPaise: Paise;
+  taxPaise: Paise;
+}
+
+export interface InvoiceTotals extends Totals {
+  lines: LineTax[];
+  /** One entry per distinct rate, lowest first. */
+  byRate: RateGroup[];
+}
+
+/** Intra-state supplies split the tax evenly between CGST and SGST; any odd paisa goes to SGST. */
+export function splitTax(taxPaise: Paise, intraState: boolean): { cgstPaise: Paise; sgstPaise: Paise; igstPaise: Paise } {
+  const cgstPaise = intraState ? Math.floor(taxPaise / 2) : 0;
+  return { cgstPaise, sgstPaise: intraState ? taxPaise - cgstPaise : 0, igstPaise: intraState ? 0 : taxPaise };
+}
+
+/**
+ * Works out an invoice. Each line may have its own discount and its own GST rate. The invoice-level discount is spread over
+ * the lines by value, then the tax is worked out once for each rate (not once per line, so a one-rate invoice comes to exactly
+ * what it always did) and shared back to the lines to the exact paisa.
+ *
+ * `inclusive` means the prices already contain GST: the subtotal and discounts are tax-inclusive, the tax is carved out of
+ * what's left (₹1,000 at 5% → ₹952.38 + ₹47.62). Otherwise tax is added on top.
+ */
+export function computeInvoice(input: { lines: PricedLine[]; discountPaise: Paise; intraState: boolean; inclusive?: boolean; roundOff?: RoundOff }): InvoiceTotals {
+  const gross = input.lines.map((l) => l.amountPaise);
+  const ownDiscount = input.lines.map((l) => Math.min(Math.max(l.discountPaise ?? 0, 0), l.amountPaise));
+  const net = gross.map((g, i) => g - ownDiscount[i]!);
+  const subtotalPaise = gross.reduce((s, a) => s + a, 0);
+  const lineDiscountPaise = ownDiscount.reduce((s, a) => s + a, 0);
+  const netTotal = subtotalPaise - lineDiscountPaise;
+  const discountPaise = Math.min(Math.max(input.discountPaise, 0), netTotal);
+  const shares = allocate(discountPaise, net);
+  const payable = net.map((n, i) => n - shares[i]!);
+
+  const rates = [...new Set(input.lines.map((l) => l.ratePercent))].sort((a, b) => a - b);
+  const lines: LineTax[] = payable.map((p) => ({ payablePaise: p, taxablePaise: 0, taxPaise: 0 }));
+  const byRate: RateGroup[] = [];
+  for (const rate of rates) {
+    const idx = input.lines.map((l, i) => (l.ratePercent === rate ? i : -1)).filter((i) => i >= 0);
+    const groupPayable = idx.reduce((s, i) => s + payable[i]!, 0);
+    const taxable = input.inclusive ? Math.round((groupPayable * 100) / (100 + rate)) : groupPayable;
+    const tax = input.inclusive ? groupPayable - taxable : Math.round((taxable * rate) / 100);
+    const weights = idx.map((i) => payable[i]!);
+    const taxableParts = allocate(taxable, weights);
+    const taxParts = allocate(tax, weights);
+    idx.forEach((lineIndex, k) => {
+      lines[lineIndex]!.taxablePaise = taxableParts[k]!;
+      lines[lineIndex]!.taxPaise = taxParts[k]!;
+    });
+    byRate.push({ ratePercent: rate, taxablePaise: taxable, taxPaise: tax, ...splitTax(tax, input.intraState) });
+  }
+
+  const sum = (f: (g: RateGroup) => number) => byRate.reduce((s, g) => s + f(g), 0);
+  const taxablePaise = sum((g) => g.taxablePaise);
+  const taxPaise = sum((g) => g.taxPaise);
+  const raw = taxablePaise + taxPaise;
+  const totalPaise = roundTotal(raw, input.roundOff);
+  return {
+    subtotalPaise,
+    lineDiscountPaise,
+    discountPaise,
+    taxablePaise,
+    cgstPaise: sum((g) => g.cgstPaise),
+    sgstPaise: sum((g) => g.sgstPaise),
+    igstPaise: sum((g) => g.igstPaise),
+    taxPaise,
+    roundOffPaise: totalPaise - raw,
+    totalPaise,
+    lines,
+    byRate,
+  };
+}
+
+/** The simple case: every line at one rate, no line discounts. */
+export function computeTotals(input: { lineAmounts: Paise[]; discountPaise: Paise; ratePercent: number; intraState: boolean; inclusive?: boolean; roundOff?: RoundOff }): Totals {
+  const { lines: _lines, byRate: _byRate, ...totals } = computeInvoice({
+    lines: input.lineAmounts.map((amountPaise) => ({ amountPaise, ratePercent: input.ratePercent })),
+    discountPaise: input.discountPaise,
+    intraState: input.intraState,
+    inclusive: input.inclusive,
+    roundOff: input.roundOff,
+  });
+  return totals;
+}
+
+// ── Which rate a line gets ──────────────────────────────────────────────────
+/** Pieces priced up to this much (per piece, after any discount) are charged this rate. */
+export interface RateSlab {
+  upToPaise: Paise;
+  ratePercent: number;
+}
+
+/**
+ * The GST rate for a line. In order: a rate typed on the line, then a rate set on the design, then a price slab (sarees, for
+ * instance, are often taxed at one rate up to a price per piece and another above it), then the shop's usual rate. The slab test
+ * uses what one piece sells for after the line's discount, as entered (so with GST-inclusive prices, set the limits inclusive too).
+ */
+export function resolveRate(
+  line: { override?: number | null; designRate?: number | null; qty: number; netPaise: Paise },
+  shop: { gstRatePercent: number; rateSlabs: RateSlab[] },
+): number {
+  if (line.override !== undefined && line.override !== null) return line.override;
+  if (line.designRate !== undefined && line.designRate !== null) return line.designRate;
+  for (const slab of [...shop.rateSlabs].sort((a, b) => a.upToPaise - b.upToPaise)) {
+    if (line.netPaise <= slab.upToPaise * Math.max(line.qty, 1)) return slab.ratePercent;
+  }
+  return shop.gstRatePercent;
+}
+
+/** A GST rate someone typed: a number from 0 to 100 with at most two decimals. */
+export const isValidRate = (r: unknown): r is number => typeof r === 'number' && Number.isFinite(r) && r >= 0 && r <= 100 && Math.round(r * 100) / 100 === r;
 
 /**
  * Splits `total` across `weights` in proportion, in whole paise, so the parts always add back to exactly `total`

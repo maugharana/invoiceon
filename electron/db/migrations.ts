@@ -598,6 +598,30 @@ CREATE TABLE held_bills (
 );
 `;
 
+// 14: a discount, a GST rate and a note on each line; the tax kept per line. Invoices made before this keep their one rate:
+// their lines get that rate, and no per-line tax (the reports then share the invoice's tax over the lines as they always did).
+const V14 = `
+ALTER TABLE invoice_lines ADD COLUMN gst_rate_percent REAL;
+ALTER TABLE invoice_lines ADD COLUMN line_discount_paise INTEGER NOT NULL DEFAULT 0 CHECK (line_discount_paise >= 0);
+ALTER TABLE invoice_lines ADD COLUMN note TEXT NOT NULL DEFAULT '';
+ALTER TABLE invoice_lines ADD COLUMN taxable_paise INTEGER;
+ALTER TABLE invoice_lines ADD COLUMN tax_paise INTEGER;
+UPDATE invoice_lines SET gst_rate_percent = (SELECT i.gst_rate_percent FROM invoices i WHERE i.id = invoice_lines.invoice_id);
+
+ALTER TABLE proforma_lines ADD COLUMN gst_rate_percent REAL;
+ALTER TABLE proforma_lines ADD COLUMN line_discount_paise INTEGER NOT NULL DEFAULT 0 CHECK (line_discount_paise >= 0);
+ALTER TABLE proforma_lines ADD COLUMN note TEXT NOT NULL DEFAULT '';
+ALTER TABLE proforma_lines ADD COLUMN taxable_paise INTEGER;
+ALTER TABLE proforma_lines ADD COLUMN tax_paise INTEGER;
+UPDATE proforma_lines SET gst_rate_percent = (SELECT p.gst_rate_percent FROM proformas p WHERE p.id = proforma_lines.proforma_id);
+
+ALTER TABLE invoices ADD COLUMN line_discount_paise INTEGER NOT NULL DEFAULT 0 CHECK (line_discount_paise >= 0);
+ALTER TABLE proformas ADD COLUMN line_discount_paise INTEGER NOT NULL DEFAULT 0 CHECK (line_discount_paise >= 0);
+
+-- A design taxed at its own rate (null = the shop's usual rate or a price slab).
+ALTER TABLE designs ADD COLUMN gst_rate_percent REAL;
+`;
+
 // Append new migrations to the end; never edit one that has shipped.
 const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 1, sql: V1 },
@@ -613,6 +637,7 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 11, sql: V11 },
   { version: 12, sql: V12 },
   { version: 13, sql: V13 },
+  { version: 14, sql: V14 },
 ];
 
 /** Brings a database up to date. `upTo` stops early at a version, which only the tests use, to build an older database to upgrade. */

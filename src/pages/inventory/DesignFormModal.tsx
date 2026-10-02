@@ -29,6 +29,7 @@ export function DesignFormModal({ design, suggestedCode = '', onClose, onSaved }
   const [fabric, setFabric] = useState(design?.fabric ?? '');
   const [hsn, setHsn] = useState(design?.hsnCode ?? '');
   const [price, setPrice] = useState(design?.defaultPricePaise ?? 0);
+  const [gstRate, setGstRate] = useState(design?.gstRatePercent == null ? '' : String(design.gstRatePercent));
   const [description, setDescription] = useState(design?.description ?? '');
   const [tags, setTags] = useState(design?.tags ?? '');
   const [supplierId, setSupplierId] = useState(design?.supplierId ?? '');
@@ -41,7 +42,8 @@ export function DesignFormModal({ design, suggestedCode = '', onClose, onSaved }
     e.preventDefault();
     setSaving(true);
     setError(null);
-    const input = { code, name, nickname: nickname.trim(), fabric, hsnCode: hsn, description, defaultPricePaise: price, tags, supplierId: supplierId || null };
+    const rate = gstRate.trim() === '' ? null : Number(gstRate);
+    const input = { code, name, nickname: nickname.trim(), fabric, hsnCode: hsn, description, defaultPricePaise: price, gstRatePercent: rate, tags, supplierId: supplierId || null };
     try {
       const saved = design ? await api.designUpdate(design.id, input) : await api.designCreate(input);
       refresh();
@@ -91,9 +93,17 @@ export function DesignFormModal({ design, suggestedCode = '', onClose, onSaved }
             <Input value={hsn} onChange={(e) => setHsn(e.target.value)} inputMode="numeric" placeholder="5007" />
           </Field>
         </div>
-        <Field label="Default selling price" hint="Before GST. Prefilled for each new variant; every variant can override it.">
-          <MoneyInput value={price} onChange={setPrice} />
-        </Field>
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Default selling price" hint="Before GST. Prefilled for each new variant; every variant can override it.">
+            <MoneyInput value={price} onChange={setPrice} />
+          </Field>
+          <Field label="GST rate for this design" hint="Leave empty to use your usual rate (or price slab) from Settings.">
+            <div className="relative">
+              <Input value={gstRate} onChange={(e) => setGstRate(e.target.value.replace(/[^\d.]/g, '').slice(0, 6))} inputMode="decimal" placeholder="Usual rate" className="num pr-8 text-right" />
+              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-ink-muted">%</span>
+            </div>
+          </Field>
+        </div>
         <SupplierSelect value={supplierId} onChange={setSupplierId} label="Usually made or bought from" hint="Used to split your reorder list by who to order from" />
         <Field label="Tags" hint="Collection, occasion or season: bridal, festive, summer…">
           <TagInput value={tags} onChange={setTags} suggestions={suggestions} placeholder="bridal, festive" />

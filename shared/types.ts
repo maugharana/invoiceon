@@ -1,7 +1,7 @@
 import type { Paise } from './money';
 import type { StockStatus } from './stock';
 
-import type { InvoiceStatus } from './gst';
+import type { InvoiceStatus, RateGroup, RateSlab, RoundOff } from './gst';
 
 export const DEFAULT_EXPENSE_CATEGORIES = ['Raw materials', 'Rent', 'Salaries & wages', 'Transport & freight', 'Packaging', 'Electricity & utilities', 'Marketing', 'Other'];
 
@@ -33,8 +33,12 @@ export interface Settings {
   pincode: string;
   phone: string;
   email: string;
-  /** Single GST rate applied to every invoice (not multi-slab). */
+  /** The shop's usual GST rate. A line can have its own (typed on the line, set on its design, or from a price slab). */
   gstRatePercent: number;
+  /** Price slabs: pieces priced up to a limit get that rate. Empty = none. See resolveRate. */
+  rateSlabs: RateSlab[];
+  /** How the invoice total is rounded. */
+  roundOff: RoundOff;
   /** True when the prices you enter already include GST, so the tax is carved out of them instead of added on top. */
   pricesIncludeGst: boolean;
   invoicePrefix: string;
@@ -320,6 +324,8 @@ export interface DesignSummary {
   hsnCode: string;
   description: string;
   defaultPricePaise: Paise;
+  /** This design's own GST rate, when it differs from the shop's usual one. Null = use the usual rate (or a price slab). */
+  gstRatePercent: number | null;
   tags: string;
   /** Who it is usually bought or made by, for the reorder list. */
   supplierId: string | null;
@@ -353,6 +359,8 @@ export interface DesignInput {
   hsnCode: string;
   description: string;
   defaultPricePaise: Paise;
+  /** Set only if this design is taxed at a different rate from the shop's usual one. Null/absent = the usual rate. */
+  gstRatePercent?: number | null;
   /** Comma separated labels (collection, occasion, season…) for grouping and filtering. */
   tags?: string;
   supplierId?: string | null;
@@ -709,7 +717,29 @@ export interface InvoiceLine {
   hsn: string;
   qty: number;
   unitPricePaise: Paise;
+  /** Quantity × price, before this line's own discount. */
   amountPaise: Paise;
+  /** Taken off this line alone. */
+  discountPaise: Paise;
+  /** The GST rate this line was charged. */
+  ratePercent: number;
+  /** A word for the customer about this line, printed under it. */
+  note: string;
+  /** This line's share of the taxable value and of the tax, once the invoice discount is spread over it. Null on invoices made before these were kept. */
+  taxablePaise: Paise | null;
+  taxPaise: Paise | null;
+}
+
+/** One line as typed in: only the item, quantity and price are required. */
+export interface LineInput {
+  variantId: string;
+  qty: number;
+  unitPricePaise: Paise;
+  /** Taken off this line alone, in paise. */
+  discountPaise?: Paise;
+  /** A rate for this line alone. Absent/null = work it out (design rate, price slab, the shop's usual). */
+  ratePercent?: number | null;
+  note?: string;
 }
 
 export type DeliveryStatus = 'none' | 'pending' | 'dispatched' | 'delivered';
@@ -763,12 +793,17 @@ export interface Invoice extends InvoiceSummary {
   pricesIncludeGst: boolean;
   intraState: boolean;
   subtotalPaise: Paise;
+  /** Taken off individual lines. */
+  lineDiscountPaise: Paise;
+  /** Taken off the whole invoice. */
   discountPaise: Paise;
   taxablePaise: Paise;
   cgstPaise: Paise;
   sgstPaise: Paise;
   igstPaise: Paise;
   roundOffPaise: Paise;
+  /** The tax by rate, lowest first. One entry on a one-rate invoice. */
+  taxByRate: RateGroup[];
   notes: string;
   lines: InvoiceLine[];
   /** Where it is delivered if not to the buyer's address. Fixed when the invoice is issued, since it is printed on it. */
@@ -795,7 +830,7 @@ export interface InvoiceInput {
   dueDate: string | null;
   discountPaise: Paise;
   notes: string;
-  lines: { variantId: string; qty: number; unitPricePaise: Paise }[];
+  lines: LineInput[];
   /** Money the customer hands over as the invoice is made — recorded in the same step as issuing it. */
   payment?: { amountPaise: Paise; method: PaymentMethod; reference: string };
   /** How much of the customer's held advance to put toward this invoice. */
@@ -827,6 +862,8 @@ export interface SaleVariant {
   designName: string;
   designNickname: string;
   hsn: string;
+  /** The design's own GST rate, when it has one. */
+  gstRatePercent: number | null;
   color: string;
   size: string;
   sku: string;
@@ -1177,12 +1214,14 @@ export interface Proforma extends ProformaSummary {
   pricesIncludeGst: boolean;
   intraState: boolean;
   subtotalPaise: Paise;
+  lineDiscountPaise: Paise;
   discountPaise: Paise;
   taxablePaise: Paise;
   cgstPaise: Paise;
   sgstPaise: Paise;
   igstPaise: Paise;
   roundOffPaise: Paise;
+  taxByRate: RateGroup[];
   notes: string;
   lines: ProformaLine[];
   /** The invoices made from it that still stand (cancelled ones drop off). */
@@ -1226,7 +1265,7 @@ export interface ProformaInput {
   validUntil: string;
   discountPaise: Paise;
   notes: string;
-  lines: { variantId: string; qty: number; unitPricePaise: Paise }[];
+  lines: LineInput[];
 }
 
 export interface ProformaQuery {

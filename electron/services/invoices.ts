@@ -1,4 +1,4 @@
-import { computeTotals, financialYear, formatInvoiceNumber, invoiceStatus, isIsoDate, todayIso } from '../../shared/gst';
+import { computeInvoice, financialYear, formatInvoiceNumber, invoiceStatus, isIsoDate, isValidRate, resolveRate, splitTax, todayIso, type RateGroup } from '../../shared/gst';
 import { matchesAll } from '../../shared/search';
 import { formatMoney } from '../../shared/money';
 import { sameState } from '../../shared/states';
@@ -28,6 +28,7 @@ interface InvoiceRow {
   prices_include_gst: number;
   intra_state: number;
   subtotal_paise: number;
+  line_discount_paise: number;
   discount_paise: number;
   taxable_paise: number;
   cgst_paise: number;
@@ -59,6 +60,47 @@ interface LineRow {
   qty: number;
   unit_price_paise: number;
   amount_paise: number;
+  gst_rate_percent: number | null;
+  line_discount_paise: number;
+  note: string;
+  taxable_paise: number | null;
+  tax_paise: number | null;
+}
+
+/** The parts of a stored document the tax summary is worked from. Invoices and quotes keep them in the same columns. */
+export interface TaxSource {
+  intra_state: number;
+  gst_rate_percent: number;
+  taxable_paise: number;
+  cgst_paise: number;
+  sgst_paise: number;
+  igst_paise: number;
+}
+export interface TaxLineSource {
+  gst_rate_percent: number | null;
+  taxable_paise: number | null;
+  tax_paise: number | null;
+}
+
+/**
+ * The tax by rate, lowest first. Documents made before lines carried their own rate and tax have just one rate, the document's,
+ * so their summary is the document's own figures; the rest are added up from the lines.
+ */
+export function taxByRate(header: TaxSource, lines: TaxLineSource[]): RateGroup[] {
+  if (lines.length === 0 || lines.some((l) => l.taxable_paise === null || l.tax_paise === null)) {
+    return [{ ratePercent: header.gst_rate_percent, taxablePaise: header.taxable_paise, taxPaise: header.cgst_paise + header.sgst_paise + header.igst_paise, cgstPaise: header.cgst_paise, sgstPaise: header.sgst_paise, igstPaise: header.igst_paise }];
+  }
+  const groups = new Map<number, { taxable: number; tax: number }>();
+  for (const l of lines) {
+    const rate = l.gst_rate_percent ?? header.gst_rate_percent;
+    const g = groups.get(rate) ?? { taxable: 0, tax: 0 };
+    g.taxable += l.taxable_paise!;
+    g.tax += l.tax_paise!;
+    groups.set(rate, g);
+  }
+  return [...groups.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([ratePercent, g]) => ({ ratePercent, taxablePaise: g.taxable, taxPaise: g.tax, ...splitTax(g.tax, header.intra_state === 1) }));
 }
 
 export function brandingOf(db: Db): InvoiceBranding {
@@ -85,7 +127,8 @@ function toSummary(r: InvoiceRow, paid: number): InvoiceSummary {
 }
 
 function toInvoice(db: Db, r: InvoiceRow): Invoice {
-  const lines = all<LineRow>(db, 'SELECT * FROM invoice_lines WHERE invoice_id = ? ORDER BY position', r.id).map(
+  const lineRows = all<LineRow>(db, 'SELECT * FROM invoice_lines WHERE invoice_id = ? ORDER BY position', r.id);
+  const lines = lineRows.map(
     (l): InvoiceLine => ({
       id: l.id,
       variantId: l.variant_id,
@@ -97,6 +140,11 @@ function toInvoice(db: Db, r: InvoiceRow): Invoice {
       qty: l.qty,
       unitPricePaise: l.unit_price_paise,
       amountPaise: l.amount_paise,
+      discountPaise: l.line_discount_paise,
+      ratePercent: l.gst_rate_percent ?? r.gst_rate_percent,
+      note: l.note,
+      taxablePaise: l.taxable_paise,
+      taxPaise: l.tax_paise,
     }),
   );
   return {
@@ -112,12 +160,14 @@ function toInvoice(db: Db, r: InvoiceRow): Invoice {
     pricesIncludeGst: r.prices_include_gst === 1,
     intraState: r.intra_state === 1,
     subtotalPaise: r.subtotal_paise,
+    lineDiscountPaise: r.line_discount_paise,
     discountPaise: r.discount_paise,
     taxablePaise: r.taxable_paise,
     cgstPaise: r.cgst_paise,
     sgstPaise: r.sgst_paise,
     igstPaise: r.igst_paise,
     roundOffPaise: r.round_off_paise,
+    taxByRate: taxByRate(r, lineRows),
     notes: r.notes,
     lines,
     shipTo: r.ship_to_json ? (JSON.parse(r.ship_to_json) as ShipTo) : null,
@@ -184,6 +234,7 @@ export function variantsForSale(db: Db): SaleVariant[] {
     design_name: string;
     design_nickname: string;
     hsn_code: string;
+    gst_rate_percent: number | null;
     color: string;
     size: string;
     sku: string;
@@ -191,7 +242,7 @@ export function variantsForSale(db: Db): SaleVariant[] {
     sell_price_paise: number;
   }>(
     db,
-    `SELECT v.id, v.design_id, d.code, d.name AS design_name, d.nickname AS design_nickname, d.hsn_code, v.color, v.size, v.sku, v.stock, v.sell_price_paise
+    `SELECT v.id, v.design_id, d.code, d.name AS design_name, d.nickname AS design_nickname, d.hsn_code, d.gst_rate_percent, v.color, v.size, v.sku, v.stock, v.sell_price_paise
      FROM variants v JOIN designs d ON d.id = v.design_id
      WHERE v.deleted_at IS NULL AND d.deleted_at IS NULL
      ORDER BY d.name COLLATE NOCASE, v.color COLLATE NOCASE, v.size COLLATE NOCASE`,
@@ -202,6 +253,7 @@ export function variantsForSale(db: Db): SaleVariant[] {
     designName: r.design_name,
     designNickname: r.design_nickname,
     hsn: r.hsn_code,
+    gstRatePercent: r.gst_rate_percent,
     color: r.color,
     size: r.size,
     sku: r.sku,
@@ -275,6 +327,9 @@ export function checkDocument(db: Db, settings: Settings, input: DocumentInput) 
   for (const l of input.lines) {
     requireInt(l.qty, 'Quantity', { min: 1, max: 100_000 });
     requireInt(l.unitPricePaise, 'Price', { max: MAX_PAISE });
+    if (requireInt(l.discountPaise ?? 0, 'Item discount', { max: MAX_PAISE }) > l.qty * l.unitPricePaise) throw new UserError("An item's discount can't be more than the item itself.");
+    if (l.ratePercent !== undefined && l.ratePercent !== null && !isValidRate(l.ratePercent)) throw new UserError('The GST rate on an item should be a number from 0 to 100, with at most two decimals.');
+    optionalText(l.note ?? '', 'Item note', 120);
     if (seen.has(l.variantId)) throw new UserError('The same item appears twice — combine them into one line.');
     seen.add(l.variantId);
   }
@@ -306,12 +361,21 @@ export function sellerSnapshot(settings: Settings, terms: string) {
 export function priceLines(db: Db, settings: Settings, lines: DocumentInput['lines'], discount: number, intraState: boolean) {
   const items = lines.map((l, index) => {
     const variant = getVariant(db, l.variantId);
-    const design = get<{ name: string; hsn_code: string }>(db, 'SELECT name, hsn_code FROM designs WHERE id = ?', variant.designId)!;
-    return { l, variant, design, index, amount: l.qty * l.unitPricePaise };
+    const design = get<{ name: string; hsn_code: string; gst_rate_percent: number | null }>(db, 'SELECT name, hsn_code, gst_rate_percent FROM designs WHERE id = ?', variant.designId)!;
+    const amount = l.qty * l.unitPricePaise;
+    const lineDiscount = l.discountPaise ?? 0;
+    const rate = resolveRate({ override: l.ratePercent, designRate: design.gst_rate_percent, qty: l.qty, netPaise: amount - lineDiscount }, settings);
+    return { l, variant, design, index, amount, lineDiscount, rate, note: optionalText(l.note ?? '', 'Item note', 120) };
   });
-  const subtotal = items.reduce((s, i) => s + i.amount, 0);
-  if (discount > subtotal) throw new UserError("The discount can't be more than the invoice subtotal.");
-  const totals = computeTotals({ lineAmounts: items.map((i) => i.amount), discountPaise: discount, ratePercent: settings.gstRatePercent, intraState, inclusive: settings.pricesIncludeGst });
+  const net = items.reduce((s, i) => s + i.amount - i.lineDiscount, 0);
+  if (discount > net) throw new UserError("The discount can't be more than the invoice subtotal.");
+  const totals = computeInvoice({
+    lines: items.map((i) => ({ amountPaise: i.amount, discountPaise: i.lineDiscount, ratePercent: i.rate })),
+    discountPaise: discount,
+    intraState,
+    inclusive: settings.pricesIncludeGst,
+    roundOff: settings.roundOff,
+  });
   return { items, totals };
 }
 
@@ -346,10 +410,10 @@ export function createInvoice(db: Db, input: InvoiceInput): Invoice {
       run(
         db,
         `INSERT INTO invoices (id, number, fy, seq, series, type, customer_id, seller_json, buyer_json, place_of_supply, issue_date, due_date, gst_rate_percent, prices_include_gst, intra_state,
-           subtotal_paise, discount_paise, taxable_paise, cgst_paise, sgst_paise, igst_paise, round_off_paise, total_paise, notes, ship_to_json, transport, tracking_no, delivery_status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           subtotal_paise, line_discount_paise, discount_paise, taxable_paise, cgst_paise, sgst_paise, igst_paise, round_off_paise, total_paise, notes, ship_to_json, transport, tracking_no, delivery_status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id, number, fy, seq, series, type, customer?.id ?? null, JSON.stringify(seller), JSON.stringify(buyer), placeOfSupply, input.issueDate, input.dueDate, settings.gstRatePercent, settings.pricesIncludeGst ? 1 : 0, intraState ? 1 : 0,
-        totals.subtotalPaise, totals.discountPaise, totals.taxablePaise, totals.cgstPaise, totals.sgstPaise, totals.igstPaise, totals.roundOffPaise, totals.totalPaise, notes, shipTo ? JSON.stringify(shipTo) : '', transport, trackingNo, deliveryStatus, now, now,
+        totals.subtotalPaise, totals.lineDiscountPaise, totals.discountPaise, totals.taxablePaise, totals.cgstPaise, totals.sgstPaise, totals.igstPaise, totals.roundOffPaise, totals.totalPaise, notes, shipTo ? JSON.stringify(shipTo) : '', transport, trackingNo, deliveryStatus, now, now,
       );
     } catch (err) {
       if (isUniqueViolation(err)) throw new UserError('Another invoice took that number a moment ago. Please try again.');
@@ -359,8 +423,8 @@ export function createInvoice(db: Db, input: InvoiceInput): Invoice {
     for (const i of items) {
       run(
         db,
-        'INSERT INTO invoice_lines (id, invoice_id, variant_id, position, design_name, color, size, sku, hsn, qty, unit_price_paise, amount_paise, unit_cost_paise) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        newId(), id, i.variant.id, i.index, i.design.name, i.variant.color, i.variant.size, i.variant.sku, i.design.hsn_code, i.l.qty, i.l.unitPricePaise, i.amount, i.variant.unitCostPaise,
+        'INSERT INTO invoice_lines (id, invoice_id, variant_id, position, design_name, color, size, sku, hsn, qty, unit_price_paise, amount_paise, unit_cost_paise, gst_rate_percent, line_discount_paise, note, taxable_paise, tax_paise) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        newId(), id, i.variant.id, i.index, i.design.name, i.variant.color, i.variant.size, i.variant.sku, i.design.hsn_code, i.l.qty, i.l.unitPricePaise, i.amount, i.variant.unitCostPaise, i.rate, i.lineDiscount, i.note, totals.lines[i.index]!.taxablePaise, totals.lines[i.index]!.taxPaise,
       );
       // Throws "Not enough stock" if short, which rolls back the whole invoice.
       recordMovement(db, i.variant.id, -i.l.qty, 'sale', `Invoice ${number}`, { type: 'invoice', id });

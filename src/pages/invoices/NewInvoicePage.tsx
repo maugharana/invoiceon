@@ -1,12 +1,12 @@
 import { Plus, Search, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { checkCredit, dueDateFromTerms } from '../../../shared/credit';
-import { addDays, computeTotals, todayIso } from '../../../shared/gst';
+import { addDays, computeInvoice, isValidRate, resolveRate, todayIso } from '../../../shared/gst';
 import { formatMoney, mulPaise } from '../../../shared/money';
 import { matchesAll } from '../../../shared/search';
 import { parseInvoiceDraft, type InvoiceDraft } from '../../../shared/invoiceDraft';
 import { sameState } from '../../../shared/states';
-import { PAYMENT_METHODS, PAYMENT_METHOD_LABEL, type Customer, type Invoice, type InvoiceType, type PaymentMethod, type Proforma, type QuoteTemplate, type SaleVariant, type ShipTo } from '../../../shared/types';
+import { PAYMENT_METHODS, PAYMENT_METHOD_LABEL, type Customer, type Invoice, type InvoiceType, type LineInput, type PaymentMethod, type Proforma, type QuoteTemplate, type SaleVariant, type ShipTo } from '../../../shared/types';
 import { useToast } from '../../components/Toast';
 import { Button, Card, ErrorNote, Field, Input, Money, MoneyInput, PageHeader, Segmented, Select, Textarea } from '../../components/ui';
 import { api, errorMessage } from '../../lib/api';
@@ -21,7 +21,14 @@ interface Line {
   variantId: string;
   qty: string;
   price: number;
+  /** Taken off this line alone, in paise. */
+  discount: number;
+  /** A GST rate typed for this line, as text; empty means "work it out". */
+  rate: string;
+  note: string;
 }
+
+const newLine = (variantId: string, qty: string, price: number): Line => ({ variantId, qty, price, discount: 0, rate: '', note: '' });
 
 // An invoice that was being built is kept as you go, so a crash or a closed window doesn't lose it.
 const DRAFT_KEY = 'invoiceon.draft.invoice';
@@ -236,6 +243,9 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
   const [transport, setTransport] = useState('');
   const [trackingNo, setTrackingNo] = useState('');
   const [lines, setLines] = useState<Line[]>([]);
+  /** Items whose discount / GST / note boxes are open. Ones that already have something typed open by themselves. */
+  const [openMore, setMore] = useState<Set<string>>(new Set());
+  const more = useMemo(() => new Set([...openMore, ...lines.filter((l) => l.discount > 0 || l.rate !== '' || l.note !== '').map((l) => l.variantId)]), [openMore, lines]);
   // Money received as the invoice is made. It can arrive pre-filled from "Record payment → Record & create invoice".
   const [received, setReceived] = useState(advance?.amountPaise ?? 0);
   const [payMethod, setPayMethod] = useState<PaymentMethod>(advance?.method ?? 'cash');
@@ -274,7 +284,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
     }
     setDiscount(d.discountPaise);
     setNotes(d.notes);
-    setLines(d.lines.filter((l) => known.has(l.variantId)));
+    setLines(d.lines.filter((l) => known.has(l.variantId)).map((l) => ({ ...newLine(l.variantId, l.qty, l.price), discount: l.discount ?? 0, rate: l.rate ?? '', note: l.note ?? '' })));
     setReceived(d.receivedPaise);
     setPayMethod(d.payMethod);
   }
@@ -314,7 +324,8 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
     if (!inv.customerId && inv.buyer.name && inv.buyer.name !== 'Walk-in customer') setBuyerName(inv.buyer.name);
     setDiscount(inv.discountPaise);
     setNotes(inv.notes);
-    setLines(kept.map((l) => ({ variantId: l.variantId, qty: String(l.qty), price: l.unitPricePaise })));
+    // Item discounts and notes come along; GST rates are worked out afresh, as for any new invoice.
+    setLines(kept.map((l) => ({ ...newLine(l.variantId, String(l.qty), l.unitPricePaise), discount: l.discountPaise, note: l.note })));
     const dropped = inv.lines.length - kept.length;
     if (editId) return;
     toast.info(dropped > 0 ? `Copied from ${inv.number}. ${dropped} item${dropped === 1 ? ' is' : 's are'} no longer available and left out.` : `Copied from ${inv.number}. Check the quantities and prices, then ${quote ? 'create the proforma' : 'issue'}.`);
@@ -346,7 +357,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
   function applyTemplate(t: QuoteTemplate) {
     const known = new Set((variants.data ?? []).map((v) => v.variantId));
     const kept = t.lines.filter((l) => known.has(l.variantId));
-    setLines(kept.map((l) => ({ variantId: l.variantId, qty: String(l.qty), price: l.unitPricePaise })));
+    setLines(kept.map((l) => newLine(l.variantId, String(l.qty), l.unitPricePaise)));
     if (t.notes) setNotes(t.notes);
     const dropped = t.lines.length - kept.length;
     toast.info(dropped > 0 ? `“${t.name}” added. ${dropped} item${dropped === 1 ? ' is' : 's are'} no longer available and left out.` : `“${t.name}” added. Check the quantities, then create the proforma.`);
@@ -357,18 +368,37 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
     if (next === 'B2B' && customer && !customer.gstin) setCustomerId(null); // a B2B invoice needs a GSTIN
   }
 
+  const shop = { gstRatePercent: settings.data?.gstRatePercent ?? 0, rateSlabs: settings.data?.rateSlabs ?? [] };
   const rows = lines.map((l) => {
     const v = variantById.get(l.variantId);
     const qty = toNumber(l.qty);
     const validQty = Number.isInteger(qty) && qty >= 1;
-    return { line: l, variant: v, qty, validQty, amount: validQty ? mulPaise(qty, l.price) : 0, short: !quote && v && validQty && qty > v.stock };
+    const amount = validQty ? mulPaise(qty, l.price) : 0;
+    const discount = Math.min(l.discount, amount);
+    const typed = l.rate.trim() === '' ? null : Number(l.rate);
+    const typedValid = typed === null || isValidRate(typed);
+    const worked = (override: number | null) => resolveRate({ override, designRate: v?.gstRatePercent ?? null, qty: validQty ? qty : 1, netPaise: amount - discount }, shop);
+    return { line: l, variant: v, qty, validQty, amount, discount, typed: typedValid ? typed : null, typedValid, rate: worked(typedValid ? typed : null), autoRate: worked(null), short: !quote && v && validQty && qty > v.stock };
   });
-
-  const rate = settings.data?.gstRatePercent ?? 0;
+  /** What goes to the server for a line: only what was typed. The rate is left out unless one was typed, so it is worked out there. */
+  const lineInput = (r: (typeof rows)[number]): LineInput => ({
+    variantId: r.line.variantId,
+    qty: r.qty,
+    unitPricePaise: r.line.price,
+    ...(r.line.discount > 0 ? { discountPaise: r.line.discount } : {}),
+    ...(r.typed !== null ? { ratePercent: r.typed } : {}),
+    ...(r.line.note.trim() ? { note: r.line.note.trim() } : {}),
+  });
   const placeOfSupply = customer?.state || settings.data?.state || '';
   const intraState = !settings.data?.state || sameState(placeOfSupply, settings.data.state);
   const inclusive = settings.data?.pricesIncludeGst ?? false;
-  const totals = computeTotals({ lineAmounts: rows.map((r) => r.amount), discountPaise: discount, ratePercent: rate, intraState, inclusive });
+  const totals = computeInvoice({
+    lines: rows.map((r) => ({ amountPaise: r.amount, discountPaise: r.discount, ratePercent: r.rate })),
+    discountPaise: discount,
+    intraState,
+    inclusive,
+    roundOff: settings.data?.roundOff,
+  });
 
   // Advance the customer already holds goes onto this invoice first, then whatever is handed over now.
   const advanceHeld = quote ? 0 : (customer?.advancePaise ?? 0);
@@ -386,7 +416,9 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
   if (rows.some((r) => r.short)) problems.push('Some items are short of stock.');
   if (type === 'B2B' && !customer) problems.push('Choose the business customer.');
   if (type === 'B2B' && customer && !customer.gstin) problems.push(`${customer.name} has no GSTIN — add it, or bill as B2C.`);
-  if (discount > totals.subtotalPaise) problems.push('The discount is more than the subtotal.');
+  if (discount > totals.subtotalPaise - totals.lineDiscountPaise) problems.push('The discount is more than the subtotal.');
+  if (rows.some((r) => !r.typedValid)) problems.push('Check the GST rate on an item: it should be a number from 0 to 100.');
+  if (rows.some((r) => r.line.discount > r.amount)) problems.push("An item's discount is more than the item.");
   if (sellerGstinMissing) problems.push('Add your GSTIN in Settings first.');
   const canSubmit = problems.length === 0 && !saving;
 
@@ -394,7 +426,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
     setLines((ls) => {
       const existing = ls.find((l) => l.variantId === v.variantId);
       if (existing) return ls.map((l) => (l === existing ? { ...l, qty: String((toNumber(l.qty) || 0) + 1) } : l));
-      return [...ls, { variantId: v.variantId, qty: '1', price: v.sellPricePaise }];
+      return [...ls, newLine(v.variantId, '1', v.sellPricePaise)];
     });
   }
 
@@ -403,7 +435,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
     setError(null);
     try {
       if (quote) {
-        const input = { type, customerId, buyerName: customerId ? undefined : buyerName, issueDate, validUntil: dueDate, discountPaise: discount, notes, lines: rows.map((r) => ({ variantId: r.line.variantId, qty: r.qty, unitPricePaise: r.line.price })) };
+        const input = { type, customerId, buyerName: customerId ? undefined : buyerName, issueDate, validUntil: dueDate, discountPaise: discount, notes, lines: rows.map(lineInput) };
         const p = editId ? await api.proformaUpdate(editId, input) : await api.proformaCreate(input);
         refresh();
         toast.success(editId ? `Proforma ${p.number} updated` : `Proforma ${p.number} created`);
@@ -421,7 +453,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
         shipTo,
         transport,
         trackingNo,
-        lines: rows.map((r) => ({ variantId: r.line.variantId, qty: r.qty, unitPricePaise: r.line.price })),
+        lines: rows.map(lineInput),
         payment: received > 0 ? { amountPaise: received, method: payMethod, reference: payRef } : undefined,
         applyAdvancePaise: advanceApplied > 0 ? advanceApplied : undefined,
       });
@@ -583,13 +615,19 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
                 </thead>
                 <tbody>
                   {rows.map((r) => (
-                    <tr key={r.line.variantId} className="animate-fade-in border-b border-line/70 align-top last:border-0">
+                    <Fragment key={r.line.variantId}>
+                    <tr className="animate-fade-in border-b border-line/70 align-top last:border-0">
                       <td className="td">
                         <div>{r.variant?.designName}</div>
                         <div className="text-xs text-ink-muted">
                           {r.variant?.color} · {r.variant?.size} · {r.variant?.sku}
                         </div>
                         {r.short && <div className="mt-1 text-xs text-status-overdue-fg">Only {r.variant?.stock} in stock</div>}
+                        {!more.has(r.line.variantId) && (
+                          <button type="button" onClick={() => setMore((s) => new Set(s).add(r.line.variantId))} className="mt-1 text-xs text-brand hover:underline">
+                            {r.line.discount > 0 || r.typed !== null || r.line.note ? 'Edit discount, GST, note' : 'Discount, GST, note'}
+                          </button>
+                        )}
                       </td>
                       <td className="td">
                         <Input
@@ -615,6 +653,38 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
                         </button>
                       </td>
                     </tr>
+                    {more.has(r.line.variantId) && (
+                      <tr className="border-b border-line/70 bg-canvas last:border-0">
+                        <td colSpan={5} className="px-4 pb-3 pt-1">
+                          <div className="grid grid-cols-[8rem_7rem_1fr] gap-3">
+                            <label className="block text-xs text-ink-muted">
+                              Discount on this item
+                              <MoneyInput value={r.line.discount} onChange={(d) => setLines((ls) => ls.map((l) => (l === r.line ? { ...l, discount: d } : l)))} aria-label={`Discount on ${r.variant?.color} ${r.variant?.size}`} className="mt-1 h-8" />
+                            </label>
+                            <label className="block text-xs text-ink-muted">
+                              GST rate
+                              <div className="relative mt-1">
+                                <Input
+                                  value={r.line.rate}
+                                  onChange={(e) => setLines((ls) => ls.map((l) => (l === r.line ? { ...l, rate: e.target.value.replace(/[^\d.]/g, '').slice(0, 6) } : l)))}
+                                  inputMode="decimal"
+                                  aria-label={`GST rate on ${r.variant?.color} ${r.variant?.size}`}
+                                  aria-invalid={!r.typedValid}
+                                  placeholder={`Auto ${r.autoRate}`}
+                                  className="num h-8 pr-6 text-right"
+                                />
+                                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-ink-muted">%</span>
+                              </div>
+                            </label>
+                            <label className="block text-xs text-ink-muted">
+                              Note printed under the item
+                              <Input value={r.line.note} onChange={(e) => setLines((ls) => ls.map((l) => (l === r.line ? { ...l, note: e.target.value.slice(0, 120) } : l)))} aria-label={`Note on ${r.variant?.color} ${r.variant?.size}`} placeholder="e.g. Matching blouse piece included" className="mt-1 h-8" />
+                            </label>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
@@ -682,18 +752,21 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
             <h2 className="mb-4 text-base">Summary</h2>
             <dl className="space-y-2">
               <div className="flex justify-between"><dt className="text-ink-muted">{inclusive ? 'Subtotal (incl. GST)' : 'Subtotal'}</dt><dd><Money paise={totals.subtotalPaise} /></dd></div>
+              {totals.lineDiscountPaise > 0 && <div className="flex justify-between"><dt className="text-ink-muted">Item discounts</dt><dd className="num">−{formatMoney(totals.lineDiscountPaise)}</dd></div>}
               <div className="flex items-center justify-between gap-4">
                 <dt className="text-ink-muted">Discount</dt>
                 <dd className="w-32"><MoneyInput value={discount} onChange={setDiscount} aria-label="Discount" className="h-8" /></dd>
               </div>
-              {(totals.discountPaise > 0 || inclusive) && <div className="flex justify-between"><dt className="text-ink-muted">Taxable value</dt><dd><Money paise={totals.taxablePaise} /></dd></div>}
-              {intraState ? (
-                <>
-                  <div className="flex justify-between"><dt className="text-ink-muted">CGST {rate / 2}%</dt><dd><Money paise={totals.cgstPaise} /></dd></div>
-                  <div className="flex justify-between"><dt className="text-ink-muted">SGST {rate / 2}%</dt><dd><Money paise={totals.sgstPaise} /></dd></div>
-                </>
-              ) : (
-                <div className="flex justify-between"><dt className="text-ink-muted">IGST {rate}%</dt><dd><Money paise={totals.igstPaise} /></dd></div>
+              {(totals.discountPaise > 0 || totals.lineDiscountPaise > 0 || inclusive) && <div className="flex justify-between"><dt className="text-ink-muted">Taxable value</dt><dd><Money paise={totals.taxablePaise} /></dd></div>}
+              {totals.byRate.map((g) =>
+                intraState ? (
+                  <div key={g.ratePercent}>
+                    <div className="flex justify-between"><dt className="text-ink-muted">CGST {g.ratePercent / 2}%</dt><dd><Money paise={g.cgstPaise} /></dd></div>
+                    <div className="mt-2 flex justify-between"><dt className="text-ink-muted">SGST {g.ratePercent / 2}%</dt><dd><Money paise={g.sgstPaise} /></dd></div>
+                  </div>
+                ) : (
+                  <div key={g.ratePercent} className="flex justify-between"><dt className="text-ink-muted">IGST {g.ratePercent}%</dt><dd><Money paise={g.igstPaise} /></dd></div>
+                ),
               )}
               {totals.roundOffPaise !== 0 && (
                 <div className="flex justify-between text-ink-muted"><dt>Round off</dt><dd className="num">{totals.roundOffPaise < 0 ? '−' : '+'}{formatMoney(Math.abs(totals.roundOffPaise))}</dd></div>

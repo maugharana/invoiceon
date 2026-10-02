@@ -3,7 +3,7 @@ import { matchesAll } from '../../shared/search';
 import type { Invoice, InvoiceType, Party, Proforma, ProformaInput, ProformaLine, ProformaQuery, ProformaRevision, ProformaStatus, ProformaSummary, QuoteStage, QuoteTemplate, QuoteTemplateInput } from '../../shared/types';
 import { all, get, run, tx, type Db } from '../db/connection';
 import { UserError, isUniqueViolation, newId, nowIso, optionalText } from './common';
-import { brandingOf, checkDocument, createInvoice, getInvoice, priceLines, sellerSnapshot } from './invoices';
+import { brandingOf, checkDocument, createInvoice, getInvoice, priceLines, sellerSnapshot, taxByRate } from './invoices';
 import { advanceHeld, applyAdvance } from './payments';
 import { getSettings } from './settings';
 
@@ -23,6 +23,7 @@ interface Row {
   prices_include_gst: number;
   intra_state: number;
   subtotal_paise: number;
+  line_discount_paise: number;
   discount_paise: number;
   taxable_paise: number;
   cgst_paise: number;
@@ -56,6 +57,11 @@ interface LineRow {
   unit_price_paise: number;
   amount_paise: number;
   invoiced_qty: number;
+  gst_rate_percent: number | null;
+  line_discount_paise: number;
+  note: string;
+  taxable_paise: number | null;
+  tax_paise: number | null;
 }
 
 // A quote lapses on its own; nothing needs to run for that to happen.
@@ -97,8 +103,26 @@ function toSummary(r: Row): ProformaSummary {
 }
 
 function toProforma(db: Db, r: Row): Proforma {
-  const lines = all<LineRow>(db, 'SELECT * FROM proforma_lines WHERE proforma_id = ? ORDER BY position', r.id).map(
-    (l): ProformaLine => ({ id: l.id, variantId: l.variant_id, designName: l.design_name, color: l.color, size: l.size, sku: l.sku, hsn: l.hsn, qty: l.qty, unitPricePaise: l.unit_price_paise, amountPaise: l.amount_paise, invoicedQty: l.invoiced_qty }),
+  const lineRows = all<LineRow>(db, 'SELECT * FROM proforma_lines WHERE proforma_id = ? ORDER BY position', r.id);
+  const lines = lineRows.map(
+    (l): ProformaLine => ({
+      id: l.id,
+      variantId: l.variant_id,
+      designName: l.design_name,
+      color: l.color,
+      size: l.size,
+      sku: l.sku,
+      hsn: l.hsn,
+      qty: l.qty,
+      unitPricePaise: l.unit_price_paise,
+      amountPaise: l.amount_paise,
+      discountPaise: l.line_discount_paise,
+      ratePercent: l.gst_rate_percent ?? r.gst_rate_percent,
+      note: l.note,
+      taxablePaise: l.taxable_paise,
+      taxPaise: l.tax_paise,
+      invoicedQty: l.invoiced_qty,
+    }),
   );
   return {
     ...toSummary(r),
@@ -110,12 +134,14 @@ function toProforma(db: Db, r: Row): Proforma {
     pricesIncludeGst: r.prices_include_gst === 1,
     intraState: r.intra_state === 1,
     subtotalPaise: r.subtotal_paise,
+    lineDiscountPaise: r.line_discount_paise,
     discountPaise: r.discount_paise,
     taxablePaise: r.taxable_paise,
     cgstPaise: r.cgst_paise,
     sgstPaise: r.sgst_paise,
     igstPaise: r.igst_paise,
     roundOffPaise: r.round_off_paise,
+    taxByRate: taxByRate(r, lineRows),
     notes: r.notes,
     lines,
     invoices: all<{ id: string; number: string }>(db, "SELECT i.id, i.number FROM proforma_invoices pi JOIN invoices i ON i.id = pi.invoice_id WHERE pi.proforma_id = ? AND i.status = 'issued' ORDER BY pi.created_at, pi.rowid", r.id),
@@ -168,28 +194,28 @@ export function createProforma(db: Db, input: ProformaInput): Proforma {
       run(
         db,
         `INSERT INTO proformas (id, number, fy, seq, type, customer_id, seller_json, buyer_json, place_of_supply, issue_date, valid_until, gst_rate_percent, prices_include_gst, intra_state,
-           subtotal_paise, discount_paise, taxable_paise, cgst_paise, sgst_paise, igst_paise, round_off_paise, total_paise, notes, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           subtotal_paise, line_discount_paise, discount_paise, taxable_paise, cgst_paise, sgst_paise, igst_paise, round_off_paise, total_paise, notes, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id, number, fy, seq, type, customer?.id ?? null, JSON.stringify(seller), JSON.stringify(buyer), placeOfSupply, input.issueDate, input.validUntil, settings.gstRatePercent, settings.pricesIncludeGst ? 1 : 0, intraState ? 1 : 0,
-        totals.subtotalPaise, totals.discountPaise, totals.taxablePaise, totals.cgstPaise, totals.sgstPaise, totals.igstPaise, totals.roundOffPaise, totals.totalPaise, notes, now, now,
+        totals.subtotalPaise, totals.lineDiscountPaise, totals.discountPaise, totals.taxablePaise, totals.cgstPaise, totals.sgstPaise, totals.igstPaise, totals.roundOffPaise, totals.totalPaise, notes, now, now,
       );
     } catch (err) {
       if (isUniqueViolation(err)) throw new UserError('Another proforma took that number a moment ago. Please try again.');
       throw err;
     }
-    insertLines(db, id, items);
+    insertLines(db, id, items, totals);
   });
   return getProforma(db, id);
 }
 
-type PricedItems = ReturnType<typeof priceLines>['items'];
+type Priced = ReturnType<typeof priceLines>;
 
-function insertLines(db: Db, proformaId: string, items: PricedItems): void {
+function insertLines(db: Db, proformaId: string, items: Priced['items'], totals: Priced['totals']): void {
   for (const i of items) {
     run(
       db,
-      'INSERT INTO proforma_lines (id, proforma_id, variant_id, position, design_name, color, size, sku, hsn, qty, unit_price_paise, amount_paise) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      newId(), proformaId, i.variant.id, i.index, i.design.name, i.variant.color, i.variant.size, i.variant.sku, i.design.hsn_code, i.l.qty, i.l.unitPricePaise, i.amount,
+      'INSERT INTO proforma_lines (id, proforma_id, variant_id, position, design_name, color, size, sku, hsn, qty, unit_price_paise, amount_paise, gst_rate_percent, line_discount_paise, note, taxable_paise, tax_paise) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      newId(), proformaId, i.variant.id, i.index, i.design.name, i.variant.color, i.variant.size, i.variant.sku, i.design.hsn_code, i.l.qty, i.l.unitPricePaise, i.amount, i.rate, i.lineDiscount, i.note, totals.lines[i.index]!.taxablePaise, totals.lines[i.index]!.taxPaise,
     );
   }
 }
@@ -219,13 +245,13 @@ export function updateProforma(db: Db, id: string, input: ProformaInput): Profor
     run(
       db,
       `UPDATE proformas SET type = ?, customer_id = ?, seller_json = ?, buyer_json = ?, place_of_supply = ?, issue_date = ?, valid_until = ?, gst_rate_percent = ?, prices_include_gst = ?, intra_state = ?,
-         subtotal_paise = ?, discount_paise = ?, taxable_paise = ?, cgst_paise = ?, sgst_paise = ?, igst_paise = ?, round_off_paise = ?, total_paise = ?, notes = ?, updated_at = ? WHERE id = ?`,
+         subtotal_paise = ?, line_discount_paise = ?, discount_paise = ?, taxable_paise = ?, cgst_paise = ?, sgst_paise = ?, igst_paise = ?, round_off_paise = ?, total_paise = ?, notes = ?, updated_at = ? WHERE id = ?`,
       type, customer?.id ?? null, JSON.stringify(seller), JSON.stringify(buyer), placeOfSupply, input.issueDate, input.validUntil, settings.gstRatePercent, settings.pricesIncludeGst ? 1 : 0, intraState ? 1 : 0,
-      totals.subtotalPaise, totals.discountPaise, totals.taxablePaise, totals.cgstPaise, totals.sgstPaise, totals.igstPaise, totals.roundOffPaise, totals.totalPaise, notes, nowIso(), id,
+      totals.subtotalPaise, totals.lineDiscountPaise, totals.discountPaise, totals.taxablePaise, totals.cgstPaise, totals.sgstPaise, totals.igstPaise, totals.roundOffPaise, totals.totalPaise, notes, nowIso(), id,
     );
     // The lines belong to this quote alone, so they are replaced as a set.
     run(db, 'DELETE FROM proforma_lines WHERE proforma_id = ?', id);
-    insertLines(db, id, items);
+    insertLines(db, id, items, totals);
   });
   return getProforma(db, id);
 }
@@ -266,12 +292,19 @@ export function convertProforma(db: Db, id: string, pick?: { variantId: string; 
 
   const today = todayIso();
   const settings = getSettings(db);
-  const price = new Map(p.lines.map((l) => [l.variantId, l.unitPricePaise]));
-  const partValue = wanted.reduce((sum, w) => sum + w.qty * (price.get(w.variantId) ?? 0), 0);
+  const quoted = new Map(p.lines.map((l) => [l.variantId, l]));
+  // A line's own discount is shared out by quantity. Each part takes the difference between what the pieces invoiced so far
+  // would have carried and what they carry with this part, so the parts add up to exactly the line's discount.
+  const shareOf = (l: (typeof p.lines)[number], upTo: number) => Math.floor((l.discountPaise * upTo) / l.qty);
+  const partDiscount = (w: { variantId: string; qty: number }) => {
+    const l = quoted.get(w.variantId)!;
+    return shareOf(l, l.invoicedQty + w.qty) - shareOf(l, l.invoicedQty);
+  };
+  const partValue = wanted.reduce((sum, w) => sum + w.qty * quoted.get(w.variantId)!.unitPricePaise - partDiscount(w), 0);
   const finishes = p.lines.every((l) => (remaining.get(l.variantId) ?? 0) - (wanted.find((w) => w.variantId === l.variantId)?.qty ?? 0) === 0);
   const discountUsed = get<{ s: number }>(db, "SELECT COALESCE(SUM(i.discount_paise), 0) AS s FROM proforma_invoices pi JOIN invoices i ON i.id = pi.invoice_id WHERE pi.proforma_id = ? AND i.status = 'issued'", id)?.s ?? 0;
   const discountLeft = Math.max(0, p.discountPaise - discountUsed);
-  const subtotal = p.lines.reduce((sum, l) => sum + l.qty * l.unitPricePaise, 0);
+  const subtotal = p.lines.reduce((sum, l) => sum + l.qty * l.unitPricePaise - l.discountPaise, 0);
   let discount = finishes ? discountLeft : subtotal > 0 ? Math.floor((p.discountPaise * partValue) / subtotal) : 0;
   discount = Math.min(discount, discountLeft, partValue);
 
@@ -284,7 +317,11 @@ export function convertProforma(db: Db, id: string, pick?: { variantId: string; 
       dueDate: p.type === 'B2B' ? addDays(today, settings.defaultDueDays) : today,
       discountPaise: discount,
       notes: p.notes,
-      lines: wanted.map((w) => ({ variantId: w.variantId, qty: w.qty, unitPricePaise: price.get(w.variantId) ?? 0 })),
+      // The rate quoted goes onto the invoice as it is, so a price-slab or settings change since can't alter what was promised.
+      lines: wanted.map((w) => {
+        const l = quoted.get(w.variantId)!;
+        return { variantId: w.variantId, qty: w.qty, unitPricePaise: l.unitPricePaise, discountPaise: partDiscount(w), ratePercent: l.ratePercent, note: l.note };
+      }),
     });
     const now = nowIso();
     run(db, 'INSERT INTO proforma_invoices (proforma_id, invoice_id, created_at) VALUES (?, ?, ?)', id, invoice.id, now);

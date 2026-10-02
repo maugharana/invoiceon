@@ -1,4 +1,4 @@
-import { isValidGstin } from '../../shared/gst';
+import { isValidGstin, isValidRate, type RateSlab, type RoundOff } from '../../shared/gst';
 import { STATE_NAMES } from '../../shared/states';
 import { DATE_FORMATS, LANGUAGES, PAPER_SIZES } from '../../shared/prefs';
 import { isValidUpiId } from '../../shared/upi';
@@ -46,6 +46,8 @@ const FIELDS: { [K in keyof Settings]: Field<K> } = {
   phone: text('phone'),
   email: text('email'),
   gstRatePercent: num('gst_rate_percent', 5),
+  rateSlabs: json<RateSlab[]>('rate_slabs', []),
+  roundOff: text('round_off', 'nearest'),
   pricesIncludeGst: bool('prices_include_gst', false),
   invoicePrefix: text('invoice_prefix', 'INV'),
   b2bPrefix: text('b2b_prefix', ''),
@@ -112,6 +114,24 @@ function validate(patch: Partial<Settings>): Partial<Settings> {
     v.gstRatePercent = rate;
   }
   if (patch.pricesIncludeGst !== undefined) v.pricesIncludeGst = !!patch.pricesIncludeGst;
+  if (patch.roundOff !== undefined) {
+    if (!(['nearest', 'up', 'down', 'none'] as RoundOff[]).includes(patch.roundOff)) throw new UserError('Choose how totals are rounded.');
+    v.roundOff = patch.roundOff;
+  }
+  if (patch.rateSlabs !== undefined) {
+    if (!Array.isArray(patch.rateSlabs)) throw new UserError('Price slabs must be a list.');
+    if (patch.rateSlabs.length > 5) throw new UserError('Keep it to 5 price slabs or fewer.');
+    const seen = new Set<number>();
+    v.rateSlabs = patch.rateSlabs
+      .map((s) => {
+        if (!Number.isInteger(s?.upToPaise) || s.upToPaise < 1 || s.upToPaise > 100_000_000_000) throw new UserError('Each price slab needs a price limit above zero.');
+        if (!isValidRate(s.ratePercent)) throw new UserError('Each price slab needs a GST rate from 0 to 100.');
+        if (seen.has(s.upToPaise)) throw new UserError('Two price slabs have the same limit.');
+        seen.add(s.upToPaise);
+        return { upToPaise: s.upToPaise, ratePercent: s.ratePercent };
+      })
+      .sort((a, b) => a.upToPaise - b.upToPaise);
+  }
   if (patch.invoicePrefix !== undefined) {
     const p = requireText(patch.invoicePrefix, 'Invoice prefix', 10).toUpperCase();
     if (!/^[A-Z0-9-]+$/.test(p)) throw new UserError('Invoice prefix can only use letters, numbers and dashes.');

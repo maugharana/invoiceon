@@ -11,7 +11,7 @@ export interface InvoiceDraft {
   dueDate: string;
   discountPaise: number;
   notes: string;
-  lines: { variantId: string; qty: string; price: number }[];
+  lines: { variantId: string; qty: string; price: number; /** Taken off this line, in paise. */ discount?: number; /** A GST rate typed for this line; empty = worked out. */ rate?: string; note?: string }[];
   /** What was being handed over as the invoice was made. */
   receivedPaise: number;
   payMethod: PaymentMethod;
@@ -31,9 +31,9 @@ export function parseInvoiceDraft(raw: unknown): InvoiceDraft | null {
   const lines = (Array.isArray(d.lines) ? d.lines : [])
     .map((l): InvoiceDraft['lines'][number] | null => {
       if (!l || typeof l !== 'object') return null;
-      const { variantId, qty, price } = l as Record<string, unknown>;
+      const { variantId, qty, price, discount, rate, note } = l as Record<string, unknown>;
       if (typeof variantId !== 'string' || !variantId) return null;
-      return { variantId, qty: text(qty, 8) || '1', price: paise(price) };
+      return { variantId, qty: text(qty, 8) || '1', price: paise(price), discount: paise(discount), rate: /^\d{1,3}(\.\d{1,2})?$/.test(text(rate, 6)) ? text(rate, 6) : '', note: text(note, 120) };
     })
     .filter((l): l is InvoiceDraft['lines'][number] => l !== null)
     .slice(0, 200);

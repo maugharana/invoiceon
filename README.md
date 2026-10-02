@@ -202,6 +202,17 @@ Code: `electron/backup.ts` (files on this computer, checking and restoring), `el
 - **Restore never swaps a live book.** A restore checks the file (opens read-only, integrity check, the right tables, not from a newer version), writes a "before restore" copy of the current book, stages the file as `restore-pending.db`, and restarts. On the next start, before the book opens, the file is swapped in; if that fails the old book is kept. Old journal files are removed so they can't be paired with the new book.
 - **What a backup holds.** The whole book. Backups are not encrypted: anyone with the file can read it, so keep the pen drive and the Google account safe.
 
+## Item discounts, several GST rates and round-off
+
+Code: `shared/gst.ts` (`computeInvoice`, `resolveRate`, `roundTotal`), migration 14, `tests/money-maths.test.ts`.
+
+- **One function works out every invoice.** `computeInvoice` takes lines that each have a price, an optional discount of their own and a GST rate. It spreads the invoice-level discount over the lines by value, works the tax out **once per rate** (not once per line, so a one-rate invoice comes to exactly what it always did), and shares each rate's taxable value and tax back to the lines to the exact paisa. The server (when issuing) and the screen (while typing) both use it, so the preview is the saved number. `computeTotals` is the one-rate shortcut.
+- **Which rate a line gets, in order:** a rate typed on the line, the design's own rate, a price slab (pieces priced up to a limit get a rate; compared with what one piece sells for after the line's discount, as entered), the shop's usual rate. Slabs are set by the owner in Settings > Tax Profiles; the app ships with none, so no tax rule is assumed.
+- **Stored per line:** `gst_rate_percent`, `line_discount_paise`, `note`, and the line's own `taxable_paise` and `tax_paise`. `amount_paise` stays quantity × price (before the line's discount). Invoices made before migration 14 got their own rate copied onto each line and have no per-line tax; reports share the invoice's figures over its lines as they always did, so nothing in an old book changes.
+- **Reports.** The GST report lists a row for each rate on an invoice (the invoice total sits on the first row only, so a column adds up), the B2C-by-state table splits by rate, and HSN totals use each line's own taxable value. The tax summary on an invoice is `taxByRate`.
+- **Quotes.** A quote keeps each line's discount, note and **resolved rate**. Converting it passes that rate on as typed, so a later change to slabs or rates cannot alter what was promised. A line's discount is shared over part invoices by quantity, each part taking the difference in what the pieces invoiced so far would carry, so the parts add up to exactly the line's discount.
+- **Round-off.** `roundOff` in settings: nearest rupee (the default, and what every earlier invoice used), up, down, or none (exact paise). The difference is its own line on the invoice. Rounding is applied once, to the grand total.
+
 ## Brand
 
 Tokens live in `tailwind.config.js` (teal `#0F6E56`, gold `#D9A94E` for one figure per screen, status pairs, ink).
