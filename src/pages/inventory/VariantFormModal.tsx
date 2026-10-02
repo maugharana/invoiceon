@@ -41,6 +41,7 @@ export function VariantFormModal({ design, variant, onClose }: Props) {
   const [reorder, setReorder] = useState(variant ? String(variant.reorderLevel) : '');
   const [opening, setOpening] = useState('');
   const [sku, setSku] = useState(variant?.sku ?? '');
+  const [barcode, setBarcode] = useState(variant?.barcode ?? '');
   const [lines, setLines] = useState<CostLine[]>(() => {
     const source = variant ?? design.variants.at(-1);
     return (source?.bom ?? []).map((b, i) => ({ key: i, materialId: b.materialId, qty: String(b.qty), wastage: b.wastagePercent > 0 ? String(b.wastagePercent) : '' }));
@@ -86,6 +87,7 @@ export function VariantFormModal({ design, variant, onClose }: Props) {
       color,
       size,
       sku: sku || undefined,
+      barcode: barcode.trim(),
       sellPricePaise: sell,
       mrpPaise: mrp,
       baseCostPaise: base,
@@ -182,6 +184,10 @@ export function VariantFormModal({ design, variant, onClose }: Props) {
             </Field>
           )}
         </div>
+
+        <Field label="Barcode on the tag" hint="Only if the saree already came with a printed barcode. Leave empty to use your own labels, which carry the SKU.">
+          <Input value={barcode} onChange={(e) => setBarcode(e.target.value.replace(/\s/g, ''))} maxLength={40} className="num" placeholder="Optional" />
+        </Field>
 
         {variant && (
           <Field label="SKU" hint="Generated from the design code, color and size. Change it only if you use your own codes.">

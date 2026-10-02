@@ -58,7 +58,7 @@ describe('customer list filters', () => {
 });
 
 describe('finding duplicates', () => {
-  const fake = (over: Partial<Customer>): Customer => ({ ...blank, id: Math.random().toString(36), tags: '', creditLimitPaise: 0, paymentTermsDays: null, birthday: '', anniversary: '', addresses: [], contacts: [], invoiceCount: 0, billedPaise: 0, creditedPaise: 0, outstandingPaise: 0, advancePaise: 0, ...over });
+  const fake = (over: Partial<Customer>): Customer => ({ ...blank, id: Math.random().toString(36), tags: '', creditLimitPaise: 0, paymentTermsDays: null, birthday: '', anniversary: '', addresses: [], contacts: [], invoiceCount: 0, billedPaise: 0, outstandingPaise: 0, advancePaise: 0, loyaltyPoints: 0, ...over });
 
   it('treats differently written phone numbers as the same number', () => {
     expect(phoneKey('+91 98765-43210')).toBe('9876543210');

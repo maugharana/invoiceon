@@ -146,7 +146,7 @@ export function ProformaPage({ id }: { id: string }) {
           <Figure label="Date">
             <span className="num">{formatDate(p.issueDate)}</span>
           </Figure>
-          <Figure label="Valid until" sub={p.status === 'expired' ? 'Lapsed — you can still invoice it' : undefined}>
+          <Figure label="Valid until" sub={p.status === 'expired' ? 'Lapsed — you can still invoice it' : p.reserveStock && p.status === 'open' ? 'Pieces held for the customer until then' : undefined}>
             <span className="num">{formatDate(p.validUntil)}</span>
           </Figure>
           <Figure label="Invoice" sub={p.status === 'partial' ? `${remaining} ${remaining === 1 ? 'piece' : 'pieces'} still to invoice` : undefined}>

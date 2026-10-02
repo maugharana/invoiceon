@@ -39,10 +39,16 @@ const RULES: Record<string, Rule> = {
       return changed.length === 0 ? 'nothing different' : changed.length > 8 ? `${changed.length} settings` : changed.join(', ');
     },
   },
-  userCreate: { label: 'Added a person', entity: 'user', summary: (_a, r) => join(r?.name, r?.role) },
-  userUpdate: { label: 'Changed a person', entity: 'user', id: arg0Id, summary: (_a, r) => join(r?.name, r?.role, r?.active === false ? 'switched off' : '') },
-  userSetPin: { label: 'Changed a PIN', entity: 'user', id: arg0Id, summary: (_a, r) => join(r?.name) },
-  userRemove: { label: 'Removed a person', entity: 'user', id: arg0Id },
+  catalogueRename: { label: 'Renamed a saree choice', entity: 'design', id: () => '', summary: (a, r) => join(a[0]?.from, '→', a[0]?.to, `${r?.changed ?? 0} used`) },
+  catalogueDelete: { label: 'Removed a saree choice', entity: 'design', id: () => '', summary: (a) => join(a[0]?.label) },
+  designsTidy: { label: 'Tidied saree names', entity: 'design', id: () => '', summary: (_a, r) => join(`${r?.updated ?? 0} designs`, `${r?.renamed ?? 0} renamed`) },
+  weaverOrderCreate: { label: 'Placed an order with a weaver', entity: 'weaver_order', id: (_a, r) => r?.id ?? '', summary: (_a, r) => join(r?.number, r?.vendorName) },
+  weaverOrderUpdate: { label: 'Changed a weaver order', entity: 'weaver_order', id: arg0Id, summary: (_a, r) => join(r?.number) },
+  weaverOrderReceive: { label: 'Received sarees from a weaver', entity: 'weaver_order', id: arg0Id, summary: (_a, r) => join(r?.number, `${r?.receivedPieces ?? 0} of ${r?.pieces ?? 0} received`) },
+  weaverOrderPay: { label: 'Paid a weaver', entity: 'weaver_order', id: arg0Id, summary: (_a, r) => join(r?.number, r?.vendorName) },
+  weaverPaymentVoid: { label: 'Took back a payment to a weaver', entity: 'weaver_order', id: (_a, r) => r?.id ?? '', summary: (_a, r) => join(r?.number) },
+  weaverOrderCancel: { label: 'Cancelled a weaver order', entity: 'weaver_order', id: arg0Id, summary: (_a, r) => join(r?.number) },
+  inventoryQuickAdd: { label: 'Added a saree while invoicing', entity: 'design', id: (_a, r) => r?.designId ?? '', summary: (_a, r) => join(r?.designName, r?.sku) },
   sampleDataLoad: { label: 'Loaded the sample data', entity: 'data' },
   backupNow: { label: 'Made a backup', entity: 'data' },
   dataExportAll: { label: 'Exported all the data', entity: 'data' },
@@ -54,21 +60,6 @@ const RULES: Record<string, Rule> = {
   designRestore: { label: 'Brought a design back', entity: 'design', summary: (_a, r) => join(r?.code, r?.name) },
   designsBulk: { label: 'Changed several designs', entity: 'design', id: () => '', summary: (a, r) => join(a[0]?.kind, `${r?.designs ?? 0} designs`) },
   inventoryBulkAdd: { label: 'Added sarees from a sheet', entity: 'design', id: () => '', summary: (_a, r) => join(`${r?.designsCreated ?? 0} new designs`, `${r?.variantsCreated ?? 0} pieces`) },
-  catalogueRename: { label: 'Renamed a saree choice', entity: 'design', id: () => '', summary: (a, r) => join(a[0]?.from, '→', a[0]?.to, `${r?.changed ?? 0} used`) },
-  catalogueDelete: { label: 'Removed a saree choice', entity: 'design', id: () => '', summary: (a) => join(a[0]?.label) },
-  designsTidy: { label: 'Tidied saree names', entity: 'design', id: () => '', summary: (_a, r) => join(`${r?.updated ?? 0} designs`, `${r?.renamed ?? 0} renamed`) },
-  designPhotoAdd: { label: 'Added a photo to a design', entity: 'design', id: arg0Id, summary: () => '' },
-  designPhotoRemove: { label: 'Removed a photo from a design', entity: 'design', id: () => '', summary: () => '' },
-  creditNoteCreate: { label: 'Took goods back with a credit note', entity: 'credit_note', id: (_a, r) => r?.id ?? '', summary: (_a, r) => join(r?.number, r?.invoiceNumber, r?.buyerName) },
-  creditNoteRefund: { label: 'Refunded a customer on a credit note', entity: 'credit_note', id: arg0Id, summary: (_a, r) => join(r?.number, r?.buyerName) },
-  creditNoteCancel: { label: 'Cancelled a credit note', entity: 'credit_note', id: arg0Id, summary: (_a, r) => join(r?.number) },
-  weaverOrderCreate: { label: 'Placed an order with a weaver', entity: 'weaver_order', id: (_a, r) => r?.id ?? '', summary: (_a, r) => join(r?.number, r?.vendorName) },
-  weaverOrderUpdate: { label: 'Changed a weaver order', entity: 'weaver_order', id: arg0Id, summary: (_a, r) => join(r?.number) },
-  weaverOrderReceive: { label: 'Received sarees from a weaver', entity: 'weaver_order', id: arg0Id, summary: (_a, r) => join(r?.number, `${r?.receivedPieces ?? 0} of ${r?.pieces ?? 0} received`) },
-  weaverOrderPay: { label: 'Paid a weaver', entity: 'weaver_order', id: arg0Id, summary: (_a, r) => join(r?.number, r?.vendorName) },
-  weaverPaymentVoid: { label: 'Took back a payment to a weaver', entity: 'weaver_order', id: (_a, r) => r?.id ?? '', summary: (_a, r) => join(r?.number) },
-  weaverOrderCancel: { label: 'Cancelled a weaver order', entity: 'weaver_order', id: arg0Id, summary: (_a, r) => join(r?.number) },
-  inventoryQuickAdd: { label: 'Added a saree while invoicing', entity: 'design', id: (_a, r) => r?.designId ?? '', summary: (_a, r) => join(r?.designName, r?.sku) },
   variantCreate: { label: 'Added a colour and size', entity: 'design', id: (_a, r) => r?.designId ?? '', summary: (_a, r) => join(r?.sku) },
   variantUpdate: { label: 'Changed a colour and size', entity: 'design', id: (_a, r) => r?.designId ?? '', summary: (_a, r) => join(r?.sku) },
   variantArchive: { label: 'Archived a colour and size', entity: 'variant', id: arg0Id },
@@ -110,6 +101,18 @@ const RULES: Record<string, Rule> = {
   paymentVoid: { label: 'Reversed a payment', entity: 'payment', id: arg0Id, summary: (a, r) => join(money(r?.amountPaise), r?.customerName, a[1]) },
   paymentChequeStatus: { label: 'Moved a cheque along', entity: 'payment', id: arg0Id, summary: (a, r) => join(money(r?.amountPaise), r?.customerName, a[1]) },
   paymentsReconcile: { label: 'Matched payments to the bank statement', entity: 'payment', id: () => '', summary: (a, r) => `${r ?? 0} ${a[1] === null ? 'untick' : 'ticked'}` },
+  productionCreate: { label: 'Planned a production order', entity: 'production', summary: (_a, r) => join(r?.number, r?.designName, r?.color, `${r?.qty ?? ''} pieces`) },
+  productionUpdate: { label: 'Changed a production order', entity: 'production', id: arg0Id, summary: (_a, r) => join(r?.number) },
+  productionIssueMaterials: { label: 'Handed over materials for an order', entity: 'production', id: arg0Id, summary: (_a, r) => join(r?.number) },
+  productionReceive: { label: 'Received pieces from an order', entity: 'production', id: arg0Id, summary: (a, r) => join(r?.number, `${a[1]?.qty ?? ''} pieces`) },
+  productionCloseShort: { label: 'Closed an order early', entity: 'production', id: arg0Id, summary: (_a, r) => join(r?.number) },
+  productionCancel: { label: 'Cancelled a production order', entity: 'production', id: arg0Id, summary: (_a, r) => join(r?.number) },
+  loyaltyAdjust: { label: 'Changed loyalty points', entity: 'customer', id: (a) => a[0]?.customerId ?? '', summary: (a) => join(`${(a[0]?.points ?? 0) > 0 ? '+' : ''}${a[0]?.points ?? ''}`, a[0]?.note) },
+  wishlistAdd: { label: 'Added to a wishlist', entity: 'customer', id: (a) => a[0]?.customerId ?? '' },
+  photoAdd: { label: 'Added a picture', entity: 'design', id: (a) => a[0]?.ownerId ?? '', summary: (a) => a[0]?.ownerType ?? '' },
+  photoDelete: { label: 'Removed a picture', entity: 'photo', id: arg0Id },
+  creditNoteCreate: { label: 'Issued a credit note', entity: 'invoice', id: (_a, r) => r?.invoiceId ?? '', summary: (_a, r) => join(r?.number, r?.buyerName, money(r?.totalPaise)) },
+  paymentRefund: { label: 'Refunded a customer', entity: 'payment', id: (_a, r) => r?.[0]?.id ?? '', summary: (a, r) => join(r?.[0]?.customerName, money(a[0]?.amountPaise)) },
   paymentWriteOff: { label: 'Wrote off a balance', entity: 'payment', summary: (_a, r) => join(money(r?.amountPaise), r?.note) },
   transferCreate: { label: 'Moved money between accounts', entity: 'transfer', summary: (_a, r) => money(r?.amountPaise) },
   transferDelete: { label: 'Undid a move of money', entity: 'transfer', id: arg0Id },
@@ -132,6 +135,15 @@ const RULES: Record<string, Rule> = {
   recurringRun: { label: 'Entered standing expenses that came due', entity: 'expense', id: () => '', summary: (_a, r) => `${r ?? 0} entries` },
 };
 
+/** A line for something that is not a data change, such as signing in. */
+export function recordNote(db: Db, label: string, who: string): void {
+  try {
+    run(db, 'INSERT INTO audit_log (id, at, action, label, entity_type, entity_id, summary, user_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', newId(), nowIso(), 'auth', label, 'user', '', '', who);
+  } catch (err) {
+    console.error('[audit] could not write the log', err);
+  }
+}
+
 /** Whether a call is one that gets logged. */
 export const isAudited = (method: string): boolean => method in RULES;
 
@@ -145,13 +157,13 @@ export function auditBefore(db: Db, method: string): unknown {
 }
 
 /** Writes one line to the activity log. It never throws: the log must not be the reason a real change fails. */
-export function recordAudit(db: Db, method: string, args: unknown[], result: unknown, before?: unknown, actor = ''): void {
+export function recordAudit(db: Db, method: string, args: unknown[], result: unknown, before?: unknown, who = ''): void {
   const rule = RULES[method];
   if (!rule) return;
   try {
     const id = (rule.id ?? resultId)(args, result);
     const summary = rule.summary ? rule.summary(args, result, before) : '';
-    run(db, 'INSERT INTO audit_log (id, at, action, label, entity_type, entity_id, summary, actor) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', newId(), nowIso(), method, rule.label, rule.entity, id, String(summary ?? '').slice(0, 300), actor);
+    run(db, 'INSERT INTO audit_log (id, at, action, label, entity_type, entity_id, summary, user_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', newId(), nowIso(), method, rule.label, rule.entity, id, String(summary ?? '').slice(0, 300), who);
   } catch (err) {
     console.error('[audit] could not write the log', err);
   }
@@ -176,12 +188,12 @@ export function listAudit(db: Db, query: AuditQuery = {}): AuditEntry[] {
   }
   const search = (query.search ?? '').trim().toLowerCase();
   const limit = Math.min(Math.max(query.limit ?? 300, 1), 1000);
-  return all<{ id: string; at: string; action: string; label: string; entity_type: string; entity_id: string; summary: string; actor: string }>(
+  return all<{ id: string; at: string; action: string; label: string; entity_type: string; entity_id: string; summary: string; user_name: string }>(
     db,
     `SELECT * FROM audit_log ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY at DESC, rowid DESC`,
     ...params,
   )
-    .filter((r) => !search || `${r.label} ${r.summary} ${r.entity_type}`.toLowerCase().includes(search))
+    .filter((r) => !search || `${r.label} ${r.summary} ${r.entity_type} ${r.user_name}`.toLowerCase().includes(search))
     .slice(0, limit)
-    .map((r) => ({ id: r.id, at: r.at, action: r.action, label: r.label, entityType: r.entity_type, entityId: r.entity_id, summary: r.summary, actor: r.actor }));
+    .map((r) => ({ id: r.id, at: r.at, action: r.action, label: r.label, entityType: r.entity_type, entityId: r.entity_id, summary: r.summary, userName: r.user_name }));
 }

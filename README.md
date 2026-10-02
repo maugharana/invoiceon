@@ -186,7 +186,7 @@ On the New invoice and New proforma screens, the item box ends with **Not in inv
 
 ## How a saree is named
 
-Code: `shared/nomenclature.ts`, migrations 15 and 16, `tests/nomenclature.test.ts`, `tests/catalogue.test.ts`. A saree is entered as separate choices, and its name is built from them the same way every time:
+Code: `shared/nomenclature.ts`, migrations 21 and 22, `tests/nomenclature.test.ts`, `tests/catalogue.test.ts`. A saree is entered as separate choices, and its name is built from them the same way every time:
 
 ```
 Banarasi Katan Silk Kadhua Butidar Saree with Zardozi Work and Aari Work, Lalima         the design
@@ -220,23 +220,6 @@ Migrations 8 to 13. Each has an upgrade test (`tests/upgrade.test.ts`) that buil
 
 Not built, on purpose: e-invoice/e-way bill, users and roles, auto-update, production orders and job work (orders to a weaver for finished sarees are built, see Weaver orders). Sync/teams are planned for InvoiceOn Plus.
 
-## Labels and barcodes
-
-Code: `electron/services/labels.ts`, `src/components/{Barcode,LabelSheet}.tsx`, `src/pages/inventory/{LabelsModal,PrintLabelsPage}.tsx`, `tests/labels.test.ts`. **Labels** on a design (or on the designs ticked in the Inventory list) prints labels to stick on sarees: the shop, the saree's name, colour and size, its price, and a **Code 128 barcode of the Saree ID** (with a QR code of it where there is room).
-
-- Three papers: A4 sheet of 24 (70 × 37 mm), A4 sheet of 40 (52.5 × 29.7 mm), and a roll of 50 × 25 mm labels, one to a page. The number of labels of each piece starts at its stock. The price is what the shopper pays: the printed MRP, or the selling price plus GST (`shopperPricePaise`, shared with the website text). The barcode comes from the small `jsbarcode` library.
-- Printing goes through the same print window as invoices (`PrintShell` with `bare`, so the paper is the label sheet's own, not the A4 and margin chosen in Preferences). When printing, set margins to None and the scale to 100% so the labels line up with the sheet; sheet sizes are standard but label stock varies, so print one page on plain paper first and hold it against a real sheet.
-- **Scanning.** A handheld scanner types the code and presses Enter. In the item box on an invoice, an exact Saree ID is that piece alone, so Enter picks it. Scanning is not wired into stock taking yet.
-- Not verified here: that a particular scanner reads a particular printer's output. Code 128 is the usual choice because nearly every scanner reads it.
-
-## Photos
-
-Code: `electron/services/photos.ts`, migration 19, `src/pages/inventory/PhotosCard.tsx`, `photoFromFile` in `src/lib/image.ts`, `tests/photos.test.ts`. A design can have up to four photos, shown on its page (the first is the **cover**: make another the cover, or remove one) and as a thumbnail beside it in the Inventory list.
-
-- **Kept inside the book**, so a backup carries them. Because backups copy the whole book, photos are **shrunk before they are kept**: one to look at (about 700 pixels, JPEG, around 40 to 100 KB) and a thumbnail (about 120 pixels) for lists. The service refuses anything that is not a JPEG, PNG or WebP data URL, or that is far larger than a shrunk photo, so a large file can't slip in.
-- A shop with 300 designs and three photos each would add roughly 40 to 90 MB to the book. If that is ever too much, the next step is keeping photos as files beside the book and backing them up separately.
-- Removing a photo takes it out of view and keeps the others in order. Photos are not yet used on invoices or in the website CSV (those need a web address for each image).
-
 ## Website text
 
 Code: `shared/websiteText.ts`, `src/pages/inventory/WebsiteTextModal.tsx`, `websiteCsv` in `shared/csv.ts`, `tests/website-text.test.ts`. On a design, **Website text** gives the words for its page, built only from what is recorded about it:
@@ -246,22 +229,9 @@ Code: `shared/websiteText.ts`, `src/pages/inventory/WebsiteTextModal.tsx`, `webs
 - **Prices** are what the shopper pays: the printed MRP when there is one, otherwise the selling price plus GST at the design's rate or the shop's usual.
 - **Website CSV** on Inventory exports every design as a product import in the column layout Shopify reads: one row per colour and length, product details on the first row only, and every product as a **draft**, so nothing goes live unreviewed. Check the product category against your shop's list before importing.
 
-## Credit notes and returns
-
-Code: `electron/services/creditNotes.ts`, migration 18, `src/pages/invoices/CreditNote*.tsx`, `src/components/CreditNoteDocument.tsx`, `tests/credit-notes.test.ts`. On an issued invoice, **Take goods back** makes a credit note; all of them are under Invoices → Credit notes.
-
-- **A credit note is its own tax document** (`CN/2026-27/0001`, numbered by financial year), frozen like an invoice: seller, buyer, place of supply and each line's rate. It credits whole pieces, a line at a time, up to what is left on the invoice (earlier credit notes count). Dates can't be before the invoice or in the future.
-- **The tax is the invoice's own.** Each line's credit is its share of that line's taxable value and tax, in proportion to the pieces taken back; taking the last pieces of a line takes exactly what is left, so part credits add up to the whole to the paisa. Taking back everything on an invoice credits its exact total, round-off included, so it nets to nothing. Older invoices without per-line figures have the invoice's shared over the lines by value.
-- **Restocking is chosen per line.** Pieces that go back on the shelf come in through the stock ledger as a `return` movement; damaged ones don't. A saree archived since has no shelf, so it is not restocked.
-- **The money.** A credit first reduces what the customer still owes on that invoice (it counts as paid on the invoice, as `credit_note_applications`, though no money arrives, so "received" figures and account balances don't include it). Anything beyond that, because they had already paid, is either **refunded now** (also entered as an expense in *Customer refunds*, in the same step) or **kept as credit**, which is part of the customer's advance and is put on their next invoice automatically, oldest first. A customer who isn't saved always gets a refund. Held credit can be refunded later, in part or whole.
-- **The customer statement still balances.** Billed − credit notes − received − written off + refunded is outstanding − advance (asserted in the tests). The ledger shows each credit note, its cancellation and each refund.
-- **Cancelling** a credit note (made by mistake) takes the credit off the invoice and the restocked pieces off the shelf, which only works while they are still there. It is refused once money was handed back or the credit went onto another invoice. An invoice with a credit note standing can't be cancelled until the credit note is.
-- **Reports.** Sales shows credit notes and the net, and gross profit takes returned goods out (returned pieces that went back on the shelf give their cost back; damaged ones keep it). GST keeps its tables as invoiced and adds a **Credit notes** register (a row for each rate, with the buyer's GSTIN), the credit notes' totals, and the tax due after them, with its own CSV. HSN and the B2C by state tables are as invoiced, before credit notes.
-- Not built: a credit note for a price change with no goods coming back, and debit notes.
-
 ## Weaver orders (made to order sarees)
 
-Code: `electron/services/weaverOrders.ts`, migration 17, `src/pages/inventory/WeaverOrder*Page.tsx`, `src/pages/proformas/WeaverCard.tsx`, `tests/weaver-orders.test.ts`. Inventory has a third tab, **Weaver orders**.
+Code: `electron/services/weaverOrders.ts`, migration 23, `src/pages/inventory/WeaverOrder*Page.tsx`, `src/pages/proformas/WeaverCard.tsx`, `tests/weaver-orders.test.ts`. Inventory has a third tab, **Weaver orders**.
 
 The flow for a saree you don't have: customer quote (with a deposit if they pay one) → **Order from weaver** on the quote → **Mark received** when it arrives → **Convert to invoice**.
 
@@ -276,12 +246,6 @@ The flow for a saree you don't have: customer quote (with a deposit if they pay 
 ## E-way bill and e-invoice files
 
 On an issued invoice, **Government forms** prepares the JSON file the government's e-way bill portal or e-invoice (IRN) portal takes on upload. InvoiceOn does not issue the e-way bill number or the IRN: those come from the portals. The dialog shows what the portal would reject (missing GSTIN, pincode or HSN, an invoice number over 16 characters, a bad vehicle number) and the Save button stays off until those are fixed. Transport details are typed in the dialog and are not stored. The layouts follow the portals' published formats (e-way bill 1.0.0621, e-invoice schema 1.1); upload one invoice first and check the portal's validator before relying on it. The logic is in `shared/govFiles.ts`.
-
-## People and sign in
-
-**Settings → People.** Until an owner is added nobody signs in, as before. Adding the first owner switches sign in on: the book then asks for a name and a PIN (4 to 8 digits) each time it opens, and the activity log notes who did each thing. Owners can do everything. Staff can make invoices, take payments and add stock, but not change settings, cancel invoices or credit notes, void payments, write off, delete, see profit, margin or GST reports, or work with backups, exports and people (the list is `OWNER_ONLY` in `electron/services/users.ts`, and is enforced in `createApi`, not just hidden on screen). PINs are stored as salted scrypt hashes. Five wrong PINs in a row lock that person out for a minute. The last active owner can't be removed, demoted or switched off.
-
-What this is not: the PIN guards the screen on a shared computer and names who did what. It does not encrypt the data file, so someone with the file itself can open it. Staff can still see cost prices on a design and the dashboard figures. If the only owner forgets their PIN, the data file has to be edited to reopen the book (delete the rows in the `users` table).
 
 ## Updates
 
@@ -308,6 +272,66 @@ Code: `shared/gst.ts` (`computeInvoice`, `resolveRate`, `roundTotal`), migration
 - **Reports.** The GST report lists a row for each rate on an invoice (the invoice total sits on the first row only, so a column adds up), the B2C-by-state table splits by rate, and HSN totals use each line's own taxable value. The tax summary on an invoice is `taxByRate`.
 - **Quotes.** A quote keeps each line's discount, note and **resolved rate**. Converting it passes that rate on as typed, so a later change to slabs or rates cannot alter what was promised. A line's discount is shared over part invoices by quantity, each part taking the difference in what the pieces invoiced so far would carry, so the parts add up to exactly the line's discount.
 - **Round-off.** `roundOff` in settings: nearest rupee (the default, and what every earlier invoice used), up, down, or none (exact paise). The difference is its own line on the invoice. Rounding is applied once, to the grand total.
+
+## Credit notes, returns and refunds
+
+Code: `electron/services/credits.ts`, `payments.ts` (credit and refund kinds), migration 15, `tests/credit-notes.test.ts`.
+
+- **A credit note is its own immutable document** with its own numbering (`CN/2026-27/0001`; the prefix is a setting). It reverses chosen quantities of one invoice's lines; the invoice itself is never edited. A credit note cannot be cancelled, and an invoice with credit notes can no longer be cancelled (a mistake is corrected by billing again).
+- **Exact to the paisa.** Each line's taxable value and tax (stored per line since migration 14; older invoices have the invoice's figures shared over the lines) are shared out by quantity, each return taking the difference between what the pieces returned so far would carry and what they carry now. Returns in any number of parts therefore add up to exactly the line. A note that takes back the last of an invoice is worth exactly what is left of it, rounding included. Otherwise the total is rounded by the shop's round-off setting.
+- **The money.** The credit is first put toward what is still owed on the invoice (a payment of kind `credit` allocated to it, so the invoice's balance and status follow; it is not money received). If the customer had already paid, what is left over must be chosen: `refund` (a payment of kind `refund`, money out, from a chosen account) or `credit` (kept as the customer's credit, a `credit` payment left unallocated, used like any advance). A walk-in sale can only be refunded.
+- **Stock.** Pieces marked "resell" go back through the stock ledger (reason `return`, referencing the note). Damaged pieces do not, and stay a cost in the profit figures.
+- **Held money and refunds.** `advanceHeld` now counts `receipt` and `credit` payments less any refund whose `refund_of` points at them. `refundAdvance` hands back advance or credit the customer is holding, oldest money first. A payment that has been refunded cannot be reversed until the refund is; a `credit` cannot be reversed at all.
+- **Books.** Sales, profit, GST and the dashboard are net of credit notes, dated by the credit note. The GST report's totals are net and `credits` says what came off; it also lists a credit-note register (one row per rate) and a CSV. HSN, B2C-by-state and designs are net too. Refunds are money out in the account book, day/cash/bank book, collected figures and the customer's ledger. The ledger shows each credit note once and each refund.
+- **Migration 15** rebuilds the `payments` table, because SQLite cannot change a CHECK in place. The migrator switches foreign keys off around a migration marked `rebuilds` and checks them before committing, as SQLite's own instructions for this say; the upgrade test builds a book with payments, allocations and a cheque and checks every row survives.
+
+## Pictures
+
+Code: `electron/services/photos.ts`, `src/components/PhotoStrip.tsx`, `src/lib/images.ts`, migration 16, `tests/photos.test.ts`.
+
+- **Kept inside the book**, as small JPEGs the screen makes before sending (about 100 KB, longest side 1200 px, plus a 240 px thumbnail for lists). A backup is therefore always one file that holds the pictures, and a restore can never leave pictures behind.
+- **Where.** Up to 10 on a design, 6 on a colour, 4 on an expense (a photo of the bill). The first is the cover; a design with none of its own shows its first colour's. Lists ask for covers only for the designs on the page (`photoCovers`), and the full picture is fetched only when opened.
+- **Removing** drops the picture's bytes and keeps the row, so the book does not grow with pictures nobody can see.
+- **Inventory** has a List / Pictures switch (remembered per computer).
+- Pictures are not part of the spreadsheet export.
+
+## Barcodes, labels and the quick bill
+
+Code: `shared/code128.ts`, `src/components/Barcode.tsx`, `src/pages/inventory/Labels.tsx`, `src/pages/invoices/QuickBillPage.tsx`, migration 17, tests in `tests/code128.test.ts` and `tests/photos.test.ts`.
+
+- **Every colour and size is scannable by its SKU.** The labels the shop prints carry the SKU as a Code 128 barcode (drawn as vector bars, so any size and any scanner works). A piece that came with a printed barcode can store it too (`variants.barcode`, optional). A code can belong to only one piece, and a barcode may not equal another piece's SKU, so a scan never finds two.
+- **Scanners are keyboards.** They type the code and press Enter, so no driver is needed: the item box on the invoice screen and the quick bill take an exact SKU or barcode (any case) and add that piece, ahead of whatever else matches the text.
+- **Labels.** On a design: Print labels, a count for each colour and size (stock on hand to start with), three across, name, colour and size, price and barcode. In the browser it opens a page to Save as PDF; in the desktop app it prints.
+- **Quick bill** (Invoices > Quick bill): scan or type, change quantities with + and −, press Cash, UPI or Card. One walk-in bill is issued, paid in full, in one step, then the next customer. Ctrl+Enter takes cash. Named customers, item discounts and part payment use the full invoice screen. The maths is the same `computeInvoice` the invoice uses.
+
+## Holding stock for a quote, production orders and job work
+
+Code: `electron/services/reservations.ts`, `electron/services/production.ts`, `src/pages/inventory/ProductionPage.tsx`, migration 18, `tests/production.test.ts`.
+
+- **Holding stock.** A quote can hold its pieces (`proformas.reserve_stock`). They stay on the shelf and in the stock ledger, but `stock − held` is all anyone else can sell: an invoice that would eat into pieces held by another live quote is refused, naming the quote. A hold ends by itself when the quote is invoiced, lost, cancelled or past its date; the quote it is held for can always take its own pieces (`exceptQuoteId`). A hold can only be placed on pieces that are really there and not already held. Quotes that hold nothing may still promise more than exists.
+- **Production orders and job work are one thing.** An order is "make N of this colour and size", in-house or by a karigar from the vendors list at a wage per piece (`PRD/2026-27/0001`). Needs are the costing's quantity with its wastage, times N. Materials come off the shelf all at once when work starts (or when the first pieces arrive), refused whole if any is short. Finished pieces go on the shelf through the stock ledger as they arrive, in any number of batches; each batch raises an unpaid "Job work" bill to the karigar for pieces × wage. The last piece finishes the order. Closing early gives back only the materials for pieces never made; cancelling (before anything arrives) gives back all. Orders past their due date appear in notifications.
+
+## Loyalty points and wishlist
+
+Code: `electron/services/loyalty.ts`, `src/pages/customers/CustomerExtras.tsx`, migration 19, `tests/loyalty.test.ts`.
+
+- **Points are a ledger** (`loyalty_points`), like stock: earned, redeemed, reversed, adjusted, with the balance as their sum. Off until Settings > Preferences says how many rupees earn a point (`loyaltySpendPaise`; 0 = off); a point is worth `loyaltyPointValuePaise` (₹1 by default).
+- **Earning** is on the invoice total, for saved customers only. **Spending** is part of the invoice's discount (the screen's "Use N points"); the server checks the balance and that the discount covers the points' value. **Cancelling** an invoice gives spent points back and removes earned ones; **a credit note** removes the points earned on that much of the sale. Removals never take a balance below zero. Hand adjustments need a reason.
+- **Wishlist.** Designs a customer asked for. When one has stock, a notification says so; buying the design takes it off the list.
+
+## Signing in, roles, a receipt slip, a second window and the GSTR-1 file
+
+Code: `shared/roles.ts`, `electron/services/users.ts`, the gate in `createApi` (`electron/api.ts`), `src/pages/SignInScreen.tsx`, `src/pages/settings/UsersSection.tsx`, `electron/services/gstr.ts`, `src/components/SlipDocument.tsx`, migration 20; tests `tests/auth.test.ts`, `tests/gstr.test.ts`.
+
+- **Sign-in is optional.** A shop that never turns it on works as before. Settings > People & sign-in makes the first person the owner (name and a 4-8 digit PIN) and shows a **recovery code once**, the only way back from a forgotten owner PIN. From then on nothing works until someone signs in, and every call is checked against the signed-in person's role.
+- **Roles.** Owner (everything), Counter staff (sell, quote, take payments, look after customers, take goods back; no expenses, reports or settings), Accountant (payments, expenses, bills, reports, GST; cannot sell or change stock or settings). `shared/roles.ts` is an allow-list per role: a call not named there is refused, and `tests/auth.test.ts` fails if a new API call is not deliberately placed, so nothing new is open to staff by accident. Roles guard what people can *do* and which money screens they can open; a cashier can still see cost prices in stock lists.
+- **Session.** Kept in the one process that owns the book, not on the screen. A change of role or a removal takes effect on the person's very next action. Five wrong PINs pause that person for 30 seconds. PINs are stored only as salted scrypt hashes. The activity log records who did each thing, plus signing in, out and PIN changes.
+- **A PIN does not lock the data file.** Anyone with the computer can still copy `invoiceon.db`; keep the computer and the backups safe.
+- **80 mm receipt slip.** Invoice > Receipt, and after a quick bill: a short text-only receipt sized for a thermal roll.
+- **Second window.** Ctrl+Shift+N in the desktop app opens another window on the same book (the sign-in is shared).
+- **GSTR-1 file.** Reports > GST > Prepare GSTR-1 for a single month: B2B invoices by buyer with tax by rate, B2C totalled by in/out of state, rate and state (credit notes to retail buyers come off these), credit notes to businesses, the HSN summary net of credit notes, and the documents issued. It is built from the same data as the GST report, which the tests compare to the paisa. It is for you to upload; InvoiceOn files nothing, and the portal's own check on upload is the final word, so read the warnings first. Unit code is PCS; descriptions in the HSN table are left blank.
+
+Not built: dark mode and alternative invoice layouts. Both are about how the screens look and are best done after the screens have their final design, to avoid doing them twice.
 
 ## Brand
 

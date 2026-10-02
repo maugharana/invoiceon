@@ -1,20 +1,23 @@
-import JsBarcode from 'jsbarcode';
-import { useEffect, useRef } from 'react';
+import { canEncode128, code128Widths } from '../../shared/code128';
 
-/** A Code 128 barcode of some text, drawn as SVG so it prints sharply at any size. Most handheld scanners read it as typed text. */
-export function Barcode({ value, height = 28, className }: { value: string; height?: number; className?: string }) {
-  const ref = useRef<SVGSVGElement>(null);
-  useEffect(() => {
-    if (!ref.current || !value) return;
-    try {
-      JsBarcode(ref.current, value, { format: 'CODE128', displayValue: false, margin: 0, height, width: 1.3, background: 'transparent', lineColor: '#1A1D1B' });
-      // Let the drawing scale to the box it is put in.
-      ref.current.setAttribute('preserveAspectRatio', 'none');
-      ref.current.removeAttribute('width');
-      ref.current.removeAttribute('height');
-    } catch {
-      // A value Code 128 can't hold leaves the space empty; the text under it still reads.
-    }
-  }, [value, height]);
-  return <svg ref={ref} role="img" aria-label={`Barcode of ${value}`} className={className} />;
+/** A Code 128 barcode as a crisp vector drawing that any scanner reads, at any size. */
+export function Barcode({ text, height = 28, className }: { text: string; height?: number; className?: string }) {
+  if (!canEncode128(text)) return <span className="text-[9px] text-ink-muted">{text}</span>;
+  const quiet = 10;
+  const widths = code128Widths(text);
+  const total = widths.reduce((a, b) => a + b, 0) + quiet * 2;
+  let x = quiet;
+  const bars: { x: number; w: number }[] = [];
+  widths.forEach((w, i) => {
+    if (i % 2 === 0) bars.push({ x, w });
+    x += w;
+  });
+  return (
+    <svg viewBox={`0 0 ${total} 10`} preserveAspectRatio="none" role="img" aria-label={`Barcode ${text}`} className={className} style={{ height, width: '100%' }} shapeRendering="crispEdges">
+      <rect width={total} height="10" fill="#fff" />
+      {bars.map((b) => (
+        <rect key={b.x} x={b.x} y="0" width={b.w} height="10" fill="#000" />
+      ))}
+    </svg>
+  );
 }

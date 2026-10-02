@@ -27,6 +27,9 @@ export function InvoiceSection({ draft, set }: SectionProps) {
         <Field label="Separate B2B numbering" hint={draft.b2bPrefix ? `B2B tax invoices count on their own: ${draft.b2bPrefix}/2026-27/0001` : 'Optional. Leave blank to number every invoice in one run. Set a prefix (like MGB) to give B2B tax invoices their own run.'}>
           <Input value={draft.b2bPrefix} onChange={(e) => set('b2bPrefix', e.target.value.toUpperCase())} maxLength={10} className="num max-w-[10rem]" placeholder="none" />
         </Field>
+        <Field label="Credit note numbering" hint={`Credit notes are numbered ${draft.creditNotePrefix || 'CN'}/2026-27/0001, in their own run.`}>
+          <Input value={draft.creditNotePrefix} onChange={(e) => set('creditNotePrefix', e.target.value.toUpperCase())} maxLength={10} className="num max-w-[10rem]" />
+        </Field>
         <Field label="Terms printed on invoices">
           <Textarea rows={2} value={draft.invoiceTerms} onChange={(e) => set('invoiceTerms', e.target.value)} />
         </Field>

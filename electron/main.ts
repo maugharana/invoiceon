@@ -51,7 +51,7 @@ const vault: Vault = {
   decrypt: (stored) => (stored.startsWith('enc:') ? safeStorage.decryptString(Buffer.from(stored.slice(4), 'base64')) : plainVault.decrypt(stored)),
 };
 
-function createHost(getParent: () => BrowserWindow | null): Host {
+function createHost(getParent: () => BrowserWindow | null, newWindow: () => void): Host {
   return {
     vault,
     async pickSavePath(title, fileName) {
@@ -91,9 +91,12 @@ function createHost(getParent: () => BrowserWindow | null): Host {
         w.destroy();
       }
     },
+    async openWindow() {
+      newWindow();
+    },
     async saveTextFile(fileName, content) {
-      const json = /\.json$/i.test(fileName);
-      const filePath = await chooseSavePath(getParent(), json ? 'Save file' : 'Save report', fileName, json ? { name: 'JSON file', extensions: ['json'] } : { name: 'CSV (opens in Excel)', extensions: ['csv'] });
+      const json = fileName.toLowerCase().endsWith('.json');
+      const filePath = await chooseSavePath(getParent(), json ? 'Save GST return file' : 'Save report', fileName, json ? { name: 'JSON (for the GST portal)', extensions: ['json'] } : { name: 'CSV (opens in Excel)', extensions: ['csv'] });
       if (!filePath) return { saved: false };
       try {
         await writeFile(filePath, content, 'utf8');
@@ -164,7 +167,7 @@ if (!app.requestSingleInstanceLock()) {
     // The app can stay open for days, so look again every hour; it only acts when a new day has begun.
     const hourly = setInterval(autoBackup, 60 * 60 * 1000);
     app.on('before-quit', () => clearInterval(hourly));
-    const api = createApi(db, createHost(() => win), dataDir);
+    const api = createApi(db, createHost(() => win, () => createWindow()), dataDir);
 
     ipcMain.handle('api', (_event, method: string, args: unknown[]) => invoke(api, method, Array.isArray(args) ? args : []));
     app.on('before-quit', () => db.close());
@@ -181,7 +184,7 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   function createWindow(): void {
-    win = new BrowserWindow({
+    const created = new BrowserWindow({
       width: 1360,
       height: 860,
       minWidth: 1200,
@@ -194,19 +197,31 @@ if (!app.requestSingleInstanceLock()) {
       autoHideMenuBar: true,
       webPreferences,
     });
-    win.once('ready-to-show', () => win?.show());
+    win = created;
+    // Several windows can be open on the same book. Dialogs belong to whichever was used last, and Ctrl+Shift+N opens another.
+    created.on('focus', () => (win = created));
+    created.on('closed', () => {
+      if (win === created) win = BrowserWindow.getAllWindows()[0] ?? null;
+    });
+    created.webContents.on('before-input-event', (event, input) => {
+      if (input.type === 'keyDown' && input.control && input.shift && input.key.toLowerCase() === 'n') {
+        event.preventDefault();
+        createWindow();
+      }
+    });
+    created.once('ready-to-show', () => created.show());
 
     // The app is a single local page: block any navigation away from it and send links to the system browser.
-    win.webContents.setWindowOpenHandler(({ url }) => {
+    created.webContents.setWindowOpenHandler(({ url }) => {
       // Web links open in the browser; mailto: links open the person's mail program (used by "Share → Email").
       if (/^(https?|mailto):/.test(url)) void shell.openExternal(url);
       return { action: 'deny' };
     });
-    win.webContents.on('will-navigate', (event, url) => {
+    created.webContents.on('will-navigate', (event, url) => {
       if (!DEV_URL || !url.startsWith(DEV_URL)) event.preventDefault();
     });
 
-    if (DEV_URL) void win.loadURL(DEV_URL);
-    else void win.loadFile(join(__dirname, '../dist/index.html'));
+    if (DEV_URL) void created.loadURL(DEV_URL);
+    else void created.loadFile(join(__dirname, '../dist/index.html'));
   }
 }

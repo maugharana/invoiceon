@@ -15,7 +15,6 @@ import { useCsvExport } from '../../lib/exportCsv';
 import { plural } from '../../lib/format';
 import { navigate, paths } from '../../lib/router';
 import { BulkDesignModal, type BulkKind } from './BulkDesignModal';
-import { LabelsModal } from './LabelsModal';
 import { PlacesModal } from './Places';
 import { DesignFormModal } from './DesignFormModal';
 import { InventoryShell } from './InventoryTabs';
@@ -29,6 +28,21 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
   const refresh = useRefresh();
   const saveCsv = useCsvExport();
   const [filter, setFilter] = useState<Filter>(initialFilter);
+  const [view, setView] = useState<'list' | 'grid'>(() => {
+    try {
+      return localStorage.getItem('invoiceon.inventory.view') === 'grid' ? 'grid' : 'list';
+    } catch {
+      return 'list';
+    }
+  });
+  const chooseView = (v: 'list' | 'grid') => {
+    setView(v);
+    try {
+      localStorage.setItem('invoiceon.inventory.view', v);
+    } catch {
+      /* the choice just isn't remembered */
+    }
+  };
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
   const [adding, setAdding] = useState(false);
@@ -39,8 +53,6 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
   const sort = useSort<SortKey>('name', 'asc');
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [bulk, setBulk] = useState<BulkKind | null>(null);
-  /** The pieces of the ticked designs, once their labels have been asked for. */
-  const [labelling, setLabelling] = useState<{ ids: string[]; stock: Record<string, number> } | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search), 150);
@@ -54,12 +66,9 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
 
   const s = summary.data;
   const isEmptyInventory = s?.designCount === 0;
-  // Counted over every design, whatever the search and filters on this screen are showing.
-  const everyDesign = useQuery(() => api.designsList());
-  const covers = useQuery(() => api.designCovers());
-  const untidyCount = (everyDesign.data ?? []).filter(isUntidy).length;
-  const fabrics = useMemo(() => fabricsOf(everything.data ?? []), [everything.data]);
+  const untidyCount = (everything.data ?? []).filter(isUntidy).length;
   const choice = useMemo(() => ({ weaveStyle: choicesOf(everything.data ?? [], 'weaveStyle'), technique: choicesOf(everything.data ?? [], 'technique'), pattern: choicesOf(everything.data ?? [], 'pattern'), work: choicesOf(everything.data ?? [], 'work') }), [everything.data]);
+  const fabrics = useMemo(() => fabricsOf(everything.data ?? []), [everything.data]);
   const tagList = useMemo(() => tagCounts((everything.data ?? []).map((d) => d.tags)), [everything.data]);
 
   const shown = useMemo(() => {
@@ -82,6 +91,8 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
     }
   }, [designs.data, columns, sort.key, sort.dir]);
   const pager = usePager(shown);
+  const coverIds = pager.pageItems.map((d) => d.id);
+  const covers = useQuery(() => (coverIds.length ? api.photoCovers('design', coverIds) : Promise.resolve({} as Record<string, string>)), [coverIds.join(',')]);
   const pageAllPicked = pager.pageItems.length > 0 && pager.pageItems.every((d) => picked.has(d.id));
   const togglePick = (id: string) =>
     setPicked((s) => {
@@ -173,8 +184,6 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
         </div>
       )}
 
-      {designs.error && <ErrorNote>{designs.error}</ErrorNote>}
-
       {!isEmptyInventory && untidyCount > 0 && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-surface px-4 py-3">
           <p className="min-w-0 flex-1 text-sm text-ink-muted">
@@ -183,6 +192,8 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
           <Button className="shrink-0" onClick={() => navigate(paths.tidyNames)}>Fix names</Button>
         </div>
       )}
+
+      {designs.error && <ErrorNote>{designs.error}</ErrorNote>}
 
       {isEmptyInventory ? (
         <Card>
@@ -211,6 +222,8 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
                 Filters{active ? ' · on' : ''}
               </Button>
             </div>
+            <div className="flex items-center gap-3">
+            <Segmented label="View" value={view} onChange={chooseView} options={[{ value: 'list', label: 'List' }, { value: 'grid', label: 'Pictures' }]} />
             <Segmented
               label="Stock filter"
               value={filter}
@@ -221,21 +234,12 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
                 { value: 'out', label: 'Out of stock', count: s?.outOfStockDesigns },
               ]}
             />
+            </div>
           </div>
 
           {showFilters && (
             <Card className="animate-fade-in mb-4 p-4">
               <div className="grid grid-cols-6 items-end gap-x-4 gap-y-3">
-                <Field label="Tag">
-                  <Select value={columns.tag} onChange={(e) => setColumn('tag', e.target.value)}>
-                    <option value="">Any tag</option>
-                    {tagList.map((t) => (
-                      <option key={t.tag} value={t.tag}>
-                        {t.tag} ({t.count})
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
                 {(
                   [
                     ['weaveStyle', 'Weave style', 'Any weave style'],
@@ -257,6 +261,16 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
                     </Field>
                   ) : null,
                 )}
+                <Field label="Tag">
+                  <Select value={columns.tag} onChange={(e) => setColumn('tag', e.target.value)}>
+                    <option value="">Any tag</option>
+                    {tagList.map((t) => (
+                      <option key={t.tag} value={t.tag}>
+                        {t.tag} ({t.count})
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
                 <Field label="Fabric">
                   <Select value={columns.fabric} onChange={(e) => setColumn('fabric', e.target.value)}>
                     <option value="">Any fabric</option>
@@ -308,22 +322,6 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
                 <span className="num">{picked.size}</span> selected
               </span>
               <span className="flex items-center gap-2">
-                <Button
-                  className="h-8 text-xs"
-                  onClick={() =>
-                    void (async () => {
-                      try {
-                        const details = await Promise.all([...picked].map((id) => api.designGet(id)));
-                        const variants = details.flatMap((d) => d.variants);
-                        setLabelling({ ids: variants.map((v) => v.id), stock: Object.fromEntries(variants.map((v) => [v.id, v.stock])) });
-                      } catch (err) {
-                        toast.error(errorMessage(err));
-                      }
-                    })()
-                  }
-                >
-                  Labels
-                </Button>
                 <Button className="h-8 text-xs" onClick={() => setBulk('reorder')}>
                   Set reorder level
                 </Button>
@@ -360,6 +358,27 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
                   </Button>
                 }
               />
+            ) : view === 'grid' ? (
+              <ul className="grid grid-cols-2 gap-4 p-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                {pager.pageItems.map((d) => (
+                  <li key={d.id}>
+                    <a href={`#${paths.design(d.id)}`} className="group block overflow-hidden rounded-lg border border-line bg-surface transition-shadow duration-150 hover:shadow-card">
+                      <div className="flex aspect-square items-center justify-center bg-canvas">
+                        {covers.data?.[d.id] ? <img src={covers.data[d.id]} alt="" className="h-full w-full object-cover" /> : <span className="px-3 text-center text-xs text-ink-muted">No picture yet</span>}
+                      </div>
+                      <div className="space-y-1 p-3">
+                        <div className="truncate">{d.name}</div>
+                        <div className="truncate text-xs text-ink-muted">{[d.nickname, d.code].filter(Boolean).join(' · ')}</div>
+                        <div className="flex items-center justify-between pt-1">
+                          <span className="num text-xs text-ink-muted">{d.totalStock} in stock</span>
+                          <StockPill status={d.status} />
+                        </div>
+                        <div className="num text-sm">{d.maxPricePaise === 0 ? <span className="text-ink-muted">—</span> : d.minPricePaise === d.maxPricePaise ? formatMoney(d.minPricePaise, { fractionDigits: 0 }) : `${formatMoney(d.minPricePaise, { fractionDigits: 0 })} – ${formatMoney(d.maxPricePaise, { fractionDigits: 0 })}`}</div>
+                      </div>
+                    </a>
+                  </li>
+                ))}
+              </ul>
             ) : (
               <table className="w-full">
                 <thead>
@@ -392,8 +411,8 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
                         <input type="checkbox" checked={picked.has(d.id)} onChange={() => togglePick(d.id)} aria-label={`Select ${d.name}`} className="h-4 w-4 accent-[#0F6E56]" />
                       </td>
                       <td className="td">
-                        <div className="flex items-start gap-3">
-                          {covers.data?.[d.id] && <img src={covers.data[d.id]} alt="" className="h-12 w-9 shrink-0 rounded-md border border-line object-cover" />}
+                        <div className="flex items-center gap-3">
+                          {covers.data?.[d.id] ? <img src={covers.data[d.id]} alt="" className="h-10 w-10 shrink-0 rounded-lg border border-line object-cover" /> : null}
                           <div className="min-w-0">
                         <div>{d.name}</div>
                         <div className="text-xs text-ink-muted">
@@ -438,7 +457,6 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
         </>
       )}
 
-      {labelling && <LabelsModal variantIds={labelling.ids} stock={labelling.stock} onClose={() => setLabelling(null)} />}
       {bulk && <BulkDesignModal ids={[...picked]} kind={bulk} onClose={() => setBulk(null)} onDone={() => setPicked(new Set())} />}
       {adding && <DesignFormModal suggestedCode={suggestedCode.data} onClose={() => setAdding(false)} onSaved={(d) => navigate(paths.design(d.id))} />}
       {places && <PlacesModal onClose={() => setPlaces(false)} />}

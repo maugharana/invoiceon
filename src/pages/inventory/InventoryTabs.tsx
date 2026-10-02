@@ -5,11 +5,12 @@ import { paths } from '../../lib/router';
 const TABS = [
   { id: 'designs', label: 'Designs', href: paths.inventory() },
   { id: 'materials', label: 'Raw materials', href: paths.materials },
+  { id: 'production', label: 'Production', href: paths.production },
   { id: 'weaver', label: 'Weaver orders', href: paths.weaverOrders },
 ] as const;
 
-/** Shared header for the top-level inventory screens. */
-export function InventoryShell({ tab, actions, children }: { tab: 'designs' | 'materials' | 'weaver'; actions?: ReactNode; children: ReactNode }) {
+/** Shared header for the two top-level inventory screens. */
+export function InventoryShell({ tab, actions, children }: { tab: 'designs' | 'materials' | 'production' | 'weaver'; actions?: ReactNode; children: ReactNode }) {
   return (
     <>
       <PageHeader title="Inventory" subtitle="Saree designs, their colors and sizes, and what goes into making them." actions={actions} />

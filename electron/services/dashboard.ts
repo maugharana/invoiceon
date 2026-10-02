@@ -29,8 +29,8 @@ function allTimeRange(db: Db, today: string): { from: string; to: string } {
 }
 
 function todayFigures(db: Db, today: string): DashboardToday {
-  const issued = get<{ n: number; s: number }>(db, "SELECT COUNT(*) AS n, COALESCE(SUM(total_paise), 0) AS s FROM invoices WHERE status = 'issued' AND issue_date = ?", today)!;
-  const received = get<{ n: number; s: number }>(db, "SELECT COUNT(*) AS n, COALESCE(SUM(amount_paise), 0) AS s FROM payments WHERE voided_at IS NULL AND kind = 'receipt' AND received_on = ?", today)!;
+  const issued = get<{ n: number; s: number }>(db, "SELECT COUNT(*) AS n, COALESCE(SUM(total_paise), 0) - (SELECT COALESCE(SUM(total_paise), 0) FROM credit_notes WHERE issue_date = ?) AS s FROM invoices WHERE status = 'issued' AND issue_date = ?", today, today)!;
+  const received = get<{ n: number; s: number }>(db, "SELECT COALESCE(SUM(kind = 'receipt'), 0) AS n, COALESCE(SUM(CASE WHEN kind = 'refund' THEN -amount_paise ELSE amount_paise END), 0) AS s FROM payments WHERE voided_at IS NULL AND kind IN ('receipt', 'refund') AND received_on = ?", today)!;
   const dueToday = listInvoices(db).filter((i) => i.dueDate === today && (i.status === 'unpaid' || i.status === 'partial') && i.totalPaise - i.paidPaise > 0);
   return {
     date: today,
@@ -91,7 +91,8 @@ export function dashboardOverview(db: Db, requested: { from: string; to: string 
   const trend: TrendPoint[] = trendKeys(range, granularity).map((key) => ({ key, invoicedPaise: 0, receivedPaise: 0, expensesPaise: 0 }));
   const byKey = new Map(trend.map((t) => [t.key, t]));
   for (const i of all<{ issue_date: string; total_paise: number }>(db, "SELECT issue_date, total_paise FROM invoices WHERE status = 'issued' AND issue_date BETWEEN ? AND ?", range.from, range.to)) byKey.get(trendBucketOf(i.issue_date, granularity))!.invoicedPaise += i.total_paise;
-  for (const p of all<{ received_on: string; amount_paise: number }>(db, "SELECT received_on, amount_paise FROM payments WHERE voided_at IS NULL AND kind = 'receipt' AND received_on BETWEEN ? AND ?", range.from, range.to)) byKey.get(trendBucketOf(p.received_on, granularity))!.receivedPaise += p.amount_paise;
+  for (const c of all<{ issue_date: string; total_paise: number }>(db, 'SELECT issue_date, total_paise FROM credit_notes WHERE issue_date BETWEEN ? AND ?', range.from, range.to)) byKey.get(trendBucketOf(c.issue_date, granularity))!.invoicedPaise -= c.total_paise;
+  for (const p of all<{ received_on: string; amount_paise: number }>(db, "SELECT received_on, CASE WHEN kind = 'refund' THEN -amount_paise ELSE amount_paise END AS amount_paise FROM payments WHERE voided_at IS NULL AND kind IN ('receipt', 'refund') AND received_on BETWEEN ? AND ?", range.from, range.to)) byKey.get(trendBucketOf(p.received_on, granularity))!.receivedPaise += p.amount_paise;
   for (const e of expenses) byKey.get(trendBucketOf(e.date, granularity))!.expensesPaise += e.amountPaise;
 
   const invoices = listInvoices(db);
