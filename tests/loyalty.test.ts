@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createApi } from '../electron/api';
 import { openDb, type Db } from '../electron/db/connection';
-import * as credits from '../electron/services/credits';
+import * as credits from '../electron/services/creditNotes';
 import * as customers from '../electron/services/customers';
 import * as inventory from '../electron/services/inventory';
 import * as invoices from '../electron/services/invoices';
@@ -73,10 +73,10 @@ describe('loyalty points', () => {
     saveSettings(db, { loyaltySpendPaise: rupees(100) });
     const inv = sell(3); // 30 points
     const line = invoices.getInvoice(db, inv.id).lines[0]!;
-    credits.createCreditNote(db, { invoiceId: inv.id, issueDate: today, reason: 'Returned', lines: [{ invoiceLineId: line.id, qty: 1, restock: true }], leftover: 'credit' });
+    credits.createCreditNote(db, { invoiceId: inv.id, issueDate: today, reason: 'Returned', lines: [{ invoiceLineId: line.id, qty: 1, restock: true }], settlement: 'credit' });
     expect(points()).toBe(20);
     loyalty.adjust(db, { customerId, points: -18, note: 'spent in the shop' });
-    credits.createCreditNote(db, { invoiceId: inv.id, issueDate: today, reason: 'Returned', lines: [{ invoiceLineId: line.id, qty: 1, restock: true }], leftover: 'credit' });
+    credits.createCreditNote(db, { invoiceId: inv.id, issueDate: today, reason: 'Returned', lines: [{ invoiceLineId: line.id, qty: 1, restock: true }], settlement: 'credit' });
     expect(points()).toBe(0); // 2 left, 10 owed back: only what is there is taken
   });
 

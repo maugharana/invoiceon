@@ -297,12 +297,6 @@ export function dayBook(db: Db, range: Range, mode: DayBookMode): DayBook {
       `SELECT p.received_on, p.method, p.amount_paise, p.reference, p.note, c.name, p.created_at FROM payments p LEFT JOIN customers c ON c.id = p.customer_id WHERE p.voided_at IS NULL AND p.kind = 'receipt' AND ${where} ORDER BY p.received_on, p.created_at`,
       ...p,
     ).filter((r) => inMode(r.method));
-  const refunds = (where: string, ...p: string[]) =>
-    all<{ received_on: string; method: PaymentMethod; amount_paise: number; reference: string; note: string; name: string | null; created_at: string }>(
-      db,
-      `SELECT p.received_on, p.method, p.amount_paise, p.reference, p.note, c.name, p.created_at FROM payments p LEFT JOIN customers c ON c.id = p.customer_id WHERE p.voided_at IS NULL AND p.kind = 'refund' AND ${where} ORDER BY p.received_on, p.created_at`,
-      ...p,
-    ).filter((r) => inMode(r.method));
   const spendings = (where: string, ...p: string[]) =>
     all<{ expense_date: string; method: PaymentMethod; amount_paise: number; category: string; vendor: string; reference: string; created_at: string }>(
       db,
@@ -310,22 +304,16 @@ export function dayBook(db: Db, range: Range, mode: DayBookMode): DayBook {
       ...p,
     ).filter((r) => inMode(r.method));
 
-  const opening = mode === 'all' ? null : sum(receipts('p.received_on < ?', range.from), (r) => r.amount_paise) - sum(refunds('p.received_on < ?', range.from), (r) => r.amount_paise) - sum(spendings('COALESCE(paid_on, expense_date) < ?', range.from), (r) => r.amount_paise);
+  const opening = mode === 'all' ? null : sum(receipts('p.received_on < ?', range.from), (r) => r.amount_paise) - sum(spendings('COALESCE(paid_on, expense_date) < ?', range.from), (r) => r.amount_paise);
 
   const entries: (DayBookEntry & { order: string })[] = [];
   if (mode === 'all') {
-    for (const n of all<{ issue_date: string; created_at: string; number: string; total_paise: number; buyer_json: string; customer_id: string | null }>(db, 'SELECT issue_date, created_at, number, total_paise, buyer_json, customer_id FROM credit_notes WHERE issue_date BETWEEN ? AND ?', range.from, range.to)) {
-      entries.push({ order: `${n.issue_date}1${n.created_at}`, date: n.issue_date, kind: 'credit-note', party: n.customer_id ? (JSON.parse(n.buyer_json) as { name: string }).name : 'Walk-in customer', detail: `Credit note ${n.number}`, method: null, inPaise: 0, outPaise: 0, invoicedPaise: -n.total_paise, balancePaise: null });
-    }
     for (const inv of loadInvoices(db, range)) {
       entries.push({ order: `${inv.row.issue_date}1`, date: inv.row.issue_date, kind: 'sale', party: inv.row.customer_id ? inv.buyerName : 'Walk-in customer', detail: `Invoice ${inv.row.number}`, method: null, inPaise: 0, outPaise: 0, invoicedPaise: inv.row.total_paise, balancePaise: null });
     }
   }
   for (const r of receipts('p.received_on BETWEEN ? AND ?', range.from, range.to)) {
     entries.push({ order: `${r.received_on}2${r.created_at}`, date: r.received_on, kind: 'receipt', party: r.name ?? 'Walk-in customer', detail: [r.reference, r.note].filter(Boolean).join(' · ') || 'Payment received', method: r.method, inPaise: r.amount_paise, outPaise: 0, invoicedPaise: 0, balancePaise: null });
-  }
-  for (const r of refunds('p.received_on BETWEEN ? AND ?', range.from, range.to)) {
-    entries.push({ order: `${r.received_on}2${r.created_at}`, date: r.received_on, kind: 'refund', party: r.name ?? 'Walk-in customer', detail: [r.reference, r.note].filter(Boolean).join(' · ') || 'Refund', method: r.method, inPaise: 0, outPaise: r.amount_paise, invoicedPaise: 0, balancePaise: null });
   }
   for (const r of spendings('COALESCE(paid_on, expense_date) BETWEEN ? AND ?', range.from, range.to)) {
     entries.push({ order: `${r.expense_date}3${r.created_at}`, date: r.expense_date, kind: 'expense', party: r.vendor || r.category, detail: [r.category, r.reference].filter(Boolean).join(' · '), method: r.method, inPaise: 0, outPaise: r.amount_paise, invoicedPaise: 0, balancePaise: null });

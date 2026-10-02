@@ -1,25 +1,29 @@
 import type { WebsiteListing } from './websiteText';
 import type { Paise } from './money';
-import type { Role } from './roles';
 import type {
-  CatalogueEntry,
-  CatalogueOptions,
-  TidyResult,
-  TidyRow,
-  WeaverOrder,
-  WeaverOrderDraft,
-  WeaverOrderInput,
-  WeaverOrderQuery,
-  WeaverOrderSummary,
-  WeaverPayInput,
-  WeaverReceiveInput,
+  AppUser,
   BulkAddResult,
+  SessionState,
+  UserInput,
+  UserRole,
   BulkDesignAction,
   BulkDesignResult,
   CustomerImportResult,
   StockTakeLine,
   StockTakeResult,
   BulkSareeRow,
+  CatalogueEntry,
+  CreditNote,
+  LabelItem,
+  LabelLayout,
+  DesignPhoto,
+  DesignPhotoInput,
+  CreditNoteInput,
+  CreditNotePreview,
+  CreditNoteQuery,
+  CreditNoteRefundInput,
+  CreditNoteSummary,
+  CatalogueOptions,
   Customer,
   AuditEntry,
   AuditQuery,
@@ -83,25 +87,6 @@ import type {
   FestivalComparison,
   ReorderRow,
   DataInfo,
-  Gstr1Export,
-  AuthStatus,
-  AuthUser,
-  ManagedUser,
-  LoyaltyEntry,
-  WishlistEntry,
-  ProductionOrder,
-  ProductionOrderInput,
-  ProductionQuery,
-  Photo,
-  PhotoInput,
-  PhotoOwner,
-  CreditNote,
-  CreditNoteInput,
-  CreditNotePreview,
-  CreditNoteQuery,
-  CreditNoteSummary,
-  ReturnableLine,
-  RefundInput,
   BackupResult,
   BackupSettings,
   DriveBackup,
@@ -130,6 +115,15 @@ import type {
   InvoiceQuery,
   InvoiceSummary,
   SaleVariant,
+  TidyResult,
+  TidyRow,
+  WeaverOrder,
+  WeaverOrderDraft,
+  WeaverOrderInput,
+  WeaverOrderQuery,
+  WeaverOrderSummary,
+  WeaverPayInput,
+  WeaverReceiveInput,
   DesignDetail,
   DesignInput,
   DesignQuery,
@@ -142,6 +136,12 @@ import type {
   StockMovement,
   Variant,
   VariantInput,
+  Gstr1Export,
+  LoyaltyEntry,
+  WishlistEntry,
+  ProductionOrder,
+  ProductionOrderInput,
+  ProductionQuery,
 } from './types';
 import type { CompareWith } from './periods';
 
@@ -151,37 +151,14 @@ import type { CompareWith } from './periods';
  * plain Error whose message is safe to show the user.
  */
 export interface Api {
-  /** Every design as web page text and shop-import data: title, search text, description, tags and prices (see shared/websiteText.ts). */
-  websiteListings(): Promise<WebsiteListing[]>;
-  /** Adds one saree to the inventory from the invoice screen and returns it ready to put on the invoice. Same rules as the Add sarees sheet. */
-  inventoryQuickAdd(row: BulkSareeRow): Promise<SaleVariant>;
-  /** The choices for weave style, fabric, technique, work and colour. */
-  catalogueOptions(): Promise<CatalogueOptions>;
-  /** Every choice with how many designs use it, for the screen that manages them. */
-  catalogueEntries(): Promise<CatalogueEntry[]>;
-  /** Renames a choice everywhere it is used. Renaming to a choice that already exists merges the two. Built in choices can't be renamed. */
-  catalogueRename(input: { kind: CatalogueEntry['kind']; from: string; to: string }): Promise<{ changed: number }>;
-  /** Removes a choice nobody uses. A choice in use, or a built in one, is refused. */
-  catalogueDelete(input: { kind: CatalogueEntry['kind']; label: string }): Promise<void>;
-  /** Sets the choices on several designs and, where asked, renames each to the name they build. All or nothing. */
-  designsTidy(rows: TidyRow[]): Promise<TidyResult>;
-
-  weaverOrdersList(query?: WeaverOrderQuery): Promise<WeaverOrderSummary[]>;
-  weaverOrderGet(id: string): Promise<WeaverOrder>;
-  weaverOrderCreate(input: WeaverOrderInput): Promise<WeaverOrder>;
-  /** Changes an order. A line that has pieces received can't go below what has arrived or be removed. */
-  weaverOrderUpdate(id: string, input: WeaverOrderInput): Promise<WeaverOrder>;
-  /** Marks pieces as arrived: they go into stock, through the stock ledger, and the order moves to part received or received. */
-  weaverOrderReceive(id: string, input: WeaverReceiveInput): Promise<WeaverOrder>;
-  /** Records money paid to the weaver. It is also entered as an expense. */
-  weaverOrderPay(id: string, input: WeaverPayInput): Promise<WeaverOrder>;
-  /** Takes a payment back (entered by mistake). Its expense is removed too. */
-  weaverPaymentVoid(id: string): Promise<WeaverOrder>;
-  /** Cancels an order nothing has arrived for and nothing is paid on. */
-  weaverOrderCancel(id: string, reason: string): Promise<WeaverOrder>;
-  /** What is short for a quote's items, as a starting point for an order to a weaver. */
-  weaverOrderDraft(proformaId: string): Promise<WeaverOrderDraft>;
-
+  sessionState(): Promise<SessionState>;
+  sessionLogin(userId: string, pin: string): Promise<SessionState>;
+  sessionLogout(): Promise<SessionState>;
+  usersList(): Promise<AppUser[]>;
+  userCreate(input: UserInput): Promise<AppUser>;
+  userUpdate(id: string, patch: { name?: string; role?: UserRole; active?: boolean }): Promise<AppUser>;
+  userSetPin(id: string, pin: string): Promise<AppUser>;
+  userRemove(id: string): Promise<void>;
   getSettings(): Promise<Settings>;
   saveSettings(patch: Partial<Settings>): Promise<Settings>;
 
@@ -208,9 +185,36 @@ export interface Api {
   exportSaveZip(fileName: string, base64: string): Promise<{ saved: boolean; path?: string }>;
   /** A new design copied from this one: same details, and a copy of each variant with its price and raw-material costing, but no stock. */
   designDuplicate(id: string): Promise<DesignDetail>;
+  /** Every design as web page text and shop-import data: title, search text, description, tags and prices (see shared/websiteText.ts). */
+  websiteListings(): Promise<WebsiteListing[]>;
+
+  /** What each of these pieces needs on a label. */
+  labelItems(variantIds: string[]): Promise<LabelItem[]>;
+  labelsExportPdf(items: { variantId: string; copies: number }[], layout: LabelLayout): Promise<{ saved: boolean; path?: string }>;
+  labelsPrint(items: { variantId: string; copies: number }[], layout: LabelLayout): Promise<void>;
+
+  designPhotos(designId: string): Promise<DesignPhoto[]>;
+  /** The cover photo of every design that has one, as a small thumbnail, by design id. */
+  designCovers(): Promise<Record<string, string>>;
+  designPhotoAdd(designId: string, input: DesignPhotoInput): Promise<DesignPhoto[]>;
+  designPhotoRemove(photoId: string): Promise<DesignPhoto[]>;
+  /** Makes this photo the one shown in lists. */
+  designPhotoCover(photoId: string): Promise<DesignPhoto[]>;
 
   /** Adds many sarees at once. All or nothing: if any row has a problem, none are added and the problems come back per row. */
   inventoryBulkAdd(rows: BulkSareeRow[]): Promise<BulkAddResult>;
+  /** Adds one saree to the inventory from the invoice screen and returns it ready to put on the invoice. Same rules as the Add sarees sheet. */
+  inventoryQuickAdd(row: BulkSareeRow): Promise<SaleVariant>;
+  /** The choices for weave style, fabric, technique, work and colour. */
+  catalogueOptions(): Promise<CatalogueOptions>;
+  /** Every choice with how many designs use it, for the screen that manages them. */
+  catalogueEntries(): Promise<CatalogueEntry[]>;
+  /** Renames a choice everywhere it is used. Renaming to a choice that already exists merges the two. Built in choices can't be renamed. */
+  catalogueRename(input: { kind: CatalogueEntry['kind']; from: string; to: string }): Promise<{ changed: number }>;
+  /** Removes a choice nobody uses. A choice in use, or a built in one, is refused. */
+  catalogueDelete(input: { kind: CatalogueEntry['kind']; label: string }): Promise<void>;
+  /** Sets the choices on several designs and, where asked, renames each to the name they build. All or nothing. */
+  designsTidy(rows: TidyRow[]): Promise<TidyResult>;
   variantCreate(designId: string, input: VariantInput): Promise<Variant>;
   variantUpdate(id: string, input: VariantInput): Promise<Variant>;
   variantArchive(id: string): Promise<void>;
@@ -275,8 +279,33 @@ export interface Api {
   variantsForSale(): Promise<SaleVariant[]>;
   /** The piece a scanned or typed code belongs to (its barcode or SKU), or null. */
   variantByCode(code: string): Promise<SaleVariant | null>;
-  /** Prints a sheet of price labels with barcodes, one entry per colour and size. */
-  labelsPrint(items: { variantId: string; copies: number }[]): Promise<void>;
+
+  creditNotesList(query?: CreditNoteQuery): Promise<CreditNoteSummary[]>;
+  creditNoteGet(id: string): Promise<CreditNote>;
+  /** What a credit for these items would come to, and how it would settle. With no items, just what is left on the invoice to take back. */
+  creditNotePreview(input: Pick<CreditNoteInput, 'invoiceId' | 'lines'>): Promise<CreditNotePreview>;
+  /** Takes goods back from an issued invoice: a credit note with its own number and tax, optional restocking, and the money settled. */
+  creditNoteCreate(input: CreditNoteInput): Promise<CreditNote>;
+  /** Hands back credit that was being kept for the customer. */
+  creditNoteRefund(id: string, input: CreditNoteRefundInput): Promise<CreditNote>;
+  /** Cancels a credit note made by mistake, if no money was handed back and it was not used on another invoice. */
+  creditNoteCancel(id: string, reason: string): Promise<CreditNote>;
+
+  weaverOrdersList(query?: WeaverOrderQuery): Promise<WeaverOrderSummary[]>;
+  weaverOrderGet(id: string): Promise<WeaverOrder>;
+  weaverOrderCreate(input: WeaverOrderInput): Promise<WeaverOrder>;
+  /** Changes an order. A line that has pieces received can't go below what has arrived or be removed. */
+  weaverOrderUpdate(id: string, input: WeaverOrderInput): Promise<WeaverOrder>;
+  /** Marks pieces as arrived: they go into stock, through the stock ledger, and the order moves to part received or received. */
+  weaverOrderReceive(id: string, input: WeaverReceiveInput): Promise<WeaverOrder>;
+  /** Records money paid to the weaver. It is also entered as an expense. */
+  weaverOrderPay(id: string, input: WeaverPayInput): Promise<WeaverOrder>;
+  /** Takes a payment back (entered by mistake). Its expense is removed too. */
+  weaverPaymentVoid(id: string): Promise<WeaverOrder>;
+  /** Cancels an order nothing has arrived for and nothing is paid on. */
+  weaverOrderCancel(id: string, reason: string): Promise<WeaverOrder>;
+  /** What is short for a quote's items, as a starting point for an order to a weaver. */
+  weaverOrderDraft(proformaId: string): Promise<WeaverOrderDraft>;
 
   invoicesList(query?: InvoiceQuery): Promise<InvoiceSummary[]>;
   invoiceGet(id: string): Promise<Invoice>;
@@ -308,76 +337,14 @@ export interface Api {
   invoiceExportPdf(id: string): Promise<{ saved: boolean; path?: string }>;
   /** Desktop app only: opens the system print dialog for the invoice. */
   invoicePrint(id: string): Promise<void>;
+  creditNoteExportPdf(id: string): Promise<{ saved: boolean; path?: string }>;
+  creditNotePrint(id: string): Promise<void>;
 
   paymentsList(query?: PaymentQuery): Promise<Payment[]>;
   /** Records money received. Each part goes to the invoices named in `allocations`; any remainder is held as the customer's advance. */
   paymentRecord(input: PaymentInput): Promise<Payment>;
   /** Reverses a payment (a mistake, or a refund). Invoices it paid become due again. */
   paymentVoid(id: string, reason: string): Promise<Payment>;
-  /** Hands back advance or credit a customer is holding. Money out. */
-  paymentRefund(input: RefundInput): Promise<Payment[]>;
-
-  // Signing in (optional: a shop that never turns it on is open to whoever opens the app)
-  authStatus(): Promise<AuthStatus>;
-  /** The names to choose from on the sign-in screen. */
-  authUsers(): Promise<AuthUser[]>;
-  authSignIn(input: { userId: string; pin: string }): Promise<AuthUser>;
-  authSignOut(): Promise<void>;
-  /** Turns sign-in on by creating the owner. The recovery code is shown once. */
-  authSetup(input: { name: string; pin: string }): Promise<{ user: AuthUser; recoveryCode: string }>;
-  authChangePin(input: { oldPin: string; newPin: string }): Promise<void>;
-  /** A forgotten owner PIN, reset with the recovery code. */
-  authRecover(input: { code: string; newPin: string }): Promise<{ user: AuthUser; recoveryCode: string }>;
-  /** Turns sign-in off (owner PIN needed). Everyone is removed. */
-  authDisable(input: { pin: string }): Promise<void>;
-  userList(): Promise<ManagedUser[]>;
-  userCreate(input: { name: string; role: Role; pin: string }): Promise<ManagedUser>;
-  userUpdate(id: string, patch: { name?: string; role?: Role; active?: boolean }): Promise<ManagedUser>;
-  userResetPin(id: string, pin: string): Promise<void>;
-
-  // Loyalty and wishlist
-  loyaltyHistory(customerId: string): Promise<LoyaltyEntry[]>;
-  /** Adds or takes off points by hand, with a reason. Returns the new balance. */
-  loyaltyAdjust(input: { customerId: string; points: number; note: string }): Promise<number>;
-  wishlistGet(customerId: string): Promise<WishlistEntry[]>;
-  wishlistAdd(input: { customerId: string; designId: string; note?: string }): Promise<WishlistEntry[]>;
-  wishlistRemove(id: string): Promise<void>;
-
-  // Production orders and job work
-  productionList(query?: ProductionQuery): Promise<ProductionOrder[]>;
-  productionGet(id: string): Promise<ProductionOrder>;
-  productionCreate(input: ProductionOrderInput): Promise<ProductionOrder>;
-  productionUpdate(id: string, input: ProductionOrderInput): Promise<ProductionOrder>;
-  /** Hands the raw materials over for the whole order. */
-  productionIssueMaterials(id: string): Promise<ProductionOrder>;
-  /** Pieces came back: they go on the shelf, and the wage becomes a bill to whoever made them. */
-  productionReceive(id: string, input: { qty: number; receivedOn?: string }): Promise<ProductionOrder>;
-  /** Finish with fewer pieces than planned; unused materials go back to the shelf. */
-  productionCloseShort(id: string): Promise<ProductionOrder>;
-  productionCancel(id: string): Promise<ProductionOrder>;
-
-  // Photos
-  photosList(ownerType: PhotoOwner, ownerId: string): Promise<Photo[]>;
-  /** The picture itself, as a data URL. */
-  photoGet(id: string): Promise<string>;
-  photoAdd(input: PhotoInput): Promise<Photo>;
-  photoDelete(id: string): Promise<void>;
-  /** Makes this the first picture, the one lists show. Returns the owner's pictures in their new order. */
-  photoSetCover(id: string): Promise<Photo[]>;
-  /** The first small picture of each thing, for lists and grids. Things without one are left out. */
-  photoCovers(ownerType: PhotoOwner, ids: string[]): Promise<Record<string, string>>;
-
-  // Credit notes (returns)
-  creditNotesList(query?: CreditNoteQuery): Promise<CreditNoteSummary[]>;
-  creditNoteGet(id: string): Promise<CreditNote>;
-  creditNoteNextNumber(issueDate: string): Promise<string>;
-  /** What each line of an invoice can still take back. */
-  creditNoteReturnable(invoiceId: string): Promise<ReturnableLine[]>;
-  /** What a credit note would come to and how it would be settled, without making it. */
-  creditNotePreview(input: CreditNoteInput): Promise<CreditNotePreview>;
-  creditNoteCreate(input: CreditNoteInput): Promise<CreditNote>;
-  creditNoteExportPdf(id: string): Promise<{ saved: boolean; path?: string }>;
-  creditNotePrint(id: string): Promise<void>;
   /** Puts a customer's held advance toward one of their open invoices. Returns the invoice as it stands afterwards. */
   invoiceApplyAdvance(invoiceId: string): Promise<Invoice>;
   paymentsSummary(): Promise<PaymentsSummary>;
@@ -411,9 +378,28 @@ export interface Api {
   /** Sales for a date range: invoiced (by invoice date) alongside collected (by payment date). */
   reportSales(range: { from: string; to: string }): Promise<SalesReport>;
   /** GST collected on invoices dated in the range, split B2B/B2C, by HSN, and as a GSTR-1-style register. */
+  reportGst(range: { from: string; to: string }): Promise<GstReport>;
   /** The month's GSTR-1 as a JSON file for the GST portal. For one calendar month. */
   reportGstr1(range: { from: string; to: string }): Promise<Gstr1Export>;
-  reportGst(range: { from: string; to: string }): Promise<GstReport>;
+  // Loyalty and wishlist
+  loyaltyHistory(customerId: string): Promise<LoyaltyEntry[]>;
+  /** Adds or takes off points by hand, with a reason. Returns the new balance. */
+  loyaltyAdjust(input: { customerId: string; points: number; note: string }): Promise<number>;
+  wishlistGet(customerId: string): Promise<WishlistEntry[]>;
+  wishlistAdd(input: { customerId: string; designId: string; note?: string }): Promise<WishlistEntry[]>;
+  wishlistRemove(id: string): Promise<void>;
+  // Production orders and job work
+  productionList(query?: ProductionQuery): Promise<ProductionOrder[]>;
+  productionGet(id: string): Promise<ProductionOrder>;
+  productionCreate(input: ProductionOrderInput): Promise<ProductionOrder>;
+  productionUpdate(id: string, input: ProductionOrderInput): Promise<ProductionOrder>;
+  /** Hands the raw materials over for the whole order. */
+  productionIssueMaterials(id: string): Promise<ProductionOrder>;
+  /** Pieces came back: they go on the shelf, and the wage becomes a bill to whoever made them. */
+  productionReceive(id: string, input: { qty: number; receivedOn?: string }): Promise<ProductionOrder>;
+  /** Finish with fewer pieces than planned; unused materials go back to the shelf. */
+  productionCloseShort(id: string): Promise<ProductionOrder>;
+  productionCancel(id: string): Promise<ProductionOrder>;
   /** Stock on hand, valued at cost and at selling price, as of a date (default today). */
   reportStock(asOf?: string): Promise<StockReport>;
   /** Sales less cost of goods less expenses for a date range, with the same dates last year beside it. */

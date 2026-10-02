@@ -184,4 +184,20 @@ describe('upgrading a book from before raw-material stock and places', () => {
     for (const t of ['weaver_orders', 'weaver_order_lines', 'weaver_receipts', 'weaver_payments']) expect(db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get()).toEqual({ n: 0 });
     expect({ ...db.prepare("SELECT stock FROM variants WHERE id = 'v1'").get() }).toEqual({ stock: 7 });
   });
+  it('adds people without asking anyone to sign in, and keeps the old activity log with no name against it', () => {
+    const db = bookAtVersion11();
+    migrate(db, 19);
+    db.prepare("INSERT INTO audit_log (id, at, action, label, entity_type, entity_id, summary) VALUES ('a1', '2026-01-01T00:00:00.000Z', 'x', 'Did a thing', 'design', '', '')").run();
+    migrate(db);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM users').get()).toEqual({ n: 0 });
+    expect({ ...db.prepare("SELECT actor FROM audit_log WHERE id = 'a1'").get() }).toEqual({ actor: '' });
+  });
+  it('adds barcodes, quote holds, production orders, loyalty and wishlists to a book that already has sign-in and credit notes', () => {
+    const db = bookAtVersion11();
+    migrate(db, 20);
+    migrate(db);
+    for (const t of ['production_orders', 'production_materials', 'production_receipts', 'loyalty_points', 'wishlist', 'credit_notes', 'users']) expect(db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get()).toEqual({ n: 0 });
+    expect({ ...db.prepare("SELECT stock, barcode FROM variants WHERE id = 'v1'").get() }).toEqual({ stock: 7, barcode: '' });
+    expect((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(23);
+  });
 });
