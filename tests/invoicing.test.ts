@@ -347,6 +347,7 @@ describe('sample data & api', () => {
       exportDocumentPdf: async (route, name) => (calls.push(`${route}|${name}`), { saved: true, path: 'x' }),
       printDocument: async (route) => void calls.push(`print|${route}`),
       saveTextFile: async () => ({ saved: false }),
+      saveZipFile: async () => ({ saved: false }),
     });
     expect(await api.invoiceExportPdf(inv.id)).toEqual({ saved: true, path: 'x' });
     await api.invoicePrint(inv.id);

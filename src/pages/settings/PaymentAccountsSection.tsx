@@ -1,6 +1,6 @@
 import { Banknote, Building2, Plus, Smartphone, Trash2, Wallet, type LucideIcon } from 'lucide-react';
 import { PAYMENT_ACCOUNT_KINDS, type PaymentAccount, type PaymentAccountKind } from '../../../shared/types';
-import { Button, Input, Select } from '../../components/ui';
+import { Button, Field, Input, MoneyInput, Select } from '../../components/ui';
 import type { SectionProps } from './draft';
 
 const KIND: Record<PaymentAccountKind, { label: string; icon: LucideIcon; placeholder: string }> = {
@@ -16,7 +16,7 @@ export function PaymentAccountsSection({ draft, set }: SectionProps) {
 
   return (
     <div className="space-y-5">
-      <p className="rounded-lg bg-canvas px-3 py-2 text-ink-muted">The places customer money lands. Recording which account each payment went into isn't in InvoiceOn yet — your accounts are saved now, and can feed “Payment Instructions”.</p>
+      <p className="rounded-lg bg-canvas px-3 py-2 text-ink-muted">Where your money is kept. Each payment and bill can be recorded against one, and Payments → Cash & accounts shows what is in each. They also feed “Payment Instructions”. Enter what each held when you started recording here.</p>
 
       {list.length === 0 && <p className="text-ink-muted">No accounts yet.</p>}
       <ul className="space-y-3">
@@ -39,12 +39,17 @@ export function PaymentAccountsSection({ draft, set }: SectionProps) {
                 <Trash2 className="h-4 w-4" aria-hidden />
               </button>
               <Input className="col-span-2" value={a.details} onChange={(e) => change(a.id, { details: e.target.value })} placeholder={KIND[a.kind].placeholder} aria-label="Account details" maxLength={200} />
+              <div className="col-start-2 col-span-2">
+                <Field label="Balance when you started" hint="Money already in it before you began recording">
+                  <MoneyInput value={a.openingPaise ?? 0} onChange={(p) => change(a.id, { openingPaise: p })} className="max-w-[12rem]" />
+                </Field>
+              </div>
             </li>
           );
         })}
       </ul>
 
-      <Button icon={<Plus className="h-4 w-4" />} onClick={() => set('paymentAccounts', [...list, { id: crypto.randomUUID(), name: '', kind: 'bank', details: '' }])}>
+      <Button icon={<Plus className="h-4 w-4" />} onClick={() => set('paymentAccounts', [...list, { id: crypto.randomUUID(), name: '', kind: 'bank', details: '', openingPaise: 0 }])}>
         Add account
       </Button>
     </div>

@@ -1,9 +1,11 @@
-import { Boxes, ChevronRight, Download, Plus, SearchX, SlidersHorizontal } from 'lucide-react';
+import { Boxes, ChevronRight, ClipboardCheck, Download, MapPin, Plus, SearchX, SlidersHorizontal } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { designsCsv } from '../../../shared/csv';
 import { MARGIN_LABEL, NO_FILTERS, SOLD_LABEL, applyDesignFilters, fabricsOf, filtersActive, type DesignFilters, type MarginBand, type SoldBand } from '../../../shared/designFilters';
 import { formatDate, todayIso } from '../../../shared/gst';
 import { formatMoney } from '../../../shared/money';
+import { tagCounts } from '../../../shared/tags';
+import { TagChips } from '../../components/TagInput';
 import { Pager, SortableTh, sortBy, usePager, useSort } from '../../components/listTools';
 import { Button, Card, EmptyState, ErrorNote, Field, Figure, Money, MoneyInput, SearchInput, Segmented, Select, TableSkeleton, StockPill } from '../../components/ui';
 import { useToast } from '../../components/Toast';
@@ -12,6 +14,8 @@ import { useQuery, useRefresh } from '../../lib/data';
 import { useCsvExport } from '../../lib/exportCsv';
 import { plural } from '../../lib/format';
 import { navigate, paths } from '../../lib/router';
+import { BulkDesignModal, type BulkKind } from './BulkDesignModal';
+import { PlacesModal } from './Places';
 import { DesignFormModal } from './DesignFormModal';
 import { InventoryShell } from './InventoryTabs';
 
@@ -28,8 +32,11 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
   const [adding, setAdding] = useState(false);
   const [loadingSample, setLoadingSample] = useState(false);
   const [columns, setColumns] = useState<DesignFilters>(NO_FILTERS);
+  const [places, setPlaces] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const sort = useSort<SortKey>('name', 'asc');
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [bulk, setBulk] = useState<BulkKind | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search), 150);
@@ -44,6 +51,7 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
   const s = summary.data;
   const isEmptyInventory = s?.designCount === 0;
   const fabrics = useMemo(() => fabricsOf(everything.data ?? []), [everything.data]);
+  const tagList = useMemo(() => tagCounts((everything.data ?? []).map((d) => d.tags)), [everything.data]);
 
   const shown = useMemo(() => {
     const rows = applyDesignFilters(designs.data ?? [], columns, todayIso());
@@ -65,6 +73,23 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
     }
   }, [designs.data, columns, sort.key, sort.dir]);
   const pager = usePager(shown);
+  const pageAllPicked = pager.pageItems.length > 0 && pager.pageItems.every((d) => picked.has(d.id));
+  const togglePick = (id: string) =>
+    setPicked((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const togglePage = () =>
+    setPicked((s) => {
+      const next = new Set(s);
+      for (const d of pager.pageItems) {
+        if (pageAllPicked) next.delete(d.id);
+        else next.add(d.id);
+      }
+      return next;
+    });
   useEffect(() => pager.setPage(0), [debounced, filter, columns, sort.key, sort.dir]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const active = filtersActive(columns);
@@ -88,6 +113,16 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
       tab="designs"
       actions={
         <>
+          {!isEmptyInventory && (
+            <Button icon={<ClipboardCheck className="h-4 w-4" />} onClick={() => navigate(paths.stockTake)} title="Count what is on the shelf and fix the differences">
+              Stock-take
+            </Button>
+          )}
+          {!isEmptyInventory && (
+            <Button icon={<MapPin className="h-4 w-4" />} onClick={() => setPlaces(true)} title="Add a godown or showroom to keep stock in">
+              Places
+            </Button>
+          )}
           {!isEmptyInventory && (
             <Button icon={<Download className="h-4 w-4" />} disabled={shown.length === 0} onClick={() => void saveCsv(`designs-${todayIso()}.csv`, designsCsv(shown), 'Designs saved')} title="Save the designs shown as a spreadsheet">
               Export CSV
@@ -154,7 +189,17 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
 
           {showFilters && (
             <Card className="animate-fade-in mb-4 p-4">
-              <div className="grid grid-cols-5 items-end gap-4">
+              <div className="grid grid-cols-6 items-end gap-4">
+                <Field label="Tag">
+                  <Select value={columns.tag} onChange={(e) => setColumn('tag', e.target.value)}>
+                    <option value="">Any tag</option>
+                    {tagList.map((t) => (
+                      <option key={t.tag} value={t.tag}>
+                        {t.tag} ({t.count})
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
                 <Field label="Fabric">
                   <Select value={columns.fabric} onChange={(e) => setColumn('fabric', e.target.value)}>
                     <option value="">Any fabric</option>
@@ -200,6 +245,28 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
             </Card>
           )}
 
+          {picked.size > 0 && (
+            <div className="animate-fade-in mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-brand-tint px-4 py-2.5 text-brand">
+              <span>
+                <span className="num">{picked.size}</span> selected
+              </span>
+              <span className="flex items-center gap-2">
+                <Button className="h-8 text-xs" onClick={() => setBulk('reorder')}>
+                  Set reorder level
+                </Button>
+                <Button className="h-8 text-xs" onClick={() => setBulk('price')}>
+                  Change prices
+                </Button>
+                <Button variant="danger" className="h-8 bg-surface text-xs" onClick={() => setBulk('archive')}>
+                  Archive
+                </Button>
+                <Button variant="ghost" className="h-8 text-xs" onClick={() => setPicked(new Set())}>
+                  Clear
+                </Button>
+              </span>
+            </div>
+          )}
+
           <Card className="overflow-x-auto">
             {designs.loading ? (
               <TableSkeleton />
@@ -224,6 +291,9 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-line">
+                    <th className="w-10 pl-4">
+                      <input type="checkbox" checked={pageAllPicked} onChange={togglePage} aria-label="Select all designs on this page" className="h-4 w-4 accent-[#0F6E56]" />
+                    </th>
                     <SortableTh label="Design" active={sort.key === 'name'} dir={sort.dir} onSort={() => sort.toggle('name')} />
                     <th className="th">Fabric</th>
                     <SortableTh label="In stock" right active={sort.key === 'stock'} dir={sort.dir} onSort={() => sort.toggle('stock', 'desc')} />
@@ -245,6 +315,9 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
                       onKeyDown={(e) => e.key === 'Enter' && navigate(paths.design(d.id))}
                       className="animate-fade-in group cursor-pointer border-b border-line/70 transition-colors duration-150 last:border-0 hover:bg-canvas focus-visible:bg-canvas"
                     >
+                      <td className="w-10 pl-4" onClick={(e) => e.stopPropagation()}>
+                        <input type="checkbox" checked={picked.has(d.id)} onChange={() => togglePick(d.id)} aria-label={`Select ${d.name}`} className="h-4 w-4 accent-[#0F6E56]" />
+                      </td>
                       <td className="td">
                         <div>{d.name}</div>
                         <div className="text-xs text-ink-muted">
@@ -252,6 +325,11 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
                           {d.nickname && ' · '}
                           {d.code} · {plural(d.variantCount, 'variant')}
                         </div>
+                        {d.tags && (
+                          <div className="mt-1" onClick={(e) => e.stopPropagation()}>
+                            <TagChips tags={d.tags} onClick={(t) => setColumn('tag', t)} />
+                          </div>
+                        )}
                       </td>
                       <td className="td text-ink-muted">{d.fabric || '—'}</td>
                       <td className="td num text-right">{d.totalStock}</td>
@@ -282,7 +360,9 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
         </>
       )}
 
+      {bulk && <BulkDesignModal ids={[...picked]} kind={bulk} onClose={() => setBulk(null)} onDone={() => setPicked(new Set())} />}
       {adding && <DesignFormModal suggestedCode={suggestedCode.data} onClose={() => setAdding(false)} onSaved={(d) => navigate(paths.design(d.id))} />}
+      {places && <PlacesModal onClose={() => setPlaces(false)} />}
     </InventoryShell>
   );
 }

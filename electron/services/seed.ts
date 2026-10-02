@@ -1,8 +1,9 @@
 import { addDays, todayIso } from '../../shared/gst';
-import { get, tx, type Db } from '../db/connection';
+import { get, run, tx, type Db } from '../db/connection';
 import { UserError } from './common';
 import { createCustomer } from './customers';
-import { createExpense } from './expenses';
+import { createExpense, createRecurring } from './expenses';
+import { addNote } from './notes';
 import { createDesign, createVariant, nextDesignCode } from './inventory';
 import { cancelInvoice, createInvoice, variantsForSale } from './invoices';
 import { createMaterial } from './materials';
@@ -44,19 +45,20 @@ export function loadSampleData(db: Db): void {
         invoiceFooter: 'Thank you for shopping with Mau Gharana!',
         proformaTerms: '50% advance to confirm the order. Balance before dispatch.',
         paymentAccounts: [
-          { id: 'sample-sbi', name: 'SBI current account', kind: 'bank', details: 'A/c 1234567890 · IFSC SBIN0001234' },
-          { id: 'sample-upi', name: 'Shop UPI', kind: 'upi', details: 'maugharana@sbi' },
-          { id: 'sample-cash', name: 'Cash drawer', kind: 'cash', details: '' },
+          { id: 'sample-sbi', name: 'SBI current account', kind: 'bank', details: 'A/c 1234567890 · IFSC SBIN0001234', openingPaise: rupees(150000) },
+          { id: 'sample-upi', name: 'Shop UPI', kind: 'upi', details: 'maugharana@sbi', openingPaise: rupees(60000) },
+          { id: 'sample-cash', name: 'Cash drawer', kind: 'cash', details: '', openingPaise: rupees(20000) },
         ],
+        expenseBudgets: { Rent: rupees(12000), Packaging: rupees(3000), Marketing: rupees(2000) },
       });
     }
 
-    const silk = createMaterial(db, { name: 'Pure silk yarn', unit: 'kg', unitCostPaise: rupees(4600) });
-    const cotton = createMaterial(db, { name: 'Cotton yarn', unit: 'kg', unitCostPaise: rupees(380) });
-    const zari = createMaterial(db, { name: 'Zari thread', unit: 'kg', unitCostPaise: rupees(9000) });
-    const dye = createMaterial(db, { name: 'Dyeing & finishing', unit: 'pc', unitCostPaise: rupees(180) });
-    const blouse = createMaterial(db, { name: 'Blouse piece fabric', unit: 'm', unitCostPaise: rupees(350) });
-    const pack = createMaterial(db, { name: 'Packaging', unit: 'pc', unitCostPaise: rupees(40) });
+    const silk = createMaterial(db, { name: 'Pure silk yarn', unit: 'kg', unitCostPaise: rupees(4600), category: 'Yarn', openingQty: 14, reorderQty: 5 });
+    const cotton = createMaterial(db, { name: 'Cotton yarn', unit: 'kg', unitCostPaise: rupees(380), category: 'Yarn', openingQty: 30, reorderQty: 10 });
+    const zari = createMaterial(db, { name: 'Zari thread', unit: 'kg', unitCostPaise: rupees(9000), category: 'Yarn', openingQty: 1.2, reorderQty: 2 });
+    const dye = createMaterial(db, { name: 'Dyeing & finishing', unit: 'pc', unitCostPaise: rupees(180), category: 'Finishing', openingQty: 60, reorderQty: 20 });
+    const blouse = createMaterial(db, { name: 'Blouse piece fabric', unit: 'm', unitCostPaise: rupees(350), category: 'Fabric', openingQty: 40, reorderQty: 15 });
+    const pack = createMaterial(db, { name: 'Packaging', unit: 'pc', unitCostPaise: rupees(40), category: 'Packing', openingQty: 120, reorderQty: 50 });
 
     const designs = [
       {
@@ -113,7 +115,45 @@ export function loadSampleData(db: Db): void {
     addSampleSales(db);
     addSampleExpenses(db);
     addSampleProformas(db);
+    addSampleDetails(db);
   });
+}
+
+/**
+ * The finer points the newer screens show: which account each payment and bill used, GST on the purchases, customer tags and
+ * limits, a note or two, a standing expense. None of it changes the sales, payments or expense totals above.
+ */
+function addSampleDetails(db: Db): void {
+  const today = todayIso();
+  const day = (n: number) => addDays(today, n);
+  // Accounts follow the way each thing was paid.
+  for (const table of ['payments', 'expenses']) {
+    run(db, `UPDATE ${table} SET account_id = CASE method WHEN 'cash' THEN 'sample-cash' WHEN 'upi' THEN 'sample-upi' ELSE 'sample-sbi' END`);
+  }
+  // Silk, zari and packaging bills carry 5% GST that is claimed back.
+  run(db, "UPDATE expenses SET gst_paise = CAST(amount_paise * 5 / 105 AS INTEGER) WHERE category IN ('Raw materials', 'Packaging')");
+  run(db, "UPDATE vendors SET gstin = '09AAACH7409R1ZZ', phone = '9415012345' WHERE name = 'Varanasi Silk Traders'");
+
+  const idOf = (name: string) => get<{ id: string }>(db, 'SELECT id FROM customers WHERE name LIKE ? AND deleted_at IS NULL', `${name}%`)!.id;
+  run(db, "UPDATE customers SET tags = 'wholesale, regular', credit_limit_paise = ?, payment_terms_days = 20 WHERE id = ?", rupees(60000), idOf('Kanchan'));
+  run(db, "UPDATE customers SET tags = 'wholesale', credit_limit_paise = ?, payment_terms_days = 15 WHERE id = ?", rupees(50000), idOf('Meera'));
+  run(db, 'UPDATE customers SET tags = ?, birthday = ? WHERE id = ?', 'bridal', `1992-${day(4).slice(5)}`, idOf('Anjali'));
+  run(db, "UPDATE customers SET tags = 'regular' WHERE id = ?", idOf('Sunita'));
+  run(db, "UPDATE designs SET tags = 'bridal, festive' WHERE name LIKE 'Banarasi Katan%' OR name LIKE '%Kadhua%'");
+  run(db, "UPDATE designs SET tags = 'daily wear' WHERE name LIKE '%Chanderi%'");
+
+  // Usual suppliers, and a little wastage on the pricey materials (from the vendors the expenses created).
+  run(db, "UPDATE raw_materials SET supplier_id = (SELECT id FROM vendors WHERE name = 'Varanasi Silk Traders') WHERE name IN ('Pure silk yarn', 'Cotton yarn')");
+  run(db, "UPDATE raw_materials SET supplier_id = (SELECT id FROM vendors WHERE name = 'Kanpur Zari House') WHERE name = 'Zari thread'");
+  run(db, "UPDATE raw_materials SET supplier_id = (SELECT id FROM vendors WHERE name = 'Shree Packaging') WHERE name = 'Packaging'");
+  run(db, "UPDATE variant_materials SET wastage_percent = 5 WHERE material_id IN (SELECT id FROM raw_materials WHERE name IN ('Pure silk yarn', 'Zari thread'))");
+  run(db, "UPDATE designs SET supplier_id = (SELECT id FROM vendors WHERE name = 'Varanasi Silk Traders') WHERE name LIKE '%Katan%' OR name LIKE '%Butidar%' OR name LIKE '%Tanchoi%'");
+
+  addNote(db, { subjectType: 'customer', subjectId: idOf('Meera'), kind: 'promise', body: 'Said the balance goes out with the next lorry', dueDate: day(4), amountPaise: rupees(15000) });
+  addNote(db, { subjectType: 'customer', subjectId: idOf('Anjali'), kind: 'followup', body: 'Show the new Katan Kadhua colours', dueDate: day(1) });
+  addNote(db, { subjectType: 'customer', subjectId: idOf('Sunita'), kind: 'call', body: 'Likes light pastels. Asked about Chanderi for a wedding in March.' });
+
+  createRecurring(db, { category: 'Internet', vendor: 'Airtel', amountPaise: rupees(1180), gstPaise: rupees(180), method: 'upi', accountId: 'sample-upi', note: 'Shop broadband', frequency: 'monthly', nextDate: day(6) });
 }
 
 /** Invoices in every state, so each screen and report has something to show. */

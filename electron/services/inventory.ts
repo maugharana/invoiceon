@@ -1,7 +1,8 @@
-import { addDays, todayIso } from '../../shared/gst';
+import { addDays, isValidRate, todayIso } from '../../shared/gst';
 import { mulPaise } from '../../shared/money';
 import { matchesAll } from '../../shared/search';
 import { designStatus, variantStatus } from '../../shared/stock';
+import { normalizeTags } from '../../shared/tags';
 import {
   MANUAL_STOCK_REASONS,
   type BomLine,
@@ -12,6 +13,7 @@ import {
   type DesignQuery,
   type DesignSummary,
   type InventorySummary,
+  type PricePoint,
   type StockAdjustInput,
   type StockMovement,
   type StockReason,
@@ -34,6 +36,10 @@ interface DesignRow {
   hsn_code: string;
   description: string;
   default_price_paise: number;
+  gst_rate_percent: number | null;
+  tags: string;
+  supplier_id: string | null;
+  deleted_at: string | null;
 }
 interface VariantRow {
   id: string;
@@ -51,6 +57,7 @@ interface BomRow {
   variant_id: string;
   material_id: string;
   qty: number;
+  wastage_percent: number;
   name: string;
   unit: string;
   unit_cost_paise: number;
@@ -74,7 +81,7 @@ export function loadVariants(db: Db, filter: { designId?: string; variantId?: st
   const rows = all<VariantRow>(db, `SELECT v.* FROM variants v WHERE ${where.join(' AND ')} ORDER BY v.color COLLATE NOCASE, v.size COLLATE NOCASE`, ...params);
   const bomRows = all<BomRow>(
     db,
-    `SELECT vm.variant_id, vm.material_id, vm.qty, m.name, m.unit, m.unit_cost_paise
+    `SELECT vm.variant_id, vm.material_id, vm.qty, vm.wastage_percent, m.name, m.unit, m.unit_cost_paise
      FROM variant_materials vm
      JOIN raw_materials m ON m.id = vm.material_id
      JOIN variants v ON v.id = vm.variant_id
@@ -90,14 +97,28 @@ export function loadVariants(db: Db, filter: { designId?: string; variantId?: st
       unit: b.unit,
       qty: b.qty,
       unitCostPaise: b.unit_cost_paise,
-      lineCostPaise: mulPaise(b.qty, b.unit_cost_paise),
+      wastagePercent: b.wastage_percent,
+      // What the line costs includes the extra that is lost in making.
+      lineCostPaise: mulPaise(b.qty * (1 + b.wastage_percent / 100), b.unit_cost_paise),
     };
     const list = bomByVariant.get(b.variant_id);
     if (list) list.push(line);
     else bomByVariant.set(b.variant_id, [line]);
   }
+  // Where each variant's pieces are kept. The shop is whatever is not somewhere else, so it needs no rows of its own.
+  const places = new Map(all<{ id: string; name: string }>(db, 'SELECT id, name FROM locations WHERE deleted_at IS NULL').map((l) => [l.id, l.name]));
+  const shop = all<{ id: string; name: string }>(db, 'SELECT id, name FROM locations WHERE is_default = 1 AND deleted_at IS NULL')[0] ?? { id: 'shop', name: 'Shop' };
+  const elsewhereByVariant = new Map<string, { locationId: string; name: string; qty: number }[]>();
+  for (const s of all<{ variant_id: string; location_id: string; qty: number }>(db, 'SELECT variant_id, location_id, qty FROM stock_locations WHERE qty > 0')) {
+    if (!places.has(s.location_id)) continue;
+    const list = elsewhereByVariant.get(s.variant_id) ?? [];
+    list.push({ locationId: s.location_id, name: places.get(s.location_id)!, qty: s.qty });
+    elsewhereByVariant.set(s.variant_id, list);
+  }
   return rows.map((r) => {
     const bom = bomByVariant.get(r.id) ?? [];
+    const elsewhere = elsewhereByVariant.get(r.id) ?? [];
+    const inShop = r.stock - elsewhere.reduce((s, e) => s + e.qty, 0);
     const materialCostPaise = bom.reduce((sum, l) => sum + l.lineCostPaise, 0);
     return {
       id: r.id,
@@ -114,8 +135,14 @@ export function loadVariants(db: Db, filter: { designId?: string; variantId?: st
       sellPricePaise: r.sell_price_paise,
       mrpPaise: r.mrp_paise,
       status: variantStatus(r.stock, r.reorder_level),
+      locations: [{ locationId: shop.id, name: shop.name, qty: inShop }, ...elsewhere],
     };
   });
+}
+
+/** The names of vendors by id, for showing a design's usual supplier. */
+function vendorNames(db: Db): Map<string, string> {
+  return new Map(all<{ id: string; name: string }>(db, 'SELECT id, name FROM vendors').map((v) => [v.id, v.name]));
 }
 
 /** How many days of sales to judge the pace by. */
@@ -139,7 +166,7 @@ function salesByDesign(db: Db): Map<string, DesignSales> {
   return new Map(rows.map((r) => [r.design_id, { lastSoldOn: r.last_sold, soldRecently: r.recent }]));
 }
 
-function summarise(d: DesignRow, variants: Variant[], sales?: DesignSales): DesignSummary {
+function summarise(d: DesignRow, variants: Variant[], sales: DesignSales | undefined, suppliers: Map<string, string>): DesignSummary {
   const priced = variants.filter((v) => v.sellPricePaise > 0);
   const totalStock = variants.reduce((s, v) => s + v.stock, 0);
   const soldLast30Days = sales?.soldRecently ?? 0;
@@ -153,6 +180,10 @@ function summarise(d: DesignRow, variants: Variant[], sales?: DesignSales): Desi
     hsnCode: d.hsn_code,
     description: d.description,
     defaultPricePaise: d.default_price_paise,
+    gstRatePercent: d.gst_rate_percent,
+    tags: d.tags,
+    supplierId: d.supplier_id,
+    supplierName: d.supplier_id ? (suppliers.get(d.supplier_id) ?? '') : '',
     variantCount: variants.length,
     totalStock,
     stockValuePaise: variants.reduce((s, v) => s + v.stock * v.unitCostPaise, 0),
@@ -181,13 +212,14 @@ export function listDesigns(db: Db, query: DesignQuery = {}): DesignSummary[] {
   const designs = all<DesignRow>(db, 'SELECT * FROM designs WHERE deleted_at IS NULL ORDER BY name COLLATE NOCASE');
   const byDesign = groupByDesign(loadVariants(db));
   const sales = salesByDesign(db);
+  const suppliers = vendorNames(db);
 
   return designs
     .filter((d) => {
       const vs = byDesign.get(d.id) ?? [];
-      return matchesAll([d.code, d.name, d.nickname, d.fabric, ...vs.flatMap((v) => [v.sku, v.color])].join(' '), query.search);
+      return matchesAll([d.code, d.name, d.nickname, d.fabric, d.tags, suppliers.get(d.supplier_id ?? '') ?? '', ...vs.flatMap((v) => [v.sku, v.color])].join(' '), query.search);
     })
-    .map((d) => summarise(d, byDesign.get(d.id) ?? [], sales.get(d.id)))
+    .map((d) => summarise(d, byDesign.get(d.id) ?? [], sales.get(d.id), suppliers))
     .filter((s) => {
       if (query.status === 'low') return s.status === 'low' || s.status === 'out';
       if (query.status === 'out') return s.status === 'out';
@@ -199,7 +231,7 @@ export function getDesign(db: Db, id: string): DesignDetail {
   const row = get<DesignRow>(db, 'SELECT * FROM designs WHERE id = ? AND deleted_at IS NULL', id);
   if (!row) throw new UserError('That design no longer exists.');
   const variants = loadVariants(db, { designId: id });
-  return { ...summarise(row, variants, salesByDesign(db).get(id)), variants };
+  return { ...summarise(row, variants, salesByDesign(db).get(id), vendorNames(db)), variants };
 }
 
 /** Suggests the next free code in the MG-001 style, continuing from the highest number in use. */
@@ -220,8 +252,18 @@ function validateNickname(value: unknown): string {
   return nickname;
 }
 
-function validateDesign(input: DesignInput) {
+/** A design's own GST rate: empty means "use the usual rate", otherwise a number from 0 to 100. */
+function validateDesignRate(value: unknown): number | null {
+  if (value === undefined || value === null || value === '') return null;
+  if (!isValidRate(value)) throw new UserError('The GST rate should be a number from 0 to 100, with at most two decimals.');
+  return value;
+}
+
+function validateDesign(db: Db, input: DesignInput) {
+  const supplierId = input.supplierId || null;
+  if (supplierId && !get(db, 'SELECT 1 AS x FROM vendors WHERE id = ? AND deleted_at IS NULL', supplierId)) throw new UserError('That supplier no longer exists.');
   return {
+    supplierId,
     code: requireText(input.code, 'Design code', 30),
     name: requireText(input.name, 'Design name'),
     nickname: validateNickname(input.nickname ?? ''),
@@ -229,15 +271,17 @@ function validateDesign(input: DesignInput) {
     hsn: optionalText(input.hsnCode, 'HSN code', 12),
     description: optionalText(input.description, 'Description', 500),
     price: requireInt(input.defaultPricePaise, 'Default price', { max: MAX_PAISE }),
+    gstRate: validateDesignRate(input.gstRatePercent),
+    tags: normalizeTags(input.tags),
   };
 }
 
 export function createDesign(db: Db, input: DesignInput): DesignDetail {
-  const v = validateDesign(input);
+  const v = validateDesign(db, input);
   const id = newId();
   const now = nowIso();
   try {
-    run(db, 'INSERT INTO designs (id, code, name, nickname, fabric, hsn_code, description, default_price_paise, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', id, v.code, v.name, v.nickname, v.fabric, v.hsn, v.description, v.price, now, now);
+    run(db, 'INSERT INTO designs (id, code, name, nickname, fabric, hsn_code, description, default_price_paise, gst_rate_percent, tags, supplier_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', id, v.code, v.name, v.nickname, v.fabric, v.hsn, v.description, v.price, v.gstRate, v.tags, v.supplierId, now, now);
   } catch (err) {
     if (isUniqueViolation(err)) throw new UserError(`Design code "${v.code}" is already in use.`);
     throw err;
@@ -246,10 +290,10 @@ export function createDesign(db: Db, input: DesignInput): DesignDetail {
 }
 
 export function updateDesign(db: Db, id: string, input: DesignInput): DesignDetail {
-  const v = validateDesign(input);
+  const v = validateDesign(db, input);
   getDesign(db, id);
   try {
-    run(db, 'UPDATE designs SET code = ?, name = ?, nickname = ?, fabric = ?, hsn_code = ?, description = ?, default_price_paise = ?, updated_at = ? WHERE id = ?', v.code, v.name, v.nickname, v.fabric, v.hsn, v.description, v.price, nowIso(), id);
+    run(db, 'UPDATE designs SET code = ?, name = ?, nickname = ?, fabric = ?, hsn_code = ?, description = ?, default_price_paise = ?, gst_rate_percent = ?, tags = ?, supplier_id = ?, updated_at = ? WHERE id = ?', v.code, v.name, v.nickname, v.fabric, v.hsn, v.description, v.price, v.gstRate, v.tags, v.supplierId, nowIso(), id);
   } catch (err) {
     if (isUniqueViolation(err)) throw new UserError(`Design code "${v.code}" is already in use.`);
     throw err;
@@ -272,9 +316,12 @@ export function duplicateDesign(db: Db, id: string): DesignDetail {
       hsnCode: source.hsnCode,
       description: source.description,
       defaultPricePaise: source.defaultPricePaise,
+      gstRatePercent: source.gstRatePercent,
+      tags: source.tags,
+      supplierId: source.supplierId,
     });
     for (const v of source.variants) {
-      createVariant(db, copy.id, { color: v.color, size: v.size, sellPricePaise: v.sellPricePaise, mrpPaise: v.mrpPaise, baseCostPaise: v.baseCostPaise, reorderLevel: v.reorderLevel, bom: v.bom.map((b) => ({ materialId: b.materialId, qty: b.qty })) });
+      createVariant(db, copy.id, { color: v.color, size: v.size, sellPricePaise: v.sellPricePaise, mrpPaise: v.mrpPaise, baseCostPaise: v.baseCostPaise, reorderLevel: v.reorderLevel, bom: v.bom.map((b) => ({ materialId: b.materialId, qty: b.qty, wastagePercent: b.wastagePercent })) });
     }
     return getDesign(db, copy.id);
   });
@@ -313,6 +360,7 @@ function validateVariant(db: Db, input: VariantInput) {
   for (const line of bom) {
     if (typeof line.qty !== 'number' || !Number.isFinite(line.qty) || line.qty <= 0) throw new UserError('Each raw material needs a quantity greater than zero.');
     if (line.qty > 1_000_000) throw new UserError('A raw material quantity is unrealistically large.');
+    if (line.wastagePercent !== undefined && (typeof line.wastagePercent !== 'number' || !Number.isFinite(line.wastagePercent) || line.wastagePercent < 0 || line.wastagePercent > 100)) throw new UserError('Wastage should be between 0% and 100%.');
     if (seen.has(line.materialId)) throw new UserError('The same raw material is listed twice — combine them into one line.');
     seen.add(line.materialId);
     if (!get(db, 'SELECT 1 AS x FROM raw_materials WHERE id = ? AND deleted_at IS NULL', line.materialId)) {
@@ -331,10 +379,10 @@ function validateVariant(db: Db, input: VariantInput) {
   };
 }
 
-function writeBom(db: Db, variantId: string, bom: { materialId: string; qty: number }[]): void {
+function writeBom(db: Db, variantId: string, bom: { materialId: string; qty: number; wastagePercent?: number }[]): void {
   run(db, 'DELETE FROM variant_materials WHERE variant_id = ?', variantId);
   for (const line of bom) {
-    run(db, 'INSERT INTO variant_materials (variant_id, material_id, qty) VALUES (?, ?, ?)', variantId, line.materialId, line.qty);
+    run(db, 'INSERT INTO variant_materials (variant_id, material_id, qty, wastage_percent) VALUES (?, ?, ?, ?)', variantId, line.materialId, line.qty, line.wastagePercent ?? 0);
   }
 }
 
@@ -368,8 +416,24 @@ export function createVariant(db: Db, designId: string, input: VariantInput): Va
     }
     writeBom(db, id, v.bom);
     if (opening > 0) recordMovement(db, id, opening, 'opening');
+    recordPrices(db, id, v.sell, v.mrp, v.base, now);
   });
   return getVariant(db, id);
+}
+
+/** Notes the prices a variant has from now on. Callers only call it when something changed (or at the start). */
+function recordPrices(db: Db, variantId: string, sell: number, mrp: number, base: number, at: string): void {
+  run(db, 'INSERT INTO price_history (id, variant_id, sell_price_paise, mrp_paise, base_cost_paise, changed_at) VALUES (?, ?, ?, ?, ?, ?)', newId(), variantId, sell, mrp, base, at);
+}
+
+/** Every price a variant has had, newest first. The first entry is what it has now. */
+export function variantPriceHistory(db: Db, variantId: string): PricePoint[] {
+  getVariant(db, variantId);
+  return all<{ changed_at: string; sell_price_paise: number; mrp_paise: number; base_cost_paise: number }>(
+    db,
+    'SELECT changed_at, sell_price_paise, mrp_paise, base_cost_paise FROM price_history WHERE variant_id = ? ORDER BY changed_at DESC, rowid DESC',
+    variantId,
+  ).map((r) => ({ changedAt: r.changed_at, sellPricePaise: r.sell_price_paise, mrpPaise: r.mrp_paise, baseCostPaise: r.base_cost_paise }));
 }
 
 export function updateVariant(db: Db, id: string, input: VariantInput): Variant {
@@ -386,6 +450,7 @@ export function updateVariant(db: Db, id: string, input: VariantInput): Variant 
       throw err;
     }
     writeBom(db, id, v.bom);
+    if (v.sell !== existing.sellPricePaise || v.mrp !== existing.mrpPaise || v.base !== existing.baseCostPaise) recordPrices(db, id, v.sell, v.mrp, v.base, nowIso());
   });
   return getVariant(db, id);
 }
@@ -536,6 +601,14 @@ export function recordMovement(
     if (balance < 0) {
       throw new UserError(`Not enough stock: ${row.sku} has ${row.stock} in stock, so ${Math.abs(delta)} can't be removed.`);
     }
+    // Pieces kept somewhere other than the shop can't be sold or written off from the counter: move them to the shop first.
+    if (delta < 0) {
+      const away = get<{ n: number }>(db, 'SELECT COALESCE(SUM(qty), 0) AS n FROM stock_locations WHERE variant_id = ?', variantId)?.n ?? 0;
+      if (away > 0 && balance < away) {
+        const where = all<{ name: string; qty: number }>(db, 'SELECT l.name, s.qty FROM stock_locations s JOIN locations l ON l.id = s.location_id WHERE s.variant_id = ? AND s.qty > 0', variantId).map((p) => `${p.qty} at ${p.name}`).join(', ');
+        throw new UserError(`${row.sku} has only ${row.stock - away} in the shop (${where}). Move some to the shop before taking ${Math.abs(delta)} out.`);
+      }
+    }
     const [current] = loadVariants(db, { variantId });
     const now = nowIso();
     run(db, 'UPDATE variants SET stock = ?, updated_at = ? WHERE id = ?', balance, now, variantId);
@@ -586,4 +659,38 @@ export function inventorySummary(db: Db): InventorySummary {
     outOfStockDesigns: designs.filter((d) => d.status === 'out').length,
     materialCount: get<{ n: number }>(db, 'SELECT COUNT(*) AS n FROM raw_materials WHERE deleted_at IS NULL')?.n ?? 0,
   };
+}
+
+/**
+ * Brings back an archived design with the variants that were archived along with it (not ones archived earlier on their own).
+ * Fails, changing nothing, if its code or a SKU has since been taken by something else.
+ */
+export function restoreDesign(db: Db, id: string): DesignDetail {
+  const row = get<DesignRow>(db, 'SELECT * FROM designs WHERE id = ? AND deleted_at IS NOT NULL', id);
+  if (!row) throw new UserError("That design can't be brought back.");
+  try {
+    tx(db, () => {
+      const now = nowIso();
+      run(db, 'UPDATE designs SET deleted_at = NULL, updated_at = ? WHERE id = ?', now, id);
+      run(db, 'UPDATE variants SET deleted_at = NULL, updated_at = ? WHERE design_id = ? AND deleted_at = ?', now, id, row.deleted_at);
+    });
+  } catch (err) {
+    if (isUniqueViolation(err)) throw new UserError(`${row.name} can't be brought back: its code or one of its SKUs is now used by something else.`);
+    throw err;
+  }
+  return getDesign(db, id);
+}
+
+/** Brings back an archived variant (the "Undo" after archiving one). */
+export function restoreVariant(db: Db, id: string): Variant {
+  const row = get<{ id: string; design_id: string }>(db, 'SELECT id, design_id FROM variants WHERE id = ? AND deleted_at IS NOT NULL', id);
+  if (!row) throw new UserError("That variant can't be brought back.");
+  getDesign(db, row.design_id);
+  try {
+    run(db, 'UPDATE variants SET deleted_at = NULL, updated_at = ? WHERE id = ?', nowIso(), id);
+  } catch (err) {
+    if (isUniqueViolation(err)) throw new UserError("That colour and size (or its SKU) is now used by another variant.");
+    throw err;
+  }
+  return getVariant(db, id);
 }

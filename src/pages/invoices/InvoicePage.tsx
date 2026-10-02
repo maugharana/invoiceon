@@ -5,24 +5,32 @@ import { invoiceMessage, mailtoLink, whatsappLink, whatsappPhone } from '../../.
 import { formatMoney } from '../../../shared/money';
 import { PAYMENT_METHOD_LABEL } from '../../../shared/types';
 import { InvoiceDocument } from '../../components/InvoiceDocument';
+import { NotesPanel } from '../../components/NotesPanel';
 import { Menu } from '../../components/Menu';
 import { ConfirmDialog } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { Button, Card, ErrorNote, Field, Figure, Input, InvoicePill, Money, PageHeader, Spinner, TypePill } from '../../components/ui';
 import { api, errorMessage } from '../../lib/api';
 import { copyText } from '../../lib/clipboard';
+import { useRecent } from '../../lib/recent';
 import { useQuery, useRefresh } from '../../lib/data';
 import { navigate, paths } from '../../lib/router';
 import { RecordPaymentModal } from '../payments/RecordPaymentModal';
+import { DeliveryCard } from './DeliveryCard';
+import { InstalmentsCard } from './InstalmentsCard';
+import { WriteOffModal } from './WriteOffModal';
 
 export function InvoicePage({ id }: { id: string }) {
   const toast = useToast();
   const refresh = useRefresh();
   const query = useQuery(() => api.invoiceGet(id), [id]);
   const inv = query.data;
+  useRecent(inv ? { kind: 'invoice', id: inv.id, title: inv.number, hint: inv.buyerName } : null);
   const customer = useQuery(() => (inv?.customerId ? api.customerGet(inv.customerId) : Promise.resolve(null)), [inv?.customerId]);
+  const settings = useQuery(() => api.getSettings());
   const [busy, setBusy] = useState<'pdf' | 'print' | 'advance' | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [writingOff, setWritingOff] = useState(false);
   const [paying, setPaying] = useState(false);
   const [reason, setReason] = useState('');
 
@@ -73,7 +81,7 @@ export function InvoicePage({ id }: { id: string }) {
   const exportPdf = () => (window.invoiceon ? run('pdf', async () => ((await api.invoiceExportPdf(id)).saved ? toast.success('PDF saved') : undefined)) : openPrintView());
   const print = () => (window.invoiceon ? run('print', () => api.invoicePrint(id)) : openPrintView());
   // Sharing: a ready-written message. WhatsApp and email can't take the PDF from us, so the person attaches the one they save.
-  const message = invoiceMessage(inv, { name: inv.seller.name, upiId: inv.seller.upiId });
+  const message = invoiceMessage(inv, { name: inv.seller.name, upiId: inv.seller.upiId }, settings.data?.msgInvoice ?? '');
   const phone = whatsappPhone(inv.buyer.phone ?? '');
   const email = customer.data?.email ?? '';
   const remindToAttach = 'Save the PDF (Save PDF) and attach it before you send.';
@@ -158,9 +166,14 @@ ${message.body}`)) ? toast.success('Message copied — paste it anywhere') : toa
               <div className="mb-2 flex items-center justify-between">
                 <div className="text-xs font-medium text-ink-muted">Payments</div>
                 {balance > 0 && (
-                  <Button className="h-8 px-3 text-xs" icon={<HandCoins className="h-3.5 w-3.5" />} onClick={() => setPaying(true)}>
-                    Record payment
-                  </Button>
+                  <span className="flex gap-2">
+                    <Button className="h-8 px-3 text-xs" onClick={() => setWritingOff(true)} title="Clear a small balance you have decided not to chase">
+                      Write off
+                    </Button>
+                    <Button className="h-8 px-3 text-xs" icon={<HandCoins className="h-3.5 w-3.5" />} onClick={() => setPaying(true)}>
+                      Record payment
+                    </Button>
+                  </span>
                 )}
               </div>
               {inv.payments.length === 0 ? (
@@ -192,6 +205,10 @@ ${message.body}`)) ? toast.success('Message copied — paste it anywhere') : toa
         </Card>
       )}
 
+      {!cancelled && <InstalmentsCard invoice={inv} />}
+      {!cancelled && <DeliveryCard invoice={inv} />}
+      {!cancelled && <NotesPanel subjectType="invoice" subjectId={inv.id} kinds={['promise', 'followup', 'call', 'note']} title="Follow-up and promises" />}
+
       {/* The paper itself — the same component the PDF and the printer use. */}
       <div className="overflow-x-auto pb-8">
         <div className="mx-auto w-max rounded-lg border border-line shadow-overlay">
@@ -199,6 +216,7 @@ ${message.body}`)) ? toast.success('Message copied — paste it anywhere') : toa
         </div>
       </div>
 
+      {writingOff && <WriteOffModal invoice={inv} onClose={() => setWritingOff(false)} />}
       {paying && <RecordPaymentModal invoice={inv} customer={customer.data} onClose={() => setPaying(false)} />}
       {cancelling && (
         <ConfirmDialog

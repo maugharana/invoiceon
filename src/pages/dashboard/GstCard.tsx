@@ -6,8 +6,8 @@ import { navigate, paths } from '../../lib/router';
 import { StatCard } from './StatCard';
 
 /**
- * GST charged on this month's invoices: what falls due to the government on the invoices dated this month. Credit for tax paid on
- * purchases isn't tracked yet, so this is the tax before any credit, and the card says so.
+ * GST for this month: what was charged on the invoices, less the GST paid on purchases (entered on expenses). With no input GST
+ * recorded it is simply the tax charged, and the card says so.
  */
 export function GstCard({ month, index }: { month: DashboardMonth; index: number }) {
   const parts = [
@@ -21,9 +21,15 @@ export function GstCard({ month, index }: { month: DashboardMonth; index: number
       index={index}
       label={`GST · ${monthName}`}
       icon={Percent}
-      value={<Money paise={month.gstPaise} fractionDigits={0} />}
-      sub={parts.length ? parts.join(' · ') : 'No tax charged yet this month'}
-      delta={<span className="text-xs text-ink-muted">Before input credit</span>}
+      value={<Money paise={Math.abs(month.netGstPaise)} fractionDigits={0} />}
+      sub={
+        month.inputGstPaise > 0
+          ? `Charged ${formatMoney(month.gstPaise, { fractionDigits: 0 })} less ${formatMoney(month.inputGstPaise, { fractionDigits: 0 })} paid on purchases`
+          : parts.length
+            ? parts.join(' · ')
+            : 'No tax charged yet this month'
+      }
+      delta={<span className="text-xs text-ink-muted">{month.netGstPaise < 0 ? 'Credit to carry forward' : month.inputGstPaise > 0 ? 'Left to pay' : 'Before any input credit'}</span>}
       onClick={() => navigate(paths.reports('gst', { preset: 'this-month' }))}
     />
   );

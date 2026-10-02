@@ -1,11 +1,13 @@
-import { ChevronRight, Download, FileText, Plus, SearchX } from 'lucide-react';
+import { ChevronRight, Download, FileText, Plus, Printer, SearchX } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { invoicesCsv } from '../../../shared/csv';
 import { formatDate, todayIso } from '../../../shared/gst';
 import { DateRangeFilter, Pager, SortableTh, sortBy, usePager, useSort, type DateRangeValue } from '../../components/listTools';
-import { Button, Card, EmptyState, ErrorNote, InvoicePill, Money, PageHeader, SearchInput, Segmented, TableSkeleton, TypePill } from '../../components/ui';
+import { DELIVERY_STATUS_LABEL, type DeliveryStatus } from '../../../shared/types';
+import { Button, Card, EmptyState, ErrorNote, InvoicePill, Money, PageHeader, SearchInput, Segmented, Select, TableSkeleton, TypePill } from '../../components/ui';
 import { api } from '../../lib/api';
 import { useQuery } from '../../lib/data';
+import { useDocumentOutput } from '../../lib/documents';
 import { useCsvExport } from '../../lib/exportCsv';
 import { navigate, paths } from '../../lib/router';
 
@@ -18,8 +20,10 @@ export function InvoicesPage({ initialStatus }: { initialStatus: Status }) {
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
   const [dates, setDates] = useState<DateRangeValue>({});
+  const [delivery, setDelivery] = useState<'' | DeliveryStatus>('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const saveCsv = useCsvExport();
+  const docs = useDocumentOutput();
   const sort = useSort<'date' | 'number' | 'customer' | 'total'>('date', 'desc');
 
   useEffect(() => {
@@ -27,7 +31,7 @@ export function InvoicesPage({ initialStatus }: { initialStatus: Status }) {
     return () => clearTimeout(t);
   }, [search]);
 
-  const invoices = useQuery(() => api.invoicesList({ search: debounced, status, type, from: dates.from, to: dates.to }), [debounced, status, type, dates.from, dates.to]);
+  const invoices = useQuery(() => api.invoicesList({ search: debounced, status, type, from: dates.from, to: dates.to, delivery: delivery || undefined }), [debounced, status, type, dates.from, dates.to, delivery]);
   const anyInvoices = useQuery(() => api.invoicesList());
   const list = invoices.data;
   const sorted = useMemo(() => {
@@ -56,7 +60,7 @@ export function InvoicesPage({ initialStatus }: { initialStatus: Status }) {
       }
       return next;
     });
-  useEffect(() => pager.setPage(0), [debounced, status, type, dates.from, dates.to, sort.key, sort.dir]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => pager.setPage(0), [debounced, status, type, dates.from, dates.to, delivery, sort.key, sort.dir]); // eslint-disable-line react-hooks/exhaustive-deps
   const none = anyInvoices.data?.length === 0;
 
   return (
@@ -66,9 +70,21 @@ export function InvoicesPage({ initialStatus }: { initialStatus: Status }) {
         subtitle="Every invoice you've issued, newest first."
         actions={
           !none && (
+            <>
+              {selected.size > 0 && (
+                <>
+                  <Button icon={<Download className="h-4 w-4" />} onClick={() => void docs.savePdf(paths.printInvoices([...selected]), () => api.invoicesExportPdf([...selected]))} title="Save the ticked invoices together in one PDF, one per page">
+                    PDF of {selected.size}
+                  </Button>
+                  <Button icon={<Printer className="h-4 w-4" />} onClick={() => void docs.print(paths.printInvoices([...selected]), () => api.invoicesPrint([...selected]))} title="Print the ticked invoices">
+                    Print {selected.size}
+                  </Button>
+                </>
+              )}
             <Button icon={<Download className="h-4 w-4" />} disabled={toExport.length === 0} onClick={() => void saveCsv(`invoices-${todayIso()}.csv`, invoicesCsv(toExport), 'Invoices saved')} title={selected.size > 0 ? 'Save the ticked invoices as a spreadsheet' : 'Save everything the filters show as a spreadsheet'}>
               {selected.size > 0 ? `Export ${selected.size} selected` : 'Export CSV'}
             </Button>
+            </>
           )
         }
       />
@@ -93,6 +109,14 @@ export function InvoicesPage({ initialStatus }: { initialStatus: Status }) {
             <SearchInput value={search} onChange={setSearch} placeholder="Search invoice number or customer" />
             <div className="flex flex-wrap items-center justify-end gap-3">
               <DateRangeFilter onChange={setDates} />
+              <Select value={delivery} onChange={(e) => setDelivery(e.target.value as '' | DeliveryStatus)} className="w-36" aria-label="Delivery">
+                <option value="">Any delivery</option>
+                {(['pending', 'dispatched', 'delivered'] as const).map((d) => (
+                  <option key={d} value={d}>
+                    {DELIVERY_STATUS_LABEL[d]}
+                  </option>
+                ))}
+              </Select>
               <Segmented
                 label="Invoice type"
                 value={type}
@@ -176,6 +200,7 @@ export function InvoicesPage({ initialStatus }: { initialStatus: Status }) {
                       </td>
                       <td className="td">
                         <InvoicePill status={i.status} />
+                        {i.deliveryStatus !== 'none' && i.status !== 'cancelled' && <div className="mt-1 text-xs text-ink-muted">{DELIVERY_STATUS_LABEL[i.deliveryStatus]}</div>}
                       </td>
                       <td className="td text-ink-muted/50 transition-transform duration-150 group-hover:translate-x-0.5 group-hover:text-ink-muted">
                         <ChevronRight className="h-4 w-4" aria-hidden />

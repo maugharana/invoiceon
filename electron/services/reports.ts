@@ -1,9 +1,10 @@
-import { allocate, isIsoDate, todayIso } from '../../shared/gst';
+import { allocate, isIsoDate, todayIso, type RateGroup } from '../../shared/gst';
 import { bucketKeys, bucketOf, granularityFor } from '../../shared/periods';
 import type { GstReport, GstTotals, InvoiceType, PaymentMethod, SalesReport, StockReport } from '../../shared/types';
 import { all, type Db } from '../db/connection';
 import { UserError } from './common';
 import { listDesigns, loadVariants } from './inventory';
+import { taxByRate } from './invoices';
 import { loadPaid } from './payments';
 
 // ── Shared loading ──────────────────────────────────────────────────────────
@@ -17,6 +18,7 @@ interface InvoiceRow {
   place_of_supply: string;
   issue_date: string;
   gst_rate_percent: number;
+  intra_state: number;
   subtotal_paise: number;
   discount_paise: number;
   taxable_paise: number;
@@ -30,16 +32,23 @@ interface LineRow {
   invoice_id: string;
   design_id: string | null;
   design_name: string;
+  color: string;
+  size: string;
   hsn: string;
   qty: number;
   amount_paise: number;
   unit_cost_paise: number;
+  gst_rate_percent: number | null;
+  taxable_paise: number | null;
+  tax_paise: number | null;
 }
 
 /** One line of an issued invoice with its share of the invoice's discount and tax worked out. */
-interface LineShare {
+export interface LineShare {
   designId: string | null;
   designName: string;
+  color: string;
+  size: string;
   hsn: string;
   qty: number;
   taxable: number;
@@ -49,14 +58,16 @@ interface LineShare {
   cost: number;
 }
 
-interface LoadedInvoice {
+export interface LoadedInvoice {
   row: InvoiceRow;
   buyerName: string;
   buyerGstin: string;
   lines: LineShare[];
+  /** The invoice's tax by rate, lowest first (one entry for an invoice with a single rate). */
+  groups: RateGroup[];
 }
 
-function checkRange(range: { from: string; to: string }): void {
+export function checkRange(range: { from: string; to: string }): void {
   if (!isIsoDate(range?.from) || !isIsoDate(range?.to)) throw new UserError('Choose a valid date range.');
   if (range.from > range.to) throw new UserError('The start date is after the end date.');
 }
@@ -65,12 +76,12 @@ function checkRange(range: { from: string; to: string }): void {
  * Issued invoices dated in the range, each with its lines. An invoice-level discount and the tax are spread over the lines
  * in proportion to their value, to the exact paisa (see allocate), so anything summed from lines equals the invoice's own figures.
  */
-function loadInvoices(db: Db, range: { from: string; to: string }): LoadedInvoice[] {
+export function loadInvoices(db: Db, range: { from: string; to: string }): LoadedInvoice[] {
   const rows = all<InvoiceRow>(db, "SELECT * FROM invoices WHERE status = 'issued' AND issue_date BETWEEN ? AND ? ORDER BY issue_date, seq", range.from, range.to);
   if (rows.length === 0) return [];
   const lineRows = all<LineRow>(
     db,
-    `SELECT l.invoice_id, v.design_id, l.design_name, l.hsn, l.qty, l.amount_paise, l.unit_cost_paise
+    `SELECT l.invoice_id, v.design_id, l.design_name, l.color, l.size, l.hsn, l.qty, l.amount_paise, l.unit_cost_paise, l.gst_rate_percent, l.taxable_paise, l.tax_paise
      FROM invoice_lines l JOIN invoices i ON i.id = l.invoice_id LEFT JOIN variants v ON v.id = l.variant_id
      WHERE i.status = 'issued' AND i.issue_date BETWEEN ? AND ? ORDER BY l.position`,
     range.from,
@@ -85,16 +96,43 @@ function loadInvoices(db: Db, range: { from: string; to: string }): LoadedInvoic
 
   return rows.map((row) => {
     const lines = byInvoice.get(row.id) ?? [];
-    const taxable = allocate(row.taxable_paise, lines.map((l) => l.amount_paise));
-    const cgst = allocate(row.cgst_paise, taxable);
-    const sgst = allocate(row.sgst_paise, taxable);
-    const igst = allocate(row.igst_paise, taxable);
+    const groups = taxByRate(row, lines);
+    let taxable: number[];
+    let cgst: number[];
+    let sgst: number[];
+    let igst: number[];
+    if (lines.length > 0 && lines.every((l) => l.taxable_paise !== null && l.tax_paise !== null)) {
+      // Made after lines kept their own figures: each line's taxable value is stored, and each rate's tax is shared over its own lines.
+      taxable = lines.map((l) => l.taxable_paise!);
+      cgst = lines.map(() => 0);
+      sgst = lines.map(() => 0);
+      igst = lines.map(() => 0);
+      for (const g of groups) {
+        const idx = lines.map((l, k) => ((l.gst_rate_percent ?? row.gst_rate_percent) === g.ratePercent ? k : -1)).filter((k) => k >= 0);
+        const weights = idx.map((k) => taxable[k]!);
+        const c = allocate(g.cgstPaise, weights);
+        const s = allocate(g.sgstPaise, weights);
+        const ig = allocate(g.igstPaise, weights);
+        idx.forEach((k, n) => {
+          cgst[k] = c[n]!;
+          sgst[k] = s[n]!;
+          igst[k] = ig[n]!;
+        });
+      }
+    } else {
+      // Older invoices have one rate and no line discounts, so the invoice's figures are shared by line value, as they always were.
+      taxable = allocate(row.taxable_paise, lines.map((l) => l.amount_paise));
+      cgst = allocate(row.cgst_paise, taxable);
+      sgst = allocate(row.sgst_paise, taxable);
+      igst = allocate(row.igst_paise, taxable);
+    }
     const buyer = JSON.parse(row.buyer_json) as { name: string; gstin: string };
     return {
       row,
       buyerName: buyer.name,
       buyerGstin: buyer.gstin,
-      lines: lines.map((l, i): LineShare => ({ designId: l.design_id, designName: l.design_name, hsn: l.hsn, qty: l.qty, taxable: taxable[i]!, cgst: cgst[i]!, sgst: sgst[i]!, igst: igst[i]!, cost: l.qty * l.unit_cost_paise })),
+      groups,
+      lines: lines.map((l, i): LineShare => ({ designId: l.design_id, designName: l.design_name, color: l.color, size: l.size, hsn: l.hsn, qty: l.qty, taxable: taxable[i]!, cgst: cgst[i]!, sgst: sgst[i]!, igst: igst[i]!, cost: l.qty * l.unit_cost_paise })),
     };
   });
 }
@@ -118,7 +156,7 @@ export function salesReport(db: Db, range: { from: string; to: string }): SalesR
   // Payments are measured by the day the money arrived — independent of which invoice (or advance) they went to.
   const payments = all<{ received_on: string; method: PaymentMethod; amount_paise: number }>(
     db,
-    'SELECT received_on, method, amount_paise FROM payments WHERE voided_at IS NULL AND received_on BETWEEN ? AND ?',
+    "SELECT received_on, method, amount_paise FROM payments WHERE voided_at IS NULL AND kind = 'receipt' AND received_on BETWEEN ? AND ?",
     range.from,
     range.to,
   );
@@ -226,14 +264,17 @@ export function gstReport(db: Db, range: { from: string; to: string }): GstRepor
 
   const states = new Map<string, GstReport['b2cByState'][number]>();
   for (const i of invoices.filter((x) => x.row.type === 'B2C')) {
-    const key = `${i.row.place_of_supply}|${i.row.gst_rate_percent}`;
-    const s = states.get(key) ?? { placeOfSupply: i.row.place_of_supply, ratePercent: i.row.gst_rate_percent, invoices: 0, taxablePaise: 0, cgstPaise: 0, sgstPaise: 0, igstPaise: 0 };
-    s.invoices += 1;
-    s.taxablePaise += i.row.taxable_paise;
-    s.cgstPaise += i.row.cgst_paise;
-    s.sgstPaise += i.row.sgst_paise;
-    s.igstPaise += i.row.igst_paise;
-    states.set(key, s);
+    // An invoice with two rates appears under both, with each rate's own share.
+    for (const g of i.groups) {
+      const key = `${i.row.place_of_supply}|${g.ratePercent}`;
+      const s = states.get(key) ?? { placeOfSupply: i.row.place_of_supply, ratePercent: g.ratePercent, invoices: 0, taxablePaise: 0, cgstPaise: 0, sgstPaise: 0, igstPaise: 0 };
+      s.invoices += 1;
+      s.taxablePaise += g.taxablePaise;
+      s.cgstPaise += g.cgstPaise;
+      s.sgstPaise += g.sgstPaise;
+      s.igstPaise += g.igstPaise;
+      states.set(key, s);
+    }
   }
 
   const cancelled = all<{ n: number }>(db, "SELECT COUNT(*) AS n FROM invoices WHERE status = 'cancelled' AND issue_date BETWEEN ? AND ?", range.from, range.to)[0]!.n;
@@ -246,20 +287,23 @@ export function gstReport(db: Db, range: { from: string; to: string }): GstRepor
     hsn: [...hsn.values()].sort((a, b) => b.taxablePaise - a.taxablePaise),
     b2bRegister: invoices
       .filter((i) => i.row.type === 'B2B')
-      .map((i) => ({
-        invoiceId: i.row.id,
-        number: i.row.number,
-        date: i.row.issue_date,
-        customer: i.buyerName,
-        gstin: i.buyerGstin,
-        placeOfSupply: i.row.place_of_supply,
-        ratePercent: i.row.gst_rate_percent,
-        taxablePaise: i.row.taxable_paise,
-        cgstPaise: i.row.cgst_paise,
-        sgstPaise: i.row.sgst_paise,
-        igstPaise: i.row.igst_paise,
-        totalPaise: i.row.total_paise,
-      })),
+      // One row for each rate on an invoice. The invoice's total sits on its first row only, so a column adds up correctly.
+      .flatMap((i) =>
+        i.groups.map((g, n) => ({
+          invoiceId: i.row.id,
+          number: i.row.number,
+          date: i.row.issue_date,
+          customer: i.buyerName,
+          gstin: i.buyerGstin,
+          placeOfSupply: i.row.place_of_supply,
+          ratePercent: g.ratePercent,
+          taxablePaise: g.taxablePaise,
+          cgstPaise: g.cgstPaise,
+          sgstPaise: g.sgstPaise,
+          igstPaise: g.igstPaise,
+          totalPaise: n === 0 ? i.row.total_paise : 0,
+        })),
+      ),
     b2cByState: [...states.values()].sort((a, b) => b.taxablePaise - a.taxablePaise),
     cancelledCount: cancelled,
   };

@@ -2,7 +2,7 @@ import type { Settings } from '../../../shared/types';
 import { toNumber } from '../../lib/format';
 
 /** Number fields are edited as text so half-typed values like "2." don't fight the input. */
-const NUMERIC = ['gstRatePercent', 'defaultDueDays', 'defaultReorderLevel', 'proformaValidDays'] as const;
+const NUMERIC = ['gstRatePercent', 'defaultDueDays', 'defaultReorderLevel', 'proformaValidDays', 'marginAlertPercent'] as const;
 type NumericKey = (typeof NUMERIC)[number];
 
 export type Draft = Omit<Settings, NumericKey> & Record<NumericKey, string>;
@@ -26,7 +26,7 @@ export function fromDraft(draft: Draft, strict = false): Settings {
   const out = { ...draft } as Record<string, unknown>;
   for (const k of NUMERIC) {
     const n = toNumber(draft[k]);
-    if (Number.isNaN(n) && strict) throw new Error('GST rate, payment terms, reorder level and proforma validity must be numbers.');
+    if (Number.isNaN(n) && strict) throw new Error('GST rate, payment terms, reorder level, proforma validity and the margin to watch must be numbers.');
     out[k] = Number.isNaN(n) ? 0 : n;
   }
   return out as unknown as Settings;

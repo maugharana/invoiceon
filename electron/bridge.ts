@@ -9,6 +9,7 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join, resolve } from 'node:path';
 import { createApi, invoke } from './api';
+import { applyPendingRestore } from './backup';
 import { openDb } from './db/connection';
 import { listDesigns } from './services/inventory';
 import { loadSampleData } from './services/seed';
@@ -20,6 +21,7 @@ mkdirSync(dir, { recursive: true });
 if (process.env.INVOICEON_FRESH === '1') {
   for (const f of ['invoiceon.db', 'invoiceon.db-wal', 'invoiceon.db-shm']) rmSync(join(dir, f), { force: true });
 }
+applyPendingRestore(dir);
 const db = openDb(join(dir, 'invoiceon.db'));
 if (process.env.INVOICEON_DEMO === '1' && listDesigns(db).length === 0) {
   loadSampleData(db);

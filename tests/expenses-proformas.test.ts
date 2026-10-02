@@ -6,6 +6,7 @@ import { festivalComparison } from '../electron/services/festival';
 import * as expenses from '../electron/services/expenses';
 import { reorderList } from '../electron/services/deadstock';
 import { DASHBOARD_SECTIONS, defaultLayout, moveSection, normaliseLayout, toggleSection, visibleSections } from '../shared/dashboardLayout';
+import { expensesBreakdownCsv, expensesCsv } from '../shared/csv';
 import { FESTIVALS, festivalById, festivalSeason } from '../shared/festivals';
 import { invoiceMessage, mailtoLink, quoteReminder, reorderNote, whatsappLink, whatsappPhone } from '../shared/messages';
 import * as inventory from '../electron/services/inventory';
@@ -246,7 +247,10 @@ describe('dashboard overview (sample data)', () => {
       netProfitPaise: reports.salesReport(db, before).grossProfitPaise - rupees(21600 + 3200),
     });
     // The old invoice from 52 days ago still shows in "owed today" even though it's outside the period.
-    expect(o.aging.reduce((s, b) => s + b.paise, 0)).toBeGreaterThan(o.outstandingPaise);
+    // What is owed doesn't depend on the period: the old invoice outside it still counts, and it agrees with aging and the sidebar badge.
+    expect(o.aging.reduce((s, b) => s + b.paise, 0)).toBe(o.outstandingPaise);
+    expect(o.outstandingPaise).toBe(invoices.dashboardSummary(db).outstandingPaise);
+    expect(o.overdueCount).toBe(invoices.dashboardSummary(db).overdueCount);
   });
 
   it('can compare with the same dates a year earlier instead of the period before', () => {
@@ -651,5 +655,145 @@ describe('dashboard trend buckets', () => {
     expect(trendKeys(range, 'week')[0]).toBe('2026-08-03');
     expect(trendKeys({ from: '2026-08-05', to: '2026-08-20' }, 'week')[0]).toBe('2026-08-03'); // starts before the range's first day
     expect(trendKeys(range, 'month')).toEqual(['2026-08', '2026-09']);
+  });
+});
+
+describe('editing a proforma', () => {
+  it('changes the items, prices and dates but keeps the same quote and number', () => {
+    const { v } = stocked(5);
+    const p = proformas.createProforma(db, quote(v.id));
+    expect(p.totalPaise).toBe(rupees(2100)); // 2 × ₹1,000 + 5%
+    const edited = proformas.updateProforma(db, p.id, quote(v.id, { lines: [{ variantId: v.id, qty: 3, unitPricePaise: rupees(900) }], notes: 'Festival price', validUntil: addDays(today, 30) }));
+    expect(edited).toMatchObject({ id: p.id, number: p.number, notes: 'Festival price', totalPaise: rupees(2835), validUntil: addDays(today, 30), status: 'open' });
+    expect(edited.lines).toHaveLength(1);
+    expect(edited.lines[0]).toMatchObject({ qty: 3, unitPricePaise: rupees(900), amountPaise: rupees(2700) });
+    expect(proformas.listProformas(db)).toHaveLength(1);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM proforma_lines').get()).toEqual({ n: 1 }); // replaced, not piled up
+  });
+
+  it('can move a quote to a different customer or add lines for pieces not in stock', () => {
+    const { v } = stocked(1);
+    const p = proformas.createProforma(db, quote(v.id, { lines: [{ variantId: v.id, qty: 1, unitPricePaise: rupees(1000) }] }));
+    const bigger = proformas.updateProforma(db, p.id, quote(v.id, { lines: [{ variantId: v.id, qty: 20, unitPricePaise: rupees(1000) }] })); // a quote takes no stock
+    expect(bigger.totalPaise).toBe(rupees(21000));
+    expect(proformas.updateProforma(db, p.id, quote(v.id, { buyerName: 'Meena' })).buyer.name).toBe('Meena');
+  });
+
+  it('brings a lapsed quote back to life when given a later date', () => {
+    const { v } = stocked(5);
+    const p = proformas.createProforma(db, quote(v.id, { issueDate: addDays(today, -20), validUntil: addDays(today, -5) }));
+    expect(p.status).toBe('expired');
+    expect(proformas.updateProforma(db, p.id, quote(v.id, { issueDate: addDays(today, -20), validUntil: addDays(today, 10) })).status).toBe('open');
+  });
+
+  it('refuses once it is invoiced or cancelled, or on bad input, and leaves the quote as it was', () => {
+    const { v } = stocked(5);
+    const done = proformas.createProforma(db, quote(v.id));
+    proformas.convertProforma(db, done.id);
+    expect(() => proformas.updateProforma(db, done.id, quote(v.id))).toThrow(/became an invoice/);
+    const gone = proformas.cancelProforma(db, proformas.createProforma(db, quote(v.id)).id, '');
+    expect(() => proformas.updateProforma(db, gone.id, quote(v.id))).toThrow(/was cancelled/);
+    expect(() => proformas.updateProforma(db, 'nope', quote(v.id))).toThrow(/no longer exists/);
+
+    const p = proformas.createProforma(db, quote(v.id));
+    expect(() => proformas.updateProforma(db, p.id, quote(v.id, { lines: [] }))).toThrow();
+    expect(() => proformas.updateProforma(db, p.id, quote(v.id, { validUntil: addDays(today, -400), issueDate: today }))).toThrow(/can't expire before/);
+    expect(proformas.getProforma(db, p.id).totalPaise).toBe(rupees(2100));
+    expect(proformas.getProforma(db, p.id).lines).toHaveLength(1);
+  });
+
+  it('keeps the quote inside the financial year its number belongs to', () => {
+    const { v } = stocked(5);
+    const p = proformas.createProforma(db, quote(v.id));
+    const otherYear = addDays(today, 400);
+    expect(() => proformas.updateProforma(db, p.id, quote(v.id, { issueDate: otherYear, validUntil: addDays(otherYear, 10) }))).toThrow(/financial year/);
+  });
+
+  it('is available through the API', async () => {
+    const { v } = stocked(5);
+    const api = createApi(db);
+    const p = await api.proformaCreate(quote(v.id));
+    expect((await api.proformaUpdate(p.id, quote(v.id, { notes: 'via api' }))).notes).toBe('via api');
+  });
+});
+
+describe('proforma list by date', () => {
+  it('filters by quote date, inclusive, and refuses a bad date', () => {
+    const { v } = stocked(5);
+    const old = proformas.createProforma(db, quote(v.id, { issueDate: addDays(today, -30), validUntil: addDays(today, -20) }));
+    const mid = proformas.createProforma(db, quote(v.id, { issueDate: addDays(today, -10) }));
+    const recent = proformas.createProforma(db, quote(v.id));
+    const ids = (q: Parameters<typeof proformas.listProformas>[1]) => proformas.listProformas(db, q).map((p) => p.id).sort();
+    expect(ids({ from: addDays(today, -10) })).toEqual([mid.id, recent.id].sort());
+    expect(ids({ to: addDays(today, -10) })).toEqual([old.id, mid.id].sort());
+    expect(ids({ from: addDays(today, -10), to: addDays(today, -10) })).toEqual([mid.id]);
+    expect(ids({ from: '', to: '' })).toHaveLength(3);
+    expect(() => proformas.listProformas(db, { from: 'x' })).toThrow(/valid "from" date/);
+  });
+});
+
+describe('expenses by category and month', () => {
+  const on = (date: string, category: string, rupeesAmount: number) => expenses.createExpense(db, expense({ date, category, amountPaise: rupees(rupeesAmount) }));
+
+  it('lays spending out by category and month, with totals that add up both ways', () => {
+    on('2026-07-10', 'Rent', 1000);
+    on('2026-08-10', 'Rent', 1000);
+    on('2026-08-20', 'Wages', 500);
+    on('2026-09-05', 'Rent', 1200);
+    on('2026-09-06', 'wages', 700); // same category, different case
+    const b = expenses.expensesBreakdown(db, { from: '2026-07-01', to: '2026-09-30' });
+    expect(b.months).toEqual(['2026-07', '2026-08', '2026-09']);
+    expect(b.rows.map((r) => [r.category, r.byMonth, r.totalPaise])).toEqual([
+      ['Rent', [rupees(1000), rupees(1000), rupees(1200)], rupees(3200)],
+      ['Wages', [0, rupees(500), rupees(700)], rupees(1200)],
+    ]);
+    expect(b.monthTotals).toEqual([rupees(1000), rupees(1500), rupees(1900)]);
+    expect(b.totalPaise).toBe(rupees(4400));
+    expect(b.rows.reduce((s, r) => s + r.totalPaise, 0)).toBe(b.totalPaise);
+    expect(b.monthTotals.reduce((s, m) => s + m, 0)).toBe(b.totalPaise);
+  });
+
+  it('shows quiet months as empty columns when the dates are fixed', () => {
+    on('2026-07-10', 'Rent', 1000);
+    on('2026-09-10', 'Rent', 1000);
+    const b = expenses.expensesBreakdown(db, { from: '2026-07-01', to: '2026-09-30' });
+    expect(b.rows[0]!.byMonth).toEqual([rupees(1000), 0, rupees(1000)]);
+  });
+
+  it('compares each category with the stretch of the same length just before', () => {
+    on('2026-04-15', 'Rent', 900); // previous quarter: Apr–Jun
+    on('2026-05-15', 'Packaging', 300);
+    on('2026-07-15', 'Rent', 1000);
+    on('2026-08-15', 'Wages', 400);
+    const b = expenses.expensesBreakdown(db, { from: '2026-07-01', to: '2026-09-30' });
+    expect(b.previous).toMatchObject({ totalPaise: rupees(1200) });
+    expect(b.previous!.to).toBe('2026-06-30');
+    const byName = Object.fromEntries(b.rows.map((r) => [r.category, r.previousPaise]));
+    expect(byName).toEqual({ Rent: rupees(900), Wages: 0 }); // wages are new; packaging didn't recur so isn't listed
+  });
+
+  it('runs from the first to the last month with spending when there is no date range, and has nothing to compare with', () => {
+    on('2026-06-10', 'Rent', 1000);
+    on('2026-09-10', 'Rent', 1000);
+    const b = expenses.expensesBreakdown(db);
+    expect(b.months).toEqual(['2026-06', '2026-07', '2026-08', '2026-09']);
+    expect(b.previous).toBeNull();
+    expect(b.rows[0]!.previousPaise).toBeNull();
+    expect(expenses.expensesBreakdown(openDb(':memory:'))).toMatchObject({ months: [], rows: [], totalPaise: 0, previous: null });
+  });
+
+  it('respects a category filter and works through the API', async () => {
+    on('2026-07-10', 'Rent', 1000);
+    on('2026-07-11', 'Wages', 500);
+    const b = await createApi(db).expensesBreakdown({ category: 'wages', from: '2026-07-01', to: '2026-07-31' });
+    expect(b.rows.map((r) => r.category)).toEqual(['Wages']);
+  });
+
+  it('exports the list and the breakdown as spreadsheets', () => {
+    on('2026-07-10', 'Rent', 1000);
+    const e = expenses.listExpenses(db)[0]!;
+    expect(expensesCsv([e]).replace('﻿', '').trim().split('\r\n')).toEqual(['Date,Category,Paid to,Paid by,Reference,Amount,Note', '2026-07-10,Rent,Landlord,Bank transfer,,1000.00,']);
+    const b = expenses.expensesBreakdown(db, { from: '2026-07-01', to: '2026-08-31' });
+    expect(expensesBreakdownCsv(b).replace('﻿', '').trim().split('\r\n')).toEqual(['Category,2026-07,2026-08,Total,Previous period', 'Rent,1000.00,0.00,1000.00,0.00', 'Total,1000.00,0.00,1000.00,0.00']);
   });
 });

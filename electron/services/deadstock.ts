@@ -8,8 +8,8 @@ export function reorderList(db: Db): ReorderRow[] {
   const designs = new Map(listDesigns(db).map((d) => [d.id, d]));
   return loadVariants(db)
     .filter((v) => designs.has(v.designId) && (v.status === 'low' || v.status === 'out'))
-    .map((v) => ({ designId: v.designId, designName: designs.get(v.designId)!.name, nickname: designs.get(v.designId)!.nickname, color: v.color, size: v.size, stock: v.stock, reorderLevel: v.reorderLevel }))
-    .sort((a, b) => a.designName.localeCompare(b.designName) || a.color.localeCompare(b.color) || a.size.localeCompare(b.size));
+    .map((v) => ({ designId: v.designId, designName: designs.get(v.designId)!.name, nickname: designs.get(v.designId)!.nickname, color: v.color, size: v.size, stock: v.stock, reorderLevel: v.reorderLevel, supplierId: designs.get(v.designId)!.supplierId, supplierName: designs.get(v.designId)!.supplierName }))
+    .sort((a, b) => a.supplierName.localeCompare(b.supplierName) || a.designName.localeCompare(b.designName) || a.color.localeCompare(b.color) || a.size.localeCompare(b.size));
 }
 
 /** Stock that has sat this long without a sale counts as not selling. */

@@ -1,20 +1,30 @@
-import { Ban, HandCoins, Plus, SearchX, Undo2 } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
-import { formatDate } from '../../../shared/gst';
-import { PAYMENT_METHOD_LABEL, type DuesRow, type Payment } from '../../../shared/types';
+import { Ban, BellRing, Download, FileText, HandCoins, Plus, SearchX, Undo2 } from 'lucide-react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { paymentsCsv } from '../../../shared/csv';
+import { formatDate, todayIso } from '../../../shared/gst';
+import { CHEQUE_STATUS_LABEL, PAYMENT_METHODS, PAYMENT_METHOD_LABEL, type DuesRow, type Payment, type PaymentMethod } from '../../../shared/types';
 import { ConfirmDialog } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
-import { Button, Card, EmptyState, ErrorNote, Field, Figure, IconButton, Input, Money, PageHeader, Pill, SearchInput, Segmented, TableSkeleton } from '../../components/ui';
+import { DateRangeFilter, Pager, SortableTh, sortBy, usePager, useSort, type DateRangeValue } from '../../components/listTools';
+import { Button, Card, EmptyState, ErrorNote, Field, Figure, IconButton, Input, Money, PageHeader, Pill, SearchInput, Segmented, Select, TableSkeleton } from '../../components/ui';
 import { api } from '../../lib/api';
 import { useQuery, useRefresh } from '../../lib/data';
+import { useDocumentOutput } from '../../lib/documents';
+import { useCsvExport } from '../../lib/exportCsv';
 import { plural } from '../../lib/format';
 import { navigate, paths } from '../../lib/router';
 import { RecordPaymentModal } from './RecordPaymentModal';
+import { RemindersModal } from './RemindersModal';
 
-function Tabs({ tab }: { tab: 'payments' | 'dues' }) {
+export type PaymentsTab = 'payments' | 'dues' | 'cheques' | 'accounts' | 'reconcile';
+
+function Tabs({ tab }: { tab: PaymentsTab }) {
   const tabs = [
     { id: 'payments', label: 'Payments', href: paths.payments },
     { id: 'dues', label: 'Dues', href: paths.dues },
+    { id: 'cheques', label: 'Cheques', href: paths.cheques },
+    { id: 'accounts', label: 'Cash & accounts', href: paths.accounts },
+    { id: 'reconcile', label: 'Match bank statement', href: paths.reconcile },
   ] as const;
   return (
     <div className="mb-6 flex gap-6 border-b border-line" role="tablist">
@@ -28,7 +38,7 @@ function Tabs({ tab }: { tab: 'payments' | 'dues' }) {
 }
 
 /** Shared frame for Payments and Dues: title, the four headline figures, the tabs. */
-function PaymentsShell({ tab, children }: { tab: 'payments' | 'dues'; children: ReactNode }) {
+export function PaymentsShell({ tab, children }: { tab: PaymentsTab; children: ReactNode }) {
   const summary = useQuery(() => api.paymentsSummary());
   const [recording, setRecording] = useState(false);
   const s = summary.data;
@@ -100,18 +110,34 @@ function VoidPaymentDialog({ payment, onClose }: { payment: Payment; onClose: ()
 export function PaymentsPage() {
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
-  const [status, setStatus] = useState<'all' | 'advance' | 'voided'>('all');
+  const [status, setStatus] = useState<'all' | 'advance' | 'voided' | 'writeoff' | 'unreconciled'>('all');
+  const settings = useQuery(() => api.getSettings());
+  const accountName = (id: string) => settings.data?.paymentAccounts.find((a) => a.id === id)?.name ?? '';
   const [voiding, setVoiding] = useState<Payment | null>(null);
+  const [dates, setDates] = useState<DateRangeValue>({});
+  const [method, setMethod] = useState<'' | PaymentMethod>('');
+  const sort = useSort<'date' | 'customer' | 'method' | 'amount'>('date', 'desc');
+  const saveCsv = useCsvExport();
+  const docs = useDocumentOutput();
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search), 150);
     return () => clearTimeout(t);
   }, [search]);
 
-  const payments = useQuery(() => api.paymentsList({ search: debounced, status }), [debounced, status]);
+  const payments = useQuery(() => api.paymentsList({ search: debounced, status, method: method || undefined, from: dates.from, to: dates.to }), [debounced, status, method, dates.from, dates.to]);
   const any = useQuery(() => api.paymentsList());
   const list = payments.data;
   const none = any.data?.length === 0;
+  const sorted = useMemo(() => {
+    const rows = list ?? [];
+    if (sort.key === 'customer') return sortBy(rows, (p) => p.customerName, sort.dir);
+    if (sort.key === 'method') return sortBy(rows, (p) => PAYMENT_METHOD_LABEL[p.method], sort.dir);
+    if (sort.key === 'amount') return sortBy(rows, (p) => p.amountPaise, sort.dir);
+    return sortBy(rows, (p) => p.receivedOn, sort.dir);
+  }, [list, sort.key, sort.dir]);
+  const pager = usePager(sorted);
+  useEffect(() => pager.setPage(0), [debounced, status, method, dates.from, dates.to, sort.key, sort.dir]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <PaymentsShell tab="payments">
@@ -124,36 +150,54 @@ export function PaymentsPage() {
         <>
           <div className="mb-4 flex items-center justify-between gap-4">
             <SearchInput value={search} onChange={setSearch} placeholder="Search customer, reference or invoice" />
-            <Segmented
-              label="Payment filter"
-              value={status}
-              onChange={setStatus}
-              options={[
-                { value: 'all', label: 'All' },
-                { value: 'advance', label: 'Advance held' },
-                { value: 'voided', label: 'Reversed' },
-              ]}
-            />
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              <DateRangeFilter onChange={setDates} />
+              <div className="w-40">
+                <Select value={method} onChange={(e) => setMethod(e.target.value as '' | PaymentMethod)} aria-label="Method">
+                  <option value="">Any method</option>
+                  {PAYMENT_METHODS.map((m) => (
+                    <option key={m} value={m}>
+                      {PAYMENT_METHOD_LABEL[m]}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <Segmented
+                label="Payment filter"
+                value={status}
+                onChange={setStatus}
+                options={[
+                  { value: 'all', label: 'All' },
+                  { value: 'advance', label: 'Advance held' },
+                  { value: 'voided', label: 'Reversed' },
+                  { value: 'writeoff', label: 'Written off' },
+                  { value: 'unreconciled', label: 'Not matched' },
+                ]}
+              />
+              <Button icon={<Download className="h-4 w-4" />} disabled={sorted.length === 0} onClick={() => void saveCsv(`payments-${todayIso()}.csv`, paymentsCsv(sorted), 'Payments saved')}>
+                Export CSV
+              </Button>
+            </div>
           </div>
           <Card className="overflow-x-auto">
             {payments.loading ? (
               <TableSkeleton />
             ) : list?.length === 0 ? (
-              <EmptyState icon={<SearchX className="h-6 w-6" />} title="No payments match" body="Try a different search or filter." actions={<Button onClick={() => { setSearch(''); setStatus('all'); }}>Clear filters</Button>} />
+              <EmptyState icon={<SearchX className="h-6 w-6" />} title="No payments match" body="Try a different search or filter." actions={<Button onClick={() => { setSearch(''); setStatus('all'); setMethod(''); }}>Clear filters</Button>} />
             ) : (
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-line">
-                    <th className="th">Date</th>
-                    <th className="th">Customer</th>
-                    <th className="th">Method</th>
+                    <SortableTh label="Date" active={sort.key === 'date'} dir={sort.dir} onSort={() => sort.toggle('date', 'desc')} />
+                    <SortableTh label="Customer" active={sort.key === 'customer'} dir={sort.dir} onSort={() => sort.toggle('customer')} />
+                    <SortableTh label="Method" active={sort.key === 'method'} dir={sort.dir} onSort={() => sort.toggle('method')} />
                     <th className="th">Applied to</th>
-                    <th className="th text-right">Amount</th>
-                    <th className="w-12" />
+                    <SortableTh label="Amount" right active={sort.key === 'amount'} dir={sort.dir} onSort={() => sort.toggle('amount', 'desc')} />
+                    <th className="w-20" />
                   </tr>
                 </thead>
                 <tbody>
-                  {list?.map((p) => (
+                  {pager.pageItems.map((p) => (
                     <tr key={p.id} className={`animate-fade-in border-b border-line/70 transition-colors duration-150 last:border-0 hover:bg-canvas ${p.voided ? 'text-ink-muted' : ''}`}>
                       <td className="td num whitespace-nowrap text-ink-muted">{formatDate(p.receivedOn)}</td>
                       <td className="td">
@@ -164,8 +208,13 @@ export function PaymentsPage() {
                         )}
                       </td>
                       <td className="td">
-                        {PAYMENT_METHOD_LABEL[p.method]}
+                        {p.kind === 'writeoff' ? 'Written off' : PAYMENT_METHOD_LABEL[p.method]}
                         {p.reference && <div className="num text-xs text-ink-muted">{p.reference}</div>}
+                        <div className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-ink-muted">
+                          {p.accountId && accountName(p.accountId) && <span>{accountName(p.accountId)}</span>}
+                          {p.chequeStatus && <span>{CHEQUE_STATUS_LABEL[p.chequeStatus]}{p.chequeDate ? ` · ${formatDate(p.chequeDate)}` : ''}</span>}
+                          {p.reconciledOn && <span className="text-status-paid-fg">matched to bank</span>}
+                        </div>
                       </td>
                       <td className="td">
                         {p.voided ? (
@@ -186,11 +235,16 @@ export function PaymentsPage() {
                         <Money paise={p.amountPaise} className={p.voided ? 'line-through' : ''} />
                       </td>
                       <td className="td">
-                        {!p.voided && (
-                          <IconButton label={`Reverse payment from ${p.customerName}`} onClick={() => setVoiding(p)}>
-                            <Undo2 className="h-4 w-4" />
+                        <div className="flex justify-end gap-0.5">
+                          <IconButton label={`Receipt for ${p.customerName}, ${formatDate(p.receivedOn)}`} onClick={() => void docs.savePdf(paths.printReceipt(p.id), () => api.paymentReceiptExportPdf(p.id))}>
+                            <FileText className="h-4 w-4" />
                           </IconButton>
-                        )}
+                          {!p.voided && (
+                            <IconButton label={`Reverse payment from ${p.customerName}`} onClick={() => setVoiding(p)}>
+                              <Undo2 className="h-4 w-4" />
+                            </IconButton>
+                          )}
+                        </div>
                         {p.voided && <Ban className="h-4 w-4 text-ink-muted/50" aria-label="Reversed" />}
                       </td>
                     </tr>
@@ -199,7 +253,7 @@ export function PaymentsPage() {
               </table>
             )}
           </Card>
-          {list && list.length > 0 && <p className="mt-3 text-xs text-ink-muted">Showing {plural(list.length, 'payment')}</p>}
+          {list && list.length > 0 && <Pager pager={pager} noun="payment" />}
         </>
       )}
       {voiding && <VoidPaymentDialog payment={voiding} onClose={() => setVoiding(null)} />}
@@ -219,6 +273,8 @@ const BUCKETS = [
 export function DuesPage() {
   const dues = useQuery(() => api.duesReport());
   const [paying, setPaying] = useState<DuesRow | null>(null);
+  const [reminding, setReminding] = useState(false);
+  const settings = useQuery(() => api.getSettings());
   const d = dues.data;
   const total = d?.outstandingPaise ?? 0;
 
@@ -234,6 +290,12 @@ export function DuesPage() {
       ) : (
         d && (
           <>
+            <div className="mb-4 flex justify-end">
+              <Button icon={<BellRing className="h-4 w-4" />} onClick={() => setReminding(true)} title="Ready-written reminders for everyone who is overdue">
+                Send reminders
+              </Button>
+            </div>
+            <InstalmentsDue />
             {/* How old is what you're owed? */}
             <Card className="mb-6 p-6">
               <h2 className="mb-4 text-base">How late is it?</h2>
@@ -284,6 +346,12 @@ export function DuesPage() {
                           {r.oldestDueDate && <> · oldest due {formatDate(r.oldestDueDate)}</>}
                           {r.advancePaise > 0 && <span className="text-status-partial-fg"> · <Money paise={r.advancePaise} fractionDigits={0} /> advance held</span>}
                         </div>
+                        {r.promisedOn && (
+                          <div className={`whitespace-nowrap text-xs ${r.promisedOn < todayIso() ? 'text-status-overdue-fg' : 'text-brand'}`}>
+                            Promised <Money paise={r.promisedPaise} fractionDigits={0} /> by {formatDate(r.promisedOn)}
+                            {r.promisedOn < todayIso() && ' — missed'}
+                          </div>
+                        )}
                       </td>
                       <Cell paise={r.currentPaise} />
                       <Cell paise={r.days1to30Paise} />
@@ -305,8 +373,38 @@ export function DuesPage() {
           </>
         )
       )}
+      {reminding && d && <RemindersModal rows={d.rows} businessName={settings.data?.businessName ?? ''} upiId={settings.data?.upiId ?? ''} template={settings.data?.msgDue ?? ''} onClose={() => setReminding(false)} />}
       {paying?.customerId && <CustomerPaymentModal customerId={paying.customerId} onClose={() => setPaying(null)} />}
     </PaymentsShell>
+  );
+}
+
+/** Instalments on invoices that fall due in the next week or are already late. Hidden when there are none. */
+function InstalmentsDue() {
+  const due = useQuery(() => api.instalmentsDue());
+  const rows = due.data ?? [];
+  if (rows.length === 0) return null;
+  return (
+    <Card className="mb-6 p-6">
+      <h2 className="mb-3 text-base">Instalments due</h2>
+      <ul className="divide-y divide-line/70">
+        {rows.map((n) => (
+          <li key={n.id} className="flex items-center justify-between gap-4 py-2">
+            <span>
+              <a href={`#${paths.invoice(n.invoiceId)}`} className="num transition-colors hover:text-brand">{n.invoiceNumber}</a>
+              <span className="text-ink-muted"> · {n.customerName} · instalment {n.position + 1}</span>
+            </span>
+            <span className="flex items-center gap-4">
+              <span className={`num text-xs ${n.status === 'overdue' ? 'text-status-overdue-fg' : 'text-ink-muted'}`}>
+                {n.status === 'overdue' ? 'was due ' : 'due '}
+                {formatDate(n.dueDate)}
+              </span>
+              <Money paise={n.amountPaise - n.paidPaise} />
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Card>
   );
 }
 

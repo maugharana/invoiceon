@@ -1,10 +1,12 @@
 import { Plus, Search, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { addDays, computeTotals, todayIso } from '../../../shared/gst';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { checkCredit, dueDateFromTerms } from '../../../shared/credit';
+import { addDays, computeInvoice, isValidRate, resolveRate, todayIso } from '../../../shared/gst';
 import { formatMoney, mulPaise } from '../../../shared/money';
 import { matchesAll } from '../../../shared/search';
+import { parseInvoiceDraft, type InvoiceDraft } from '../../../shared/invoiceDraft';
 import { sameState } from '../../../shared/states';
-import { PAYMENT_METHODS, PAYMENT_METHOD_LABEL, type Customer, type InvoiceType, type PaymentMethod, type SaleVariant } from '../../../shared/types';
+import { PAYMENT_METHODS, PAYMENT_METHOD_LABEL, type Customer, type Invoice, type InvoiceType, type LineInput, type PaymentMethod, type Proforma, type QuoteTemplate, type SaleVariant, type ShipTo } from '../../../shared/types';
 import { useToast } from '../../components/Toast';
 import { Button, Card, ErrorNote, Field, Input, Money, MoneyInput, PageHeader, Segmented, Select, Textarea } from '../../components/ui';
 import { api, errorMessage } from '../../lib/api';
@@ -12,11 +14,37 @@ import { useQuery, useRefresh } from '../../lib/data';
 import { toNumber } from '../../lib/format';
 import { navigate, paths, type AdvancePreset } from '../../lib/router';
 import { CustomerFormModal } from '../customers/CustomerFormModal';
+import { HeldListModal, HoldModal } from './HeldBills';
+import { ShipToCard } from './ShipToCard';
 
 interface Line {
   variantId: string;
   qty: string;
   price: number;
+  /** Taken off this line alone, in paise. */
+  discount: number;
+  /** A GST rate typed for this line, as text; empty means "work it out". */
+  rate: string;
+  note: string;
+}
+
+const newLine = (variantId: string, qty: string, price: number): Line => ({ variantId, qty, price, discount: 0, rate: '', note: '' });
+
+// An invoice that was being built is kept as you go, so a crash or a closed window doesn't lose it.
+const DRAFT_KEY = 'invoiceon.draft.invoice';
+function loadDraft(): InvoiceDraft | null {
+  try {
+    return parseInvoiceDraft(JSON.parse(localStorage.getItem(DRAFT_KEY) ?? 'null'));
+  } catch {
+    return null;
+  }
+}
+function clearDraft() {
+  try {
+    localStorage.removeItem(DRAFT_KEY);
+  } catch {
+    /* nothing to clear */
+  }
 }
 
 // ── Customer picker ─────────────────────────────────────────────────────────
@@ -194,7 +222,7 @@ function ItemPicker({ variants, taken, onPick, allowOutOfStock = false }: { vari
 
 // ── Page ────────────────────────────────────────────────────────────────────
 /** One editor for both documents: an invoice takes stock and money; a proforma is a quote that does neither until it becomes an invoice. */
-export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, mode = 'invoice' }: { presetCustomerId: string | null; advance?: AdvancePreset | null; copyFrom?: string | null; mode?: 'invoice' | 'proforma' }) {
+export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, editId = null, mode = 'invoice' }: { presetCustomerId: string | null; advance?: AdvancePreset | null; copyFrom?: string | null; /** Change this existing proforma instead of making a new one. */ editId?: string | null; mode?: 'invoice' | 'proforma' }) {
   const quote = mode === 'proforma';
   const toast = useToast();
   const refresh = useRefresh();
@@ -210,7 +238,14 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, mod
   const dueTouched = useRef(false);
   const [discount, setDiscount] = useState(0);
   const [notes, setNotes] = useState('');
+  const templates = useQuery(() => (quote ? api.quoteTemplatesList() : Promise.resolve([])), [quote]);
+  const [shipTo, setShipTo] = useState<ShipTo | null>(null);
+  const [transport, setTransport] = useState('');
+  const [trackingNo, setTrackingNo] = useState('');
   const [lines, setLines] = useState<Line[]>([]);
+  /** Items whose discount / GST / note boxes are open. Ones that already have something typed open by themselves. */
+  const [openMore, setMore] = useState<Set<string>>(new Set());
+  const more = useMemo(() => new Set([...openMore, ...lines.filter((l) => l.discount > 0 || l.rate !== '' || l.note !== '').map((l) => l.variantId)]), [openMore, lines]);
   // Money received as the invoice is made. It can arrive pre-filled from "Record payment → Record & create invoice".
   const [received, setReceived] = useState(advance?.amountPaise ?? 0);
   const [payMethod, setPayMethod] = useState<PaymentMethod>(advance?.method ?? 'cash');
@@ -220,8 +255,58 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, mod
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // "Duplicate": start from an earlier invoice's customer, items, prices, discount and notes (today's date, nothing paid).
-  const source = useQuery(() => (copyFrom && !quote ? api.invoiceGet(copyFrom) : Promise.resolve(null)), [copyFrom]);
+  // Unfinished-invoice recovery: offered once on arrival (only for a fresh invoice), and saved a moment after each change.
+  const draftable = !quote && !editId && !copyFrom && !advance;
+  const [draft, setDraft] = useState<InvoiceDraft | null>(() => (draftable ? loadDraft() : null));
+  useEffect(() => {
+    if (!draftable || draft) return; // while a saved draft is waiting for a decision, don't overwrite it with an empty page
+    const t = setTimeout(() => {
+      try {
+        if (lines.length === 0 && !customerId) localStorage.removeItem(DRAFT_KEY);
+        else localStorage.setItem(DRAFT_KEY, JSON.stringify({ savedAt: new Date().toISOString(), type, customerId, buyerName, issueDate, dueDate, discountPaise: discount, notes, lines, receivedPaise: received, payMethod }));
+      } catch {
+        /* a convenience, not a record */
+      }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [draftable, draft, type, customerId, buyerName, issueDate, dueDate, discount, notes, lines, received, payMethod]);
+  /** Fills the form from a saved bill: the unfinished one found on arrival, or one picked up from "On hold". */
+  function applyDraft(d: InvoiceDraft) {
+    if (!variants.data) return;
+    const known = new Set(variants.data.map((v) => v.variantId));
+    setType(d.type);
+    setCustomerId(d.customerId);
+    setBuyerName(d.buyerName);
+    if (d.issueDate) setIssueDate(d.issueDate);
+    if (d.dueDate) {
+      setDueDate(d.dueDate);
+      dueTouched.current = true;
+    }
+    setDiscount(d.discountPaise);
+    setNotes(d.notes);
+    setLines(d.lines.filter((l) => known.has(l.variantId)).map((l) => ({ ...newLine(l.variantId, l.qty, l.price), discount: l.discount ?? 0, rate: l.rate ?? '', note: l.note ?? '' })));
+    setReceived(d.receivedPaise);
+    setPayMethod(d.payMethod);
+  }
+  function restoreDraft() {
+    if (!draft || !variants.data) return;
+    applyDraft(draft);
+    setDraft(null);
+  }
+  const [holding, setHolding] = useState(false);
+  const [showHeld, setShowHeld] = useState(false);
+  const heldCount = useQuery(() => (quote || editId ? Promise.resolve([]) : api.heldList('invoice')), [quote, editId]);
+  /** The bill as it stands, in the form saved drafts and held bills share. */
+  const currentDraft = (): InvoiceDraft => ({ savedAt: new Date().toISOString(), type, customerId, buyerName, issueDate, dueDate, discountPaise: discount, notes, lines, receivedPaise: received, payMethod });
+  function discardDraft() {
+    clearDraft();
+    setDraft(null);
+  }
+
+  // "Duplicate": start from an earlier invoice's (or quote's) customer, items, prices, discount and notes (today's date, nothing paid).
+  // "Edit" starts from the quote itself, with its own dates.
+  const sourceId = editId ?? copyFrom;
+  const source = useQuery(() => (sourceId ? ((quote ? api.proformaGet(sourceId) : api.invoiceGet(sourceId)) as Promise<Invoice | Proforma>) : Promise.resolve(null)), [sourceId, quote]);
   const copied = useRef(false);
   useEffect(() => {
     const inv = source.data;
@@ -229,17 +314,25 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, mod
     copied.current = true;
     const available = new Map(variants.data.map((v) => [v.variantId, v]));
     const kept = inv.lines.filter((l) => available.has(l.variantId));
+    if (editId) {
+      setIssueDate(inv.issueDate);
+      setDueDate('validUntil' in inv ? inv.validUntil : (inv.dueDate ?? inv.issueDate));
+      dueTouched.current = true;
+    }
     setType(inv.type);
     setCustomerId(inv.customerId);
     if (!inv.customerId && inv.buyer.name && inv.buyer.name !== 'Walk-in customer') setBuyerName(inv.buyer.name);
     setDiscount(inv.discountPaise);
     setNotes(inv.notes);
-    setLines(kept.map((l) => ({ variantId: l.variantId, qty: String(l.qty), price: l.unitPricePaise })));
+    // Item discounts and notes come along; GST rates are worked out afresh, as for any new invoice.
+    setLines(kept.map((l) => ({ ...newLine(l.variantId, String(l.qty), l.unitPricePaise), discount: l.discountPaise, note: l.note })));
     const dropped = inv.lines.length - kept.length;
-    toast.info(dropped > 0 ? `Copied from ${inv.number}. ${dropped} item${dropped === 1 ? ' is' : 's are'} no longer for sale and left out.` : `Copied from ${inv.number}. Check the quantities and prices, then issue.`);
+    if (editId) return;
+    toast.info(dropped > 0 ? `Copied from ${inv.number}. ${dropped} item${dropped === 1 ? ' is' : 's are'} no longer available and left out.` : `Copied from ${inv.number}. Check the quantities and prices, then ${quote ? 'create the proforma' : 'issue'}.`);
   }, [source.data, variants.data, toast]);
 
-  const nextNumber = useQuery(() => (quote ? api.proformaNextNumber(issueDate) : api.invoiceNextNumber(issueDate)), [issueDate, quote]);
+  const nextNumber = useQuery(() => (quote ? api.proformaNextNumber(issueDate) : api.invoiceNextNumber(issueDate, type)), [issueDate, quote, type]);
+  const editing = source.data && editId ? source.data : null;
 
   const customer = customers.data?.find((c) => c.id === customerId) ?? null;
   const variantById = useMemo(() => new Map((variants.data ?? []).map((v) => [v.variantId, v])), [variants.data]);
@@ -255,32 +348,65 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, mod
   // Due date follows the invoice type and date until the user picks one themselves.
   useEffect(() => {
     if (dueTouched.current || !settings.data) return;
-    setDueDate(quote ? addDays(issueDate, settings.data.proformaValidDays) : type === 'B2B' ? addDays(issueDate, settings.data.defaultDueDays) : issueDate);
-  }, [type, issueDate, settings.data, quote]);
+    // A customer with agreed payment terms gets their own due date; everyone else follows the shop's default for the type.
+    const byTerms = quote ? null : dueDateFromTerms(issueDate, customer?.paymentTermsDays);
+    setDueDate(quote ? addDays(issueDate, settings.data.proformaValidDays) : (byTerms ?? (type === 'B2B' ? addDays(issueDate, settings.data.defaultDueDays) : issueDate)));
+  }, [type, issueDate, settings.data, quote, customer?.paymentTermsDays]);
+
+  // A template brings its items at the prices it was saved with, and its note. Items that no longer exist are left out, and the person is told.
+  function applyTemplate(t: QuoteTemplate) {
+    const known = new Set((variants.data ?? []).map((v) => v.variantId));
+    const kept = t.lines.filter((l) => known.has(l.variantId));
+    setLines(kept.map((l) => newLine(l.variantId, String(l.qty), l.unitPricePaise)));
+    if (t.notes) setNotes(t.notes);
+    const dropped = t.lines.length - kept.length;
+    toast.info(dropped > 0 ? `“${t.name}” added. ${dropped} item${dropped === 1 ? ' is' : 's are'} no longer available and left out.` : `“${t.name}” added. Check the quantities, then create the proforma.`);
+  }
 
   function changeType(next: InvoiceType) {
     setType(next);
     if (next === 'B2B' && customer && !customer.gstin) setCustomerId(null); // a B2B invoice needs a GSTIN
   }
 
+  const shop = { gstRatePercent: settings.data?.gstRatePercent ?? 0, rateSlabs: settings.data?.rateSlabs ?? [] };
   const rows = lines.map((l) => {
     const v = variantById.get(l.variantId);
     const qty = toNumber(l.qty);
     const validQty = Number.isInteger(qty) && qty >= 1;
-    return { line: l, variant: v, qty, validQty, amount: validQty ? mulPaise(qty, l.price) : 0, short: !quote && v && validQty && qty > v.stock };
+    const amount = validQty ? mulPaise(qty, l.price) : 0;
+    const discount = Math.min(l.discount, amount);
+    const typed = l.rate.trim() === '' ? null : Number(l.rate);
+    const typedValid = typed === null || isValidRate(typed);
+    const worked = (override: number | null) => resolveRate({ override, designRate: v?.gstRatePercent ?? null, qty: validQty ? qty : 1, netPaise: amount - discount }, shop);
+    return { line: l, variant: v, qty, validQty, amount, discount, typed: typedValid ? typed : null, typedValid, rate: worked(typedValid ? typed : null), autoRate: worked(null), short: !quote && v && validQty && qty > v.stock };
   });
-
-  const rate = settings.data?.gstRatePercent ?? 0;
+  /** What goes to the server for a line: only what was typed. The rate is left out unless one was typed, so it is worked out there. */
+  const lineInput = (r: (typeof rows)[number]): LineInput => ({
+    variantId: r.line.variantId,
+    qty: r.qty,
+    unitPricePaise: r.line.price,
+    ...(r.line.discount > 0 ? { discountPaise: r.line.discount } : {}),
+    ...(r.typed !== null ? { ratePercent: r.typed } : {}),
+    ...(r.line.note.trim() ? { note: r.line.note.trim() } : {}),
+  });
   const placeOfSupply = customer?.state || settings.data?.state || '';
   const intraState = !settings.data?.state || sameState(placeOfSupply, settings.data.state);
   const inclusive = settings.data?.pricesIncludeGst ?? false;
-  const totals = computeTotals({ lineAmounts: rows.map((r) => r.amount), discountPaise: discount, ratePercent: rate, intraState, inclusive });
+  const totals = computeInvoice({
+    lines: rows.map((r) => ({ amountPaise: r.amount, discountPaise: r.discount, ratePercent: r.rate })),
+    discountPaise: discount,
+    intraState,
+    inclusive,
+    roundOff: settings.data?.roundOff,
+  });
 
   // Advance the customer already holds goes onto this invoice first, then whatever is handed over now.
   const advanceHeld = quote ? 0 : (customer?.advancePaise ?? 0);
   const advanceApplied = useAdvance ? Math.min(advanceHeld, totals.totalPaise) : 0;
   const maxReceivable = totals.totalPaise - advanceApplied;
   const balanceDue = maxReceivable - Math.min(received, maxReceivable);
+  // A warning, not a block: the shop can still choose to bill a regular customer past their limit.
+  const credit = !quote && customer ? checkCredit(customer.creditLimitPaise, customer.outstandingPaise, Math.max(0, balanceDue)) : null;
 
   const sellerGstinMissing = type === 'B2B' && !!settings.data && !settings.data.gstin;
   const problems: string[] = [];
@@ -290,7 +416,9 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, mod
   if (rows.some((r) => r.short)) problems.push('Some items are short of stock.');
   if (type === 'B2B' && !customer) problems.push('Choose the business customer.');
   if (type === 'B2B' && customer && !customer.gstin) problems.push(`${customer.name} has no GSTIN — add it, or bill as B2C.`);
-  if (discount > totals.subtotalPaise) problems.push('The discount is more than the subtotal.');
+  if (discount > totals.subtotalPaise - totals.lineDiscountPaise) problems.push('The discount is more than the subtotal.');
+  if (rows.some((r) => !r.typedValid)) problems.push('Check the GST rate on an item: it should be a number from 0 to 100.');
+  if (rows.some((r) => r.line.discount > r.amount)) problems.push("An item's discount is more than the item.");
   if (sellerGstinMissing) problems.push('Add your GSTIN in Settings first.');
   const canSubmit = problems.length === 0 && !saving;
 
@@ -298,7 +426,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, mod
     setLines((ls) => {
       const existing = ls.find((l) => l.variantId === v.variantId);
       if (existing) return ls.map((l) => (l === existing ? { ...l, qty: String((toNumber(l.qty) || 0) + 1) } : l));
-      return [...ls, { variantId: v.variantId, qty: '1', price: v.sellPricePaise }];
+      return [...ls, newLine(v.variantId, '1', v.sellPricePaise)];
     });
   }
 
@@ -307,9 +435,10 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, mod
     setError(null);
     try {
       if (quote) {
-        const p = await api.proformaCreate({ type, customerId, buyerName: customerId ? undefined : buyerName, issueDate, validUntil: dueDate, discountPaise: discount, notes, lines: rows.map((r) => ({ variantId: r.line.variantId, qty: r.qty, unitPricePaise: r.line.price })) });
+        const input = { type, customerId, buyerName: customerId ? undefined : buyerName, issueDate, validUntil: dueDate, discountPaise: discount, notes, lines: rows.map(lineInput) };
+        const p = editId ? await api.proformaUpdate(editId, input) : await api.proformaCreate(input);
         refresh();
-        toast.success(`Proforma ${p.number} created`);
+        toast.success(editId ? `Proforma ${p.number} updated` : `Proforma ${p.number} created`);
         navigate(paths.proforma(p.id));
         return;
       }
@@ -321,10 +450,14 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, mod
         dueDate: dueDate || null,
         discountPaise: discount,
         notes,
-        lines: rows.map((r) => ({ variantId: r.line.variantId, qty: r.qty, unitPricePaise: r.line.price })),
+        shipTo,
+        transport,
+        trackingNo,
+        lines: rows.map(lineInput),
         payment: received > 0 ? { amountPaise: received, method: payMethod, reference: payRef } : undefined,
         applyAdvancePaise: advanceApplied > 0 ? advanceApplied : undefined,
       });
+      clearDraft();
       refresh();
       toast.success(inv.paidPaise > 0 ? `Invoice ${inv.number} issued — ${formatMoney(inv.paidPaise)} received` : `Invoice ${inv.number} issued`);
       navigate(paths.invoice(inv.id));
@@ -342,7 +475,42 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, mod
 
   return (
     <>
-      <PageHeader back={back} title={quote ? 'New proforma' : 'New invoice'} subtitle={nextNumber.data ? <>Will be numbered <span className="num text-ink">{nextNumber.data}</span></> : undefined} />
+      <PageHeader
+        back={back}
+        title={editing ? `Edit ${editing.number}` : quote ? 'New proforma' : 'New invoice'}
+        subtitle={editing ? 'Changes the quote itself; it keeps its number.' : nextNumber.data ? <>Will be numbered <span className="num text-ink">{nextNumber.data}</span></> : undefined}
+        actions={
+          !quote && !editId ? (
+            <>
+              {(heldCount.data?.length ?? 0) > 0 && (
+                <Button onClick={() => setShowHeld(true)} disabled={!variants.data}>
+                  On hold ({heldCount.data!.length})
+                </Button>
+              )}
+              <Button disabled={lines.length === 0} onClick={() => setHolding(true)} title="Set this bill aside to finish later, so you can serve the next customer">
+                Hold
+              </Button>
+            </>
+          ) : undefined
+        }
+      />
+
+      {draft && (
+        <div className="animate-fade-in mb-6 flex items-center justify-between gap-4 rounded-lg bg-status-partial-bg px-4 py-3 text-status-partial-fg">
+          <span>
+            You have an unfinished invoice
+            {draft.savedAt && <> from {new Date(draft.savedAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</>} — {draft.lines.length} {draft.lines.length === 1 ? 'item' : 'items'}.
+          </span>
+          <span className="flex shrink-0 gap-2">
+            <Button className="h-8 text-xs" onClick={discardDraft}>
+              Discard
+            </Button>
+            <Button variant="primary" className="h-8 text-xs" disabled={!variants.data} onClick={restoreDraft}>
+              Restore it
+            </Button>
+          </span>
+        </div>
+      )}
 
       <div className="grid grid-cols-[1fr_18rem] items-start gap-6">
         <div className="space-y-6">
@@ -362,8 +530,26 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, mod
             </div>
 
             <Field label="Customer">
-              <CustomerPicker customers={customers.data ?? []} type={type} value={customer} onChange={(c) => setCustomerId(c?.id ?? null)} onCreate={(name) => setCreating(name)} />
+              <CustomerPicker customers={customers.data ?? []} type={type} value={customer} onChange={(c) => { setCustomerId(c?.id ?? null); setShipTo(null); }} onCreate={(name) => setCreating(name)} />
             </Field>
+            {customer && !quote && customer.paymentTermsDays != null && (
+              <p className="-mt-3 text-xs text-ink-muted">
+                {customer.name} pays within {customer.paymentTermsDays === 0 ? 'the day' : `${customer.paymentTermsDays} days`} — the due date follows that.
+              </p>
+            )}
+            {credit?.overLimit && (
+              <div role="alert" className="-mt-2 rounded-lg bg-status-partial-bg px-4 py-3 text-status-partial-fg">
+                {balanceDue > 0 ? (
+                  <>
+                    This takes {customer?.name} to <Money paise={credit.afterPaise} />, which is <Money paise={credit.excessPaise} /> over their <Money paise={credit.limitPaise} /> credit limit.
+                  </>
+                ) : (
+                  <>
+                    {customer?.name} already owes <Money paise={credit.afterPaise} />, <Money paise={credit.excessPaise} /> over their <Money paise={credit.limitPaise} /> credit limit.
+                  </>
+                )}
+              </div>
+            )}
             {!customer && type === 'B2C' && (
               <Field label="Name on invoice" hint="Optional. Leave blank to print “Walk-in customer”.">
                 <Input value={buyerName} onChange={(e) => setBuyerName(e.target.value)} placeholder="Walk-in customer" />
@@ -389,6 +575,28 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, mod
             </div>
           </Card>
 
+          {quote && !editId && !copyFrom && lines.length === 0 && (templates.data?.length ?? 0) > 0 && (
+            <Card className="flex flex-wrap items-center gap-3 p-4">
+              <span className="text-ink-muted">Start from a template:</span>
+              {templates.data?.map((t) => (
+                <span key={t.id} className="inline-flex items-center overflow-hidden rounded-lg border border-line">
+                  <button type="button" onClick={() => applyTemplate(t)} className="px-3 py-1.5 transition-colors hover:bg-brand-tint hover:text-brand">
+                    {t.name}
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Delete template ${t.name}`}
+                    onClick={() => void api.quoteTemplateDelete(t.id).then(() => refresh())}
+                    className="border-l border-line px-2 py-1.5 text-ink-muted transition-colors hover:bg-status-overdue-bg hover:text-status-overdue-fg"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </span>
+              ))}
+            </Card>
+          )}
+          {!quote && <ShipToCard customer={customer} shipTo={shipTo} onShipTo={setShipTo} transport={transport} onTransport={setTransport} trackingNo={trackingNo} onTrackingNo={setTrackingNo} />}
+
           {/* Items */}
           <Card className="overflow-visible">
             <div className="border-b border-line px-6 py-4">
@@ -407,13 +615,19 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, mod
                 </thead>
                 <tbody>
                   {rows.map((r) => (
-                    <tr key={r.line.variantId} className="animate-fade-in border-b border-line/70 align-top last:border-0">
+                    <Fragment key={r.line.variantId}>
+                    <tr className="animate-fade-in border-b border-line/70 align-top last:border-0">
                       <td className="td">
                         <div>{r.variant?.designName}</div>
                         <div className="text-xs text-ink-muted">
                           {r.variant?.color} · {r.variant?.size} · {r.variant?.sku}
                         </div>
                         {r.short && <div className="mt-1 text-xs text-status-overdue-fg">Only {r.variant?.stock} in stock</div>}
+                        {!more.has(r.line.variantId) && (
+                          <button type="button" onClick={() => setMore((s) => new Set(s).add(r.line.variantId))} className="mt-1 text-xs text-brand hover:underline">
+                            {r.line.discount > 0 || r.typed !== null || r.line.note ? 'Edit discount, GST, note' : 'Discount, GST, note'}
+                          </button>
+                        )}
                       </td>
                       <td className="td">
                         <Input
@@ -439,6 +653,38 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, mod
                         </button>
                       </td>
                     </tr>
+                    {more.has(r.line.variantId) && (
+                      <tr className="border-b border-line/70 bg-canvas last:border-0">
+                        <td colSpan={5} className="px-4 pb-3 pt-1">
+                          <div className="grid grid-cols-[8rem_7rem_1fr] gap-3">
+                            <label className="block text-xs text-ink-muted">
+                              Discount on this item
+                              <MoneyInput value={r.line.discount} onChange={(d) => setLines((ls) => ls.map((l) => (l === r.line ? { ...l, discount: d } : l)))} aria-label={`Discount on ${r.variant?.color} ${r.variant?.size}`} className="mt-1 h-8" />
+                            </label>
+                            <label className="block text-xs text-ink-muted">
+                              GST rate
+                              <div className="relative mt-1">
+                                <Input
+                                  value={r.line.rate}
+                                  onChange={(e) => setLines((ls) => ls.map((l) => (l === r.line ? { ...l, rate: e.target.value.replace(/[^\d.]/g, '').slice(0, 6) } : l)))}
+                                  inputMode="decimal"
+                                  aria-label={`GST rate on ${r.variant?.color} ${r.variant?.size}`}
+                                  aria-invalid={!r.typedValid}
+                                  placeholder={`Auto ${r.autoRate}`}
+                                  className="num h-8 pr-6 text-right"
+                                />
+                                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-ink-muted">%</span>
+                              </div>
+                            </label>
+                            <label className="block text-xs text-ink-muted">
+                              Note printed under the item
+                              <Input value={r.line.note} onChange={(e) => setLines((ls) => ls.map((l) => (l === r.line ? { ...l, note: e.target.value.slice(0, 120) } : l)))} aria-label={`Note on ${r.variant?.color} ${r.variant?.size}`} placeholder="e.g. Matching blouse piece included" className="mt-1 h-8" />
+                            </label>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
@@ -506,18 +752,21 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, mod
             <h2 className="mb-4 text-base">Summary</h2>
             <dl className="space-y-2">
               <div className="flex justify-between"><dt className="text-ink-muted">{inclusive ? 'Subtotal (incl. GST)' : 'Subtotal'}</dt><dd><Money paise={totals.subtotalPaise} /></dd></div>
+              {totals.lineDiscountPaise > 0 && <div className="flex justify-between"><dt className="text-ink-muted">Item discounts</dt><dd className="num">−{formatMoney(totals.lineDiscountPaise)}</dd></div>}
               <div className="flex items-center justify-between gap-4">
                 <dt className="text-ink-muted">Discount</dt>
                 <dd className="w-32"><MoneyInput value={discount} onChange={setDiscount} aria-label="Discount" className="h-8" /></dd>
               </div>
-              {(totals.discountPaise > 0 || inclusive) && <div className="flex justify-between"><dt className="text-ink-muted">Taxable value</dt><dd><Money paise={totals.taxablePaise} /></dd></div>}
-              {intraState ? (
-                <>
-                  <div className="flex justify-between"><dt className="text-ink-muted">CGST {rate / 2}%</dt><dd><Money paise={totals.cgstPaise} /></dd></div>
-                  <div className="flex justify-between"><dt className="text-ink-muted">SGST {rate / 2}%</dt><dd><Money paise={totals.sgstPaise} /></dd></div>
-                </>
-              ) : (
-                <div className="flex justify-between"><dt className="text-ink-muted">IGST {rate}%</dt><dd><Money paise={totals.igstPaise} /></dd></div>
+              {(totals.discountPaise > 0 || totals.lineDiscountPaise > 0 || inclusive) && <div className="flex justify-between"><dt className="text-ink-muted">Taxable value</dt><dd><Money paise={totals.taxablePaise} /></dd></div>}
+              {totals.byRate.map((g) =>
+                intraState ? (
+                  <div key={g.ratePercent}>
+                    <div className="flex justify-between"><dt className="text-ink-muted">CGST {g.ratePercent / 2}%</dt><dd><Money paise={g.cgstPaise} /></dd></div>
+                    <div className="mt-2 flex justify-between"><dt className="text-ink-muted">SGST {g.ratePercent / 2}%</dt><dd><Money paise={g.sgstPaise} /></dd></div>
+                  </div>
+                ) : (
+                  <div key={g.ratePercent} className="flex justify-between"><dt className="text-ink-muted">IGST {g.ratePercent}%</dt><dd><Money paise={g.igstPaise} /></dd></div>
+                ),
               )}
               {totals.roundOffPaise !== 0 && (
                 <div className="flex justify-between text-ink-muted"><dt>Round off</dt><dd className="num">{totals.roundOffPaise < 0 ? '−' : '+'}{formatMoney(Math.abs(totals.roundOffPaise))}</dd></div>
@@ -555,7 +804,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, mod
             {error && <div className="mt-4"><ErrorNote>{error}</ErrorNote></div>}
 
             <Button variant="primary" className="mt-5 w-full" loading={saving} disabled={!canSubmit} onClick={() => void submit()}>
-              {quote ? 'Create proforma' : 'Issue invoice'}
+              {editing ? 'Save changes' : quote ? 'Create proforma' : 'Issue invoice'}
             </Button>
             {!canSubmit && !saving && problems.length > 0 && lines.length > 0 && <p className="mt-2 text-xs text-ink-muted">{problems[0]}</p>}
             <p className="mt-3 text-xs text-ink-muted">
@@ -565,6 +814,36 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, mod
         </aside>
       </div>
 
+      {holding && (
+        <HoldModal
+          suggestion={customer?.name ?? (buyerName.trim() || `Bill at ${new Date().toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}`)}
+          draft={currentDraft()}
+          onClose={() => setHolding(false)}
+          onHeld={() => {
+            // The bill is safe on the shelf: clear the counter for the next one.
+            setHolding(false);
+            clearDraft();
+            setLines([]);
+            setCustomerId(null);
+            setBuyerName('');
+            setDiscount(0);
+            setNotes('');
+            setReceived(0);
+            setShipTo(null);
+            dueTouched.current = false;
+          }}
+        />
+      )}
+      {showHeld && (
+        <HeldListModal
+          onClose={() => setShowHeld(false)}
+          onResume={(bill, d) => {
+            setShowHeld(false);
+            applyDraft(d);
+            toast.success(`Picked up “${bill.name}”`);
+          }}
+        />
+      )}
       {creating !== null && (
         <CustomerFormModal
           defaultType={type}

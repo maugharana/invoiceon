@@ -16,6 +16,8 @@ interface CostLine {
   key: number;
   materialId: string;
   qty: string;
+  /** Extra material lost in making, as a share of the quantity. Empty means none. */
+  wastage: string;
 }
 
 interface Props {
@@ -41,7 +43,7 @@ export function VariantFormModal({ design, variant, onClose }: Props) {
   const [sku, setSku] = useState(variant?.sku ?? '');
   const [lines, setLines] = useState<CostLine[]>(() => {
     const source = variant ?? design.variants.at(-1);
-    return (source?.bom ?? []).map((b, i) => ({ key: i, materialId: b.materialId, qty: String(b.qty) }));
+    return (source?.bom ?? []).map((b, i) => ({ key: i, materialId: b.materialId, qty: String(b.qty), wastage: b.wastagePercent > 0 ? String(b.wastagePercent) : '' }));
   });
   const [nextKey, setNextKey] = useState(100);
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +55,8 @@ export function VariantFormModal({ design, variant, onClose }: Props) {
   const lineCost = (l: CostLine): number => {
     const m = byId.get(l.materialId);
     const qty = toNumber(l.qty);
-    return m && Number.isFinite(qty) && qty > 0 ? mulPaise(qty, m.unitCostPaise) : 0;
+    const waste = toNumber(l.wastage) || 0;
+    return m && Number.isFinite(qty) && qty > 0 ? mulPaise(qty * (1 + waste / 100), m.unitCostPaise) : 0;
   };
   const materialsCost = lines.reduce((s, l) => s + lineCost(l), 0);
   const unitCost = base + materialsCost;
@@ -63,7 +66,7 @@ export function VariantFormModal({ design, variant, onClose }: Props) {
   const unusedMaterials = (materials.data ?? []).filter((m) => !lines.some((l) => l.materialId === m.id));
 
   function addLine(m: Material) {
-    setLines((ls) => [...ls, { key: nextKey, materialId: m.id, qty: '' }]);
+    setLines((ls) => [...ls, { key: nextKey, materialId: m.id, qty: '', wastage: '' }]);
     setNextKey((k) => k + 1);
   }
 
@@ -75,6 +78,8 @@ export function VariantFormModal({ design, variant, onClose }: Props) {
     for (const l of lines) {
       const q = toNumber(l.qty);
       if (!Number.isFinite(q) || q <= 0) return setError(`Enter a quantity for ${byId.get(l.materialId)?.name ?? 'each raw material'}, or remove the line.`);
+      const w = l.wastage === '' ? 0 : toNumber(l.wastage);
+      if (!Number.isFinite(w) || w < 0 || w > 100) return setError(`Wastage for ${byId.get(l.materialId)?.name ?? 'a raw material'} should be between 0 and 100 percent.`);
     }
     setSaving(andAddAnother ? 'another' : 'close');
     const input = {
@@ -86,7 +91,7 @@ export function VariantFormModal({ design, variant, onClose }: Props) {
       baseCostPaise: base,
       reorderLevel: reorderValue,
       openingStock: variant ? undefined : stockNumber,
-      bom: lines.map((l) => ({ materialId: l.materialId, qty: toNumber(l.qty) })),
+      bom: lines.map((l) => ({ materialId: l.materialId, qty: toNumber(l.qty), wastagePercent: l.wastage === '' ? 0 : toNumber(l.wastage) })),
     };
     try {
       if (variant) await api.variantUpdate(variant.id, input);
@@ -237,7 +242,7 @@ export function VariantFormModal({ design, variant, onClose }: Props) {
                 {lines.map((l) => {
                   const m = byId.get(l.materialId);
                   return (
-                    <li key={l.key} className="grid grid-cols-[1fr_7rem_5rem_7rem_2rem] items-center gap-3">
+                    <li key={l.key} className="grid grid-cols-[1fr_6rem_5.5rem_5rem_6.5rem_2rem] items-center gap-3">
                       <span className="truncate">{m?.name ?? 'Unknown material'}</span>
                       <Input
                         type="number"
@@ -252,6 +257,20 @@ export function VariantFormModal({ design, variant, onClose }: Props) {
                       <span className="text-xs text-ink-muted">
                         {m?.unit} × {m ? formatMoney(m.unitCostPaise, { fractionDigits: 0 }) : ''}
                       </span>
+                      <div className="relative" title="Extra lost in making, such as cut ends or spoilage, as a percent of the quantity">
+                        <Input
+                          type="number"
+                          min={0}
+                          max={100}
+                          step="any"
+                          value={l.wastage}
+                          onChange={(e) => setLines((ls) => ls.map((x) => (x.key === l.key ? { ...x, wastage: e.target.value } : x)))}
+                          aria-label={`Wastage of ${m?.name ?? 'material'} in percent`}
+                          placeholder="waste"
+                          className="num h-8 pr-6 text-right"
+                        />
+                        <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-ink-muted">%</span>
+                      </div>
                       <Money paise={lineCost(l)} className="text-right" />
                       <button type="button" aria-label={`Remove ${m?.name ?? 'material'}`} onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-ink/5 hover:text-ink">
                         <X className="h-4 w-4" />

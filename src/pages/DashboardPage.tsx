@@ -1,6 +1,7 @@
 import { AlertCircle, Clock, FileText, HandCoins, Hourglass, Plus, Receipt, SlidersHorizontal, Sparkles } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 import { todayIso } from '../../shared/gst';
+import { onboardingDone, onboardingSteps } from '../../shared/onboarding';
 import { defaultLayout, normaliseLayout, visibleSections, type DashboardLayout, type DashboardSectionId } from '../../shared/dashboardLayout';
 import { formatMoney } from '../../shared/money';
 import { COMPARE_LABEL, COMPARE_OPTIONS, PERIOD_LABEL, resolvePeriod, type CompareWith, type PeriodPreset } from '../../shared/periods';
@@ -17,6 +18,7 @@ import type { DashboardOverview } from '../../shared/types';
 import { LowStockCard, OpenQuotesCard } from './dashboard/ActionCards';
 import { AttentionCard } from './dashboard/AttentionCard';
 import { CustomizeModal } from './dashboard/CustomizeModal';
+import { OnboardingCard } from './dashboard/OnboardingCard';
 import { FestivalCard } from './dashboard/FestivalCard';
 import { GstCard } from './dashboard/GstCard';
 import { PaymentMixCard } from './dashboard/PaymentMixCard';
@@ -33,6 +35,7 @@ const periodLabel = (p: Period) => (p === 'all' ? 'All time' : PERIOD_LABEL[p]);
 const STORE_KEY = 'invoiceon.dashboard.period';
 const COMPARE_KEY = 'invoiceon.dashboard.compare';
 const LAYOUT_KEY = 'invoiceon.dashboard.layout';
+const ONBOARDING_KEY = 'invoiceon.onboarding.dismissed';
 
 function loadPeriod(): Period {
   try {
@@ -115,6 +118,21 @@ export function DashboardPage() {
     }
   };
   const range = useMemo(() => rangeFor(period), [period]);
+  const [onboardingHidden, setOnboardingHidden] = useState(() => {
+    try {
+      return localStorage.getItem(ONBOARDING_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const hideOnboarding = () => {
+    setOnboardingHidden(true);
+    try {
+      localStorage.setItem(ONBOARDING_KEY, '1');
+    } catch {
+      /* hiding it for this visit is enough */
+    }
+  };
 
   const overview = useQuery(() => api.dashboardOverview(range, compare), [period, compare]);
   const inventory = useQuery(() => api.inventorySummary());
@@ -122,6 +140,8 @@ export function DashboardPage() {
   const openQuotes = useQuery(() => api.proformasList({ status: 'open' }));
   const settings = useQuery(() => api.getSettings());
   const now = useQuery(() => api.dashboardNow());
+  const everyone = useQuery(() => api.customersList());
+  const summary = useQuery(() => api.dashboardSummary());
   const o = overview.data;
 
   // Charts want the same series in the shape the shared sales chart already draws.
@@ -133,6 +153,11 @@ export function DashboardPage() {
   const scope = periodLabel(period).toLowerCase();
   const brandNew = o?.invoiceCount === 0 && o.expensesPaise === 0 && (o?.recent.length ?? 0) === 0;
   const businessName = settings.data?.businessName ?? '';
+  // Only once everything has loaded, so the list doesn't flash up for a shop that has long since done all of it.
+  const steps =
+    settings.data && inventory.data && everyone.data && summary.data
+      ? onboardingSteps(settings.data, { designs: inventory.data.designCount, customers: everyone.data.length, invoices: summary.data.recent.length })
+      : null;
 
   // Each part of the page, so the owner can switch them off and reorder them (Customize).
   const sections: Record<DashboardSectionId, ReactNode> = {
@@ -168,7 +193,7 @@ export function DashboardPage() {
           icon={Hourglass}
           tone="amber"
           value={<Money paise={o?.outstandingPaise ?? 0} fractionDigits={0} />}
-          sub={o ? (o.openInvoices === 0 ? 'Nothing owed on these invoices' : `${plural(o.openInvoices, 'unpaid invoice')}`) : ' '}
+          sub={o ? (o.openInvoices === 0 ? 'Nothing owed right now' : `${plural(o.openInvoices, 'unpaid invoice')}`) : ' '}
           onClick={() => navigate(paths.dues)}
         />
         <StatCard
@@ -289,7 +314,7 @@ export function DashboardPage() {
         <RecentInvoicesCard invoices={o?.recent ?? []} loaded={!!o} />
         <div className="space-y-4">
           <LowStockCard designs={lowDesigns.data ?? []} businessName={businessName} />
-          <OpenQuotesCard quotes={openQuotes.data ?? []} businessName={businessName} onNew={() => start('proforma')} />
+          <OpenQuotesCard quotes={openQuotes.data ?? []} businessName={businessName} template={settings.data?.msgQuote ?? ''} onNew={() => start('proforma')} />
         </div>
       </div>
     ),
@@ -332,6 +357,7 @@ export function DashboardPage() {
         }
       />
       {overview.error && <ErrorNote>{overview.error}</ErrorNote>}
+      {steps && !onboardingHidden && !onboardingDone(steps) && <OnboardingCard steps={steps} onDismiss={hideOnboarding} />}
 
       {o && !brandNew && (
         <p className="animate-fade-up -mt-3 mb-6 flex items-start gap-2.5 text-ink">

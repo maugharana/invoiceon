@@ -1,12 +1,19 @@
-import { Archive, ArrowLeft, FileText, HandCoins, Pencil, Plus } from 'lucide-react';
+import { Archive, ArrowLeft, Download, FileText, HandCoins, Pencil, Plus, Printer, ScrollText } from 'lucide-react';
 import { useState } from 'react';
-import { formatDate } from '../../../shared/gst';
+import { formatDate, todayIso } from '../../../shared/gst';
 import { formatMoney } from '../../../shared/money';
+import { occasionLabel, upcomingOccasions } from '../../../shared/occasions';
+import { Menu } from '../../components/Menu';
 import { ConfirmDialog } from '../../components/Modal';
+import { NotesPanel } from '../../components/NotesPanel';
+import { TagChips } from '../../components/TagInput';
 import { useToast } from '../../components/Toast';
 import { Button, Card, EmptyState, ErrorNote, Figure, InvoicePill, Money, PageHeader, Spinner, TypePill } from '../../components/ui';
-import { api } from '../../lib/api';
+import { api, errorMessage } from '../../lib/api';
 import { useQuery, useRefresh } from '../../lib/data';
+import { useDocumentOutput } from '../../lib/documents';
+import { useRecent } from '../../lib/recent';
+import { plural } from '../../lib/format';
 import { navigate, paths } from '../../lib/router';
 import { RecordPaymentModal } from '../payments/RecordPaymentModal';
 import { CustomerFormModal } from './CustomerFormModal';
@@ -17,8 +24,11 @@ export function CustomerPage({ id }: { id: string }) {
   const customer = useQuery(() => api.customerGet(id), [id]);
   const ledger = useQuery(() => api.customerLedger(id), [id]);
   const invoices = useQuery(() => api.invoicesList({ customerId: id }), [id]);
+  const purchases = useQuery(() => api.customerPurchases(id), [id]);
   const [dialog, setDialog] = useState<'edit' | 'archive' | 'pay' | null>(null);
   const c = customer.data;
+  const docs = useDocumentOutput();
+  useRecent(c ? { kind: 'customer', id: c.id, title: c.name, hint: [c.phone, c.city].filter(Boolean).join(' · ') } : null);
 
   const back = (
     <a href={`#${paths.customers}`} className="inline-flex items-center gap-1.5 rounded-lg text-ink-muted transition-colors hover:text-ink">
@@ -47,6 +57,8 @@ export function CustomerPage({ id }: { id: string }) {
   const balance = c.outstandingPaise - c.advancePaise; // + they owe you, − you hold their money
   const balanceLabel = balance > 0 ? 'They owe you' : balance < 0 ? 'Advance held' : 'Settled';
   const received = ledger.data?.receivedPaise ?? 0;
+  const occasions = upcomingOccasions(c, todayIso(), 14);
+  const overLimit = c.creditLimitPaise > 0 && c.outstandingPaise > c.creditLimitPaise;
 
   return (
     <>
@@ -61,6 +73,14 @@ export function CustomerPage({ id }: { id: string }) {
         subtitle={[c.phone, c.email].filter(Boolean).join(' · ') || undefined}
         actions={
           <>
+            <Menu
+              label="Statement"
+              icon={<ScrollText className="h-4 w-4" />}
+              items={[
+                { label: 'Save as PDF', icon: <Download className="h-4 w-4" />, onClick: () => void docs.savePdf(paths.printStatement(id), () => api.customerStatementExportPdf(id)) },
+                { label: 'Print', icon: <Printer className="h-4 w-4" />, onClick: () => void docs.print(paths.printStatement(id), () => api.customerStatementPrint(id)) },
+              ]}
+            />
             <Button icon={<HandCoins className="h-4 w-4" />} onClick={() => setDialog('pay')}>
               Record payment
             </Button>
@@ -81,13 +101,52 @@ export function CustomerPage({ id }: { id: string }) {
         <Figure label="Total billed" sub="Excludes cancelled">
           <Money paise={c.billedPaise} fractionDigits={0} />
         </Figure>
-        <Figure label="Received">
+        <Figure label="Received" sub={ledger.data && ledger.data.writtenOffPaise > 0 ? `Plus ${formatMoney(ledger.data.writtenOffPaise, { fractionDigits: 0 })} written off` : undefined}>
           <Money paise={received} fractionDigits={0} />
         </Figure>
         <Figure label="Invoices">{c.invoiceCount}</Figure>
       </div>
-      <div className="mb-8 text-ink-muted">
+      <div className="mb-4 text-ink-muted">
         {[c.gstin && `GSTIN ${c.gstin}`, ...address, c.notes].filter(Boolean).join(' · ') || 'No address or GSTIN saved.'}
+      </div>
+      <div className="mb-8 space-y-2 text-sm">
+        {(c.tags || c.creditLimitPaise > 0 || c.paymentTermsDays != null || occasions.length > 0) && (
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-ink-muted">
+            <TagChips tags={c.tags} />
+            {c.creditLimitPaise > 0 && (
+              <span className={overLimit ? 'text-status-partial-fg' : ''}>
+                Credit limit <Money paise={c.creditLimitPaise} fractionDigits={0} />
+                {overLimit && ' · over the limit'}
+              </span>
+            )}
+            {c.paymentTermsDays != null && <span>Pays in {c.paymentTermsDays === 0 ? 'the day' : `${c.paymentTermsDays} days`}</span>}
+            {occasions.map((o) => (
+              <span key={o.kind}>
+                {occasionLabel(o.kind)} {o.daysAway === 0 ? 'today' : o.daysAway === 1 ? 'tomorrow' : `in ${o.daysAway} days`}
+              </span>
+            ))}
+          </div>
+        )}
+        {c.addresses.length > 0 && (
+          <div className="text-ink-muted">
+            {c.addresses.map((a, i) => (
+              <div key={i}>
+                <span className="text-ink">{a.label || 'Address'}:</span> {[a.address, a.city, a.state, a.pincode].filter(Boolean).join(', ')}
+              </div>
+            ))}
+          </div>
+        )}
+        {c.contacts.length > 0 && (
+          <div className="text-ink-muted">
+            {c.contacts.map((p, i) => (
+              <div key={i}>
+                <span className="text-ink">{p.name || 'Contact'}</span>
+                {p.role && ` (${p.role})`}
+                {[p.phone, p.email].filter(Boolean).length > 0 && ` · ${[p.phone, p.email].filter(Boolean).join(' · ')}`}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Ledger */}
@@ -133,6 +192,47 @@ export function CustomerPage({ id }: { id: string }) {
           </table>
         )}
       </Card>
+
+      {/* What she has bought — so "what did she take last time?" has an answer. */}
+      {purchases.data && purchases.data.length > 0 && (
+        <>
+          <div className="mb-3 flex items-end justify-between">
+            <h2 className="text-base">What they've bought</h2>
+            <span className="text-xs text-ink-muted">By design, from issued invoices · amounts before GST</span>
+          </div>
+          <Card className="mb-8 overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-line">
+                  <th className="th">Design</th>
+                  <th className="th">Colours and sizes</th>
+                  <th className="th text-right">Pieces</th>
+                  <th className="th text-right">Spent</th>
+                  <th className="th">Last bought</th>
+                </tr>
+              </thead>
+              <tbody>
+                {purchases.data.map((p) => (
+                  <tr key={p.designName} className="animate-fade-in border-b border-line/70 last:border-0">
+                    <td className="td">
+                      {p.designName}
+                      <div className="text-xs text-ink-muted">{plural(p.invoiceCount, 'invoice')}</div>
+                    </td>
+                    <td className="td text-ink-muted">{p.variants.join(' · ')}</td>
+                    <td className="td num text-right">{p.pieces}</td>
+                    <td className="td text-right">
+                      <Money paise={p.amountPaise} />
+                    </td>
+                    <td className="td num whitespace-nowrap text-ink-muted">{formatDate(p.lastBoughtOn)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+        </>
+      )}
+
+      <NotesPanel subjectType="customer" subjectId={c.id} title="Notes and follow-ups" />
 
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-base">Invoices</h2>
@@ -181,7 +281,8 @@ export function CustomerPage({ id }: { id: string }) {
           onConfirm={async () => {
             await api.customerArchive(c.id);
             refresh();
-            toast.success(`${c.name} archived`);
+            const id = c.id;
+            toast.success(`${c.name} archived`, { label: 'Undo', onClick: async () => { try { await api.customerRestore(id); refresh(); toast.success('Customer brought back'); } catch (err) { toast.error(errorMessage(err)); } } });
             navigate(paths.customers);
           }}
         />

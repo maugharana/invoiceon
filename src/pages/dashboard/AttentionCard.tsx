@@ -1,4 +1,4 @@
-import { ChevronRight, Clock, TrendingDown, Undo2, type LucideIcon } from 'lucide-react';
+import { CalendarHeart, ChevronRight, Clock, HandCoins, PhoneCall, Scissors, TrendingDown, Undo2, type LucideIcon } from 'lucide-react';
 import type { AttentionItem, AttentionKind } from '../../../shared/types';
 import { Card } from '../../components/ui';
 import { navigate, paths } from '../../lib/router';
@@ -7,12 +7,18 @@ const KIND: Record<AttentionKind, { icon: LucideIcon; tint: string }> = {
   'payment-reversed': { icon: Undo2, tint: 'bg-status-overdue-bg text-status-overdue-fg' },
   'quote-expiring': { icon: Clock, tint: 'bg-status-partial-bg text-status-partial-fg' },
   'below-cost': { icon: TrendingDown, tint: 'bg-status-overdue-bg text-status-overdue-fg' },
+  'follow-up': { icon: PhoneCall, tint: 'bg-status-partial-bg text-status-partial-fg' },
+  promise: { icon: HandCoins, tint: 'bg-status-partial-bg text-status-partial-fg' },
+  occasion: { icon: CalendarHeart, tint: 'bg-brand-tint text-brand' },
+  'low-margin': { icon: TrendingDown, tint: 'bg-status-partial-bg text-status-partial-fg' },
+  'low-material': { icon: Scissors, tint: 'bg-status-partial-bg text-status-partial-fg' },
 };
 
 function open(link: AttentionItem['link']) {
   if (link.to === 'customer') navigate(paths.customer(link.id));
   else if (link.to === 'proforma') navigate(paths.proforma(link.id));
   else if (link.to === 'design') navigate(paths.design(link.id));
+  else if (link.to === 'materials') navigate(paths.materials);
   else navigate(paths.payments);
 }
 

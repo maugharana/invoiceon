@@ -361,7 +361,7 @@ describe('design margin, price range, last sold and days of stock', () => {
 
 describe('design list filters', () => {
   const row = (over: Partial<DesignSummary>): DesignSummary => ({
-    id: 'd', code: 'MG-1', name: 'D', nickname: '', fabric: 'Silk', hsnCode: '', description: '', defaultPricePaise: 0, variantCount: 1, totalStock: 1, stockValuePaise: 0, status: 'ok',
+    id: 'd', code: 'MG-1', name: 'D', nickname: '', tags: '', supplierId: null, supplierName: '', fabric: 'Silk', hsnCode: '', description: '', defaultPricePaise: 0, gstRatePercent: null, variantCount: 1, totalStock: 1, stockValuePaise: 0, status: 'ok',
     minPricePaise: 100000, maxPricePaise: 200000, marginPercent: 30, lastSoldOn: null, soldLast30Days: 0, daysOfStock: null, ...over,
   });
   const today = '2026-10-02';

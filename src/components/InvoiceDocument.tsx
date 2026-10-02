@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 import { formatDate, localDateOf, rupeesInWords } from '../../shared/gst';
 import { formatMoney } from '../../shared/money';
+import { INVOICE_WORDS } from '../../shared/prefs';
 import { upiPayLink } from '../../shared/upi';
 import type { Invoice, Party } from '../../shared/types';
 import { QrCode } from './UpiQr';
@@ -26,9 +27,11 @@ function Row({ label, value, strong, muted }: { label: string; value: string; st
 export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice: Invoice; variant?: 'invoice' | 'proforma' }) {
   const proforma = variant === 'proforma';
   const tax = inv.type === 'B2B';
+  const w = INVOICE_WORDS[inv.branding.language ?? 'en'];
   const cancelled = inv.status === 'cancelled';
-  const totalTax = inv.cgstPaise + inv.sgstPaise + inv.igstPaise;
-  const half = inv.gstRatePercent / 2;
+  // Which extra columns the lines need: a discount column only when some line has one, a GST column only when rates differ.
+  const hasLineDiscount = inv.lines.some((l) => l.discountPaise > 0);
+  const multiRate = inv.taxByRate.length > 1;
   const rateLabel = (r: number) => `${+r.toFixed(2)}%`; // 2.5%, 6%, 9%
   // A QR that opens a UPI payment for what is still owed (the whole total on a quote). Not on cancelled or settled invoices.
   const owed = proforma ? inv.totalPaise : inv.totalPaise - inv.paidPaise;
@@ -64,19 +67,19 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
           </div>
         </div>
         <div className="text-right">
-          <div className="text-2xl tracking-wide text-[color:var(--accent)]">{proforma ? 'PROFORMA INVOICE' : tax ? 'TAX INVOICE' : 'INVOICE'}</div>
+          <div className="text-2xl tracking-wide text-[color:var(--accent)]">{(proforma ? w.proforma : tax ? w.taxInvoice : w.invoice).toUpperCase()}</div>
           <dl className="mt-2 space-y-0.5">
             <div className="flex justify-end gap-3"><dt className="text-ink-muted">{proforma ? 'Proforma no.' : 'Invoice no.'}</dt><dd className="num font-medium">{inv.number}</dd></div>
-            <div className="flex justify-end gap-3"><dt className="text-ink-muted">Date</dt><dd className="num">{formatDate(inv.issueDate)}</dd></div>
-            {(proforma || tax) && inv.dueDate && <div className="flex justify-end gap-3"><dt className="text-ink-muted">{proforma ? 'Valid until' : 'Due'}</dt><dd className="num">{formatDate(inv.dueDate)}</dd></div>}
+            <div className="flex justify-end gap-3"><dt className="text-ink-muted">{w.date}</dt><dd className="num">{formatDate(inv.issueDate)}</dd></div>
+            {(proforma || tax) && inv.dueDate && <div className="flex justify-end gap-3"><dt className="text-ink-muted">{proforma ? w.validUntil : w.dueDate}</dt><dd className="num">{formatDate(inv.dueDate)}</dd></div>}
           </dl>
         </div>
       </header>
 
       {/* Parties */}
-      <section className="grid grid-cols-2 gap-8 border-b border-line py-4">
+      <section className={`grid gap-8 border-b border-line py-4 ${inv.shipTo && tax ? 'grid-cols-3' : 'grid-cols-2'}`}>
         <div>
-          <div className="mb-1 text-[10px] uppercase tracking-wider text-ink-muted">{tax ? 'Billed to' : 'Customer'}</div>
+          <div className="mb-1 text-[10px] uppercase tracking-wider text-ink-muted">{w.billTo}</div>
           <div className="text-sm font-medium">{inv.buyer.name}</div>
           <div className="text-ink-muted">
             {addressLines(inv.buyer).map((l) => (
@@ -86,6 +89,23 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
           </div>
           {tax && inv.buyer.gstin && <div className="mt-1.5">GSTIN: <span className="num font-medium">{inv.buyer.gstin}</span></div>}
         </div>
+        {inv.shipTo && (
+          <div>
+            <div className="mb-1 text-[10px] uppercase tracking-wider text-ink-muted">{w.shipTo}</div>
+            <div className="text-sm font-medium">{inv.shipTo.name || inv.buyer.name}</div>
+            <div className="text-ink-muted">
+              {addressLines({ ...inv.shipTo, gstin: '' }).map((l) => (
+                <div key={l}>{l}</div>
+              ))}
+              {inv.shipTo.phone && <div>Phone: {inv.shipTo.phone}</div>}
+              {(inv.transport || inv.trackingNo) && (
+                <div className="mt-1">
+                  {w.transport}: {[inv.transport, inv.trackingNo && `#${inv.trackingNo}`].filter(Boolean).join(' ')}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
         {tax && (
           <div>
             <div className="mb-1 text-[10px] uppercase tracking-wider text-ink-muted">Supply</div>
@@ -100,11 +120,13 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
         <thead>
           <tr className="border-b border-ink text-left text-[10px] uppercase tracking-wider text-ink-muted">
             <th className="w-8 py-2 pr-2">#</th>
-            <th className="py-2 pr-2">Description</th>
+            <th className="py-2 pr-2">{w.item}</th>
             {tax && <th className="w-16 py-2 pr-2">HSN</th>}
-            <th className="w-12 py-2 pr-2 text-right">Qty</th>
-            <th className="w-24 py-2 pr-2 text-right">{inv.pricesIncludeGst ? 'Rate incl. GST (₹)' : 'Rate (₹)'}</th>
-            <th className="w-28 py-2 text-right">Amount (₹)</th>
+            <th className="w-12 py-2 pr-2 text-right">{w.qty}</th>
+            <th className="w-24 py-2 pr-2 text-right">{inv.pricesIncludeGst ? `${w.rate} incl. GST (₹)` : `${w.rate} (₹)`}</th>
+            {hasLineDiscount && <th className="w-20 py-2 pr-2 text-right">Disc. (₹)</th>}
+            {multiRate && <th className="w-12 py-2 pr-2 text-right">GST</th>}
+            <th className="w-28 py-2 text-right">{w.amount} (₹)</th>
           </tr>
         </thead>
         <tbody>
@@ -114,11 +136,14 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
               <td className="py-2 pr-2">
                 <div className="font-medium">{l.designName}</div>
                 <div className="text-ink-muted">{l.color} · {l.size} · {l.sku}</div>
+                {l.note && <div className="italic text-ink-muted">{l.note}</div>}
               </td>
               {tax && <td className="num py-2 pr-2">{l.hsn || '—'}</td>}
               <td className="num py-2 pr-2 text-right">{l.qty}</td>
               <td className="num py-2 pr-2 text-right">{amount(l.unitPricePaise)}</td>
-              <td className="num py-2 text-right">{amount(l.amountPaise)}</td>
+              {hasLineDiscount && <td className="num py-2 pr-2 text-right">{l.discountPaise > 0 ? amount(l.discountPaise) : '—'}</td>}
+              {multiRate && <td className="num py-2 pr-2 text-right">{rateLabel(l.ratePercent)}</td>}
+              <td className="num py-2 text-right">{amount(l.amountPaise - l.discountPaise)}</td>
             </tr>
           ))}
         </tbody>
@@ -137,25 +162,27 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
           )}
         </div>
         <div>
-          <Row label={inv.pricesIncludeGst ? 'Subtotal (incl. GST)' : 'Subtotal'} value={formatMoney(inv.subtotalPaise)} />
-          {inv.discountPaise > 0 && <Row label="Discount" value={`− ${formatMoney(inv.discountPaise)}`} />}
-          {(inv.discountPaise > 0 || inv.pricesIncludeGst) && <Row label="Taxable value" value={formatMoney(inv.taxablePaise)} />}
-          {tax && inv.intraState ? (
-            <>
-              <Row label={`CGST @ ${rateLabel(half)}`} value={formatMoney(inv.cgstPaise)} />
-              <Row label={`SGST @ ${rateLabel(half)}`} value={formatMoney(inv.sgstPaise)} />
-            </>
-          ) : tax ? (
-            <Row label={`IGST @ ${rateLabel(inv.gstRatePercent)}`} value={formatMoney(inv.igstPaise)} />
-          ) : (
-            <Row label={`GST @ ${rateLabel(inv.gstRatePercent)}`} value={formatMoney(totalTax)} />
+          <Row label={inv.pricesIncludeGst ? `${w.subtotal} (incl. GST)` : w.subtotal} value={formatMoney(inv.subtotalPaise - inv.lineDiscountPaise)} />
+          {inv.discountPaise > 0 && <Row label={w.discount} value={`− ${formatMoney(inv.discountPaise)}`} />}
+          {(inv.discountPaise > 0 || inv.pricesIncludeGst || multiRate) && <Row label="Taxable value" value={formatMoney(inv.taxablePaise)} />}
+          {inv.taxByRate.map((g) =>
+            tax && inv.intraState ? (
+              <div key={g.ratePercent}>
+                <Row label={`CGST @ ${rateLabel(g.ratePercent / 2)}`} value={formatMoney(g.cgstPaise)} />
+                <Row label={`SGST @ ${rateLabel(g.ratePercent / 2)}`} value={formatMoney(g.sgstPaise)} />
+              </div>
+            ) : tax ? (
+              <Row key={g.ratePercent} label={`IGST @ ${rateLabel(g.ratePercent)}`} value={formatMoney(g.igstPaise)} />
+            ) : (
+              <Row key={g.ratePercent} label={`GST @ ${rateLabel(g.ratePercent)}`} value={formatMoney(g.taxPaise)} />
+            ),
           )}
           {inv.roundOffPaise !== 0 && <Row muted label="Round off" value={`${inv.roundOffPaise < 0 ? '− ' : '+ '}${formatMoney(Math.abs(inv.roundOffPaise))}`} />}
-          <Row strong label="Total" value={formatMoney(inv.totalPaise)} />
+          <Row strong label={w.total} value={formatMoney(inv.totalPaise)} />
           {!cancelled && inv.paidPaise > 0 && (
             <>
-              <Row muted label="Received" value={`− ${formatMoney(inv.paidPaise)}`} />
-              <Row label="Balance due" value={formatMoney(inv.totalPaise - inv.paidPaise)} />
+              <Row muted label={w.received} value={`− ${formatMoney(inv.paidPaise)}`} />
+              <Row label={w.balanceDue} value={formatMoney(inv.totalPaise - inv.paidPaise)} />
             </>
           )}
         </div>
@@ -175,14 +202,16 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
             </tr>
           </thead>
           <tbody>
-            <tr className="num">
-              <td className="py-1.5 pr-2">GST @ {rateLabel(inv.gstRatePercent)}</td>
-              <td className="py-1.5 pr-2 text-right">{amount(inv.taxablePaise)}</td>
-              <td className="py-1.5 pr-2 text-right">{amount(inv.cgstPaise)}</td>
-              <td className="py-1.5 pr-2 text-right">{amount(inv.sgstPaise)}</td>
-              <td className="py-1.5 pr-2 text-right">{amount(inv.igstPaise)}</td>
-              <td className="py-1.5 text-right">{amount(totalTax)}</td>
-            </tr>
+            {inv.taxByRate.map((g) => (
+              <tr key={g.ratePercent} className="num">
+                <td className="py-1.5 pr-2">GST @ {rateLabel(g.ratePercent)}</td>
+                <td className="py-1.5 pr-2 text-right">{amount(g.taxablePaise)}</td>
+                <td className="py-1.5 pr-2 text-right">{amount(g.cgstPaise)}</td>
+                <td className="py-1.5 pr-2 text-right">{amount(g.sgstPaise)}</td>
+                <td className="py-1.5 pr-2 text-right">{amount(g.igstPaise)}</td>
+                <td className="py-1.5 text-right">{amount(g.taxPaise)}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       )}
@@ -194,21 +223,21 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
             {(inv.seller.bank || upi) && (
               <div className="flex items-start gap-4">
                 <div>
-                  <div className="mb-0.5 uppercase tracking-wider">Pay to</div>
+                  <div className="mb-0.5 uppercase tracking-wider">{w.payTo}</div>
                   <div className="whitespace-pre-line text-ink">{inv.seller.bank}</div>
                   {inv.seller.upiId && !inv.seller.bank.includes(inv.seller.upiId) && <div className="text-ink">UPI: {inv.seller.upiId}</div>}
                 </div>
                 {upi && (
                   <div className="text-center">
                     <QrCode text={upi} size={78} label={`QR code to pay ${formatMoney(owed)} by UPI`} />
-                    <div className="mt-0.5 text-ink">Scan to pay <span className="num">{formatMoney(owed, { fractionDigits: owed % 100 === 0 ? 0 : 2 })}</span></div>
+                    <div className="mt-0.5 text-ink">{w.scanToPay} <span className="num">{formatMoney(owed, { fractionDigits: owed % 100 === 0 ? 0 : 2 })}</span></div>
                   </div>
                 )}
               </div>
             )}
             {inv.seller.terms && (
               <div>
-                <div className="mb-0.5 uppercase tracking-wider">Terms</div>
+                <div className="mb-0.5 uppercase tracking-wider">{w.terms}</div>
                 <div>{inv.seller.terms}</div>
               </div>
             )}
@@ -219,7 +248,7 @@ export function InvoiceDocument({ invoice: inv, variant = 'invoice' }: { invoice
             <div className="text-center">
               <div className="h-14" />
               <div className="border-t border-ink pt-1">For {inv.seller.name}</div>
-              <div className="text-ink-muted">Authorised signatory</div>
+              <div className="text-ink-muted">{w.signatory}</div>
             </div>
           )}
         </div>

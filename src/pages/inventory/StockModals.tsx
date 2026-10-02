@@ -130,6 +130,63 @@ export function AdjustStockModal({ variant, onClose }: { variant: Variant; onClo
   );
 }
 
+/** Every selling price, MRP and cost a variant has had, newest first, with the change from the one before it. */
+export function PriceHistoryModal({ variant, onClose }: { variant: Variant; onClose: () => void }) {
+  const history = useQuery(() => api.variantPriceHistory(variant.id), [variant.id]);
+  const rows = history.data ?? [];
+  return (
+    <Modal title={`Price history — ${variant.color} / ${variant.size}`} size="lg" onClose={onClose} footer={<Button onClick={onClose}>Close</Button>}>
+      {history.loading ? (
+        <Spinner />
+      ) : history.error ? (
+        <ErrorNote>{history.error}</ErrorNote>
+      ) : rows.length === 0 ? (
+        <p className="py-6 text-center text-ink-muted">No prices recorded yet.</p>
+      ) : (
+        <div className="-mx-2 max-h-[50vh] overflow-y-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-line">
+                <th className="th">From</th>
+                <th className="th text-right">Selling price</th>
+                <th className="th text-right">Change</th>
+                <th className="th text-right">MRP</th>
+                <th className="th text-right">Cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((p, i) => {
+                const before = rows[i + 1];
+                const diff = before ? p.sellPricePaise - before.sellPricePaise : 0;
+                return (
+                  <tr key={p.changedAt + i} className="border-b border-line/60 last:border-0">
+                    <td className="td whitespace-nowrap text-ink-muted">
+                      {formatDateTime(p.changedAt)}
+                      {i === 0 && <span className="ml-2 text-xs text-brand">now</span>}
+                    </td>
+                    <td className="td text-right">
+                      <Money paise={p.sellPricePaise} />
+                    </td>
+                    <td className={`td text-right ${diff > 0 ? 'text-status-paid-fg' : diff < 0 ? 'text-status-overdue-fg' : 'text-ink-muted'}`}>
+                      {before ? diff === 0 ? 'same' : <Money paise={Math.abs(diff)} className={diff > 0 ? '' : ''} /> : 'first price'}
+                      {diff > 0 && ' ▲'}
+                      {diff < 0 && ' ▼'}
+                    </td>
+                    <td className="td text-right">{p.mrpPaise > 0 ? <Money paise={p.mrpPaise} /> : <span className="text-ink-muted/50">—</span>}</td>
+                    <td className="td text-right">
+                      <Money paise={p.baseCostPaise} />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 export function StockHistoryModal({ variant, onClose }: { variant: Variant; onClose: () => void }) {
   const history = useQuery(() => api.stockMovements(variant.id), [variant.id]);
   return (

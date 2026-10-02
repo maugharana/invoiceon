@@ -312,8 +312,11 @@ describe('report API', () => {
     await expect(api.reportSales({ from: 'bad', to: 'bad' })).rejects.toThrow(/valid date range/);
     await expect(api.exportSave('x.csv', 'a')).rejects.toThrow(/desktop app only/);
     const saved: string[] = [];
-    const desktop = createApi(db, { exportDocumentPdf: async () => ({ saved: false }), printDocument: async () => {}, saveTextFile: async (name, content) => (saved.push(`${name}|${content}`), { saved: true, path: 'p' }) });
+    const desktop = createApi(db, { exportDocumentPdf: async () => ({ saved: false }), printDocument: async () => {}, saveTextFile: async (name, content) => (saved.push(`${name}|${content}`), { saved: true, path: 'p' }), saveZipFile: async (name, b64) => (saved.push(`zip:${name}|${b64}`), { saved: true, path: 'z' }) });
     expect(await desktop.exportSave('a/b:c.csv', 'data')).toEqual({ saved: true, path: 'p' });
     expect(saved).toEqual(['a-b-c.csv|data']); // path characters are stripped from the name
+    await expect(api.exportSaveZip('x.zip', 'AAAA')).rejects.toThrow(/desktop app only/);
+    expect(await desktop.exportSaveZip('a/b.zip', 'QUJD')).toEqual({ saved: true, path: 'z' });
+    expect(saved.at(-1)).toBe('zip:a-b.zip|QUJD');
   });
 });

@@ -1,5 +1,6 @@
-import { isValidGstin } from '../../shared/gst';
+import { isValidGstin, isValidRate, type RateSlab, type RoundOff } from '../../shared/gst';
 import { STATE_NAMES } from '../../shared/states';
+import { DATE_FORMATS, LANGUAGES, PAPER_SIZES } from '../../shared/prefs';
 import { isValidUpiId } from '../../shared/upi';
 import { DEFAULT_EXPENSE_CATEGORIES, PAYMENT_ACCOUNT_KINDS, type PaymentAccount, type Settings } from '../../shared/types';
 import { all, run, tx, type Db } from '../db/connection';
@@ -45,8 +46,11 @@ const FIELDS: { [K in keyof Settings]: Field<K> } = {
   phone: text('phone'),
   email: text('email'),
   gstRatePercent: num('gst_rate_percent', 5),
+  rateSlabs: json<RateSlab[]>('rate_slabs', []),
+  roundOff: text('round_off', 'nearest'),
   pricesIncludeGst: bool('prices_include_gst', false),
   invoicePrefix: text('invoice_prefix', 'INV'),
+  b2bPrefix: text('b2b_prefix', ''),
   defaultDueDays: num('default_due_days', 15),
   defaultReorderLevel: num('default_reorder_level', 2),
   monthlyTargetPaise: num('monthly_target_paise', 0),
@@ -63,8 +67,16 @@ const FIELDS: { [K in keyof Settings]: Field<K> } = {
   proformaTerms: text('proforma_terms'),
   expenseCategories: json<string[]>('expense_categories', DEFAULT_EXPENSE_CATEGORIES),
   paymentAccounts: json<PaymentAccount[]>('payment_accounts', []),
+  expenseBudgets: json<Record<string, number>>('expense_budgets', {}),
+  marginAlertPercent: num('margin_alert_percent', 15),
   notifyLowStock: bool('notify_low_stock', true),
   notifyOverdue: bool('notify_overdue', true),
+  paperSize: text('paper_size', 'A4'),
+  dateFormat: text('date_format', 'short'),
+  invoiceLanguage: text('invoice_language', 'en'),
+  msgInvoice: text('msg_invoice'),
+  msgQuote: text('msg_quote'),
+  msgDue: text('msg_due'),
 };
 
 export function getSettings(db: Db): Settings {
@@ -102,10 +114,33 @@ function validate(patch: Partial<Settings>): Partial<Settings> {
     v.gstRatePercent = rate;
   }
   if (patch.pricesIncludeGst !== undefined) v.pricesIncludeGst = !!patch.pricesIncludeGst;
+  if (patch.roundOff !== undefined) {
+    if (!(['nearest', 'up', 'down', 'none'] as RoundOff[]).includes(patch.roundOff)) throw new UserError('Choose how totals are rounded.');
+    v.roundOff = patch.roundOff;
+  }
+  if (patch.rateSlabs !== undefined) {
+    if (!Array.isArray(patch.rateSlabs)) throw new UserError('Price slabs must be a list.');
+    if (patch.rateSlabs.length > 5) throw new UserError('Keep it to 5 price slabs or fewer.');
+    const seen = new Set<number>();
+    v.rateSlabs = patch.rateSlabs
+      .map((s) => {
+        if (!Number.isInteger(s?.upToPaise) || s.upToPaise < 1 || s.upToPaise > 100_000_000_000) throw new UserError('Each price slab needs a price limit above zero.');
+        if (!isValidRate(s.ratePercent)) throw new UserError('Each price slab needs a GST rate from 0 to 100.');
+        if (seen.has(s.upToPaise)) throw new UserError('Two price slabs have the same limit.');
+        seen.add(s.upToPaise);
+        return { upToPaise: s.upToPaise, ratePercent: s.ratePercent };
+      })
+      .sort((a, b) => a.upToPaise - b.upToPaise);
+  }
   if (patch.invoicePrefix !== undefined) {
     const p = requireText(patch.invoicePrefix, 'Invoice prefix', 10).toUpperCase();
     if (!/^[A-Z0-9-]+$/.test(p)) throw new UserError('Invoice prefix can only use letters, numbers and dashes.');
     v.invoicePrefix = p;
+  }
+  if (patch.b2bPrefix !== undefined) {
+    const p = optionalText(patch.b2bPrefix, 'B2B prefix', 10).toUpperCase();
+    if (p && !/^[A-Z0-9-]+$/.test(p)) throw new UserError('B2B prefix can only use letters, numbers and dashes.');
+    v.b2bPrefix = p;
   }
   if (patch.defaultDueDays !== undefined) v.defaultDueDays = requireInt(patch.defaultDueDays, 'Due days', { max: 365 });
   if (patch.defaultReorderLevel !== undefined) v.defaultReorderLevel = requireInt(patch.defaultReorderLevel, 'Reorder level', { max: 100000 });
@@ -165,16 +200,48 @@ function validate(patch: Partial<Settings>): Partial<Settings> {
       if (names.has(name.toLowerCase())) throw new UserError(`You already have an account called “${name}”.`);
       names.add(name.toLowerCase());
       if (!(PAYMENT_ACCOUNT_KINDS as readonly string[]).includes(a.kind)) throw new UserError(`Choose a type for “${name}”.`);
-      return { id: requireText(a.id, 'Account id', 60), name, kind: a.kind, details: optionalText(a.details ?? '', 'Account details', 200) };
+      const opening = a.openingPaise ?? 0;
+      if (!Number.isInteger(opening) || Math.abs(opening) > 100_000_000_000) throw new UserError(`The opening balance of “${name}” should be a whole number of paise.`);
+      return { id: requireText(a.id, 'Account id', 60), name, kind: a.kind, details: optionalText(a.details ?? '', 'Account details', 200), openingPaise: opening };
     });
+  }
+  if (patch.marginAlertPercent !== undefined) v.marginAlertPercent = requireInt(patch.marginAlertPercent, 'The margin to watch', { max: 99 });
+  if (patch.expenseBudgets !== undefined) {
+    const raw = patch.expenseBudgets;
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw new UserError('Budgets must be a list of categories with an amount each.');
+    const budgets: Record<string, number> = {};
+    for (const [name, amount] of Object.entries(raw)) {
+      const category = requireText(name, 'Budget category', 40);
+      const paise = requireInt(amount, `The budget for ${category}`, { max: 100_000_000_000 });
+      if (paise > 0) budgets[category] = paise; // a zero budget means "no limit", so it is simply not kept
+    }
+    v.expenseBudgets = budgets;
   }
   if (patch.notifyLowStock !== undefined) v.notifyLowStock = !!patch.notifyLowStock;
   if (patch.notifyOverdue !== undefined) v.notifyOverdue = !!patch.notifyOverdue;
+  if (patch.paperSize !== undefined) {
+    if (!(PAPER_SIZES as readonly string[]).includes(patch.paperSize)) throw new UserError('Choose A4, A5 or Letter.');
+    v.paperSize = patch.paperSize;
+  }
+  if (patch.dateFormat !== undefined) {
+    if (!(DATE_FORMATS as readonly string[]).includes(patch.dateFormat)) throw new UserError('Choose a date format from the list.');
+    v.dateFormat = patch.dateFormat;
+  }
+  if (patch.invoiceLanguage !== undefined) {
+    if (!(LANGUAGES as readonly string[]).includes(patch.invoiceLanguage)) throw new UserError('Choose English, Hindi or Gujarati.');
+    v.invoiceLanguage = patch.invoiceLanguage;
+  }
+  if (patch.msgInvoice !== undefined) v.msgInvoice = optionalText(patch.msgInvoice, 'Invoice message', 1000);
+  if (patch.msgQuote !== undefined) v.msgQuote = optionalText(patch.msgQuote, 'Quote message', 1000);
+  if (patch.msgDue !== undefined) v.msgDue = optionalText(patch.msgDue, 'Reminder message', 1000);
   return v;
 }
 
 export function saveSettings(db: Db, patch: Partial<Settings>): Settings {
   const valid = validate(patch);
+  const merged = { ...getSettings(db), ...valid };
+  // Two series sharing a prefix would hand out the same number twice.
+  if (merged.b2bPrefix && merged.b2bPrefix === merged.invoicePrefix) throw new UserError('The B2B series needs a different prefix from your main invoices.');
   tx(db, () => {
     for (const [name, value] of Object.entries(valid)) {
       const field = FIELDS[name as keyof Settings] as Field<any>;
