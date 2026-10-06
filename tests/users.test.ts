@@ -60,6 +60,22 @@ describe('people and sign in', () => {
     await expect(api.designsList()).resolves.toEqual([]);
   });
 
+  it('keeps staff away from refunds, points, stock write-offs and the GSTR-1 file too', async () => {
+    const o = await owner();
+    const st = await api.sessionLogin(o.id, '1234').then(() => api.userCreate({ name: 'Ravi', role: 'staff', pin: '5678' }));
+    await api.sessionLogout();
+    await api.sessionLogin(st.id, '5678');
+    const range = { from: '2026-04-01', to: '2026-04-30' };
+    for (const call of [() => api.creditNoteRefund('x', { method: 'cash' } as never), () => api.loyaltyAdjust({ customerId: 'x', points: 5, note: 'n' }), () => api.stockAdjust({ variantId: 'x', delta: -1, reason: 'damaged', note: '' } as never), () => api.stockTakeApply([], ''), () => api.reportGstr1(range), () => api.transferCreate({} as never), () => api.weaverOrderPay('x', {} as never)]) {
+      await expect(call()).rejects.toThrow(/Only an owner/);
+    }
+  });
+
+  it('only names calls that exist, so a renamed call can not quietly become open to staff', () => {
+    const names = Object.keys(createApi(db));
+    expect([...users.OWNER_ONLY].filter((n) => !names.includes(n))).toEqual([]);
+  });
+
   it('writes who did it in the activity log', async () => {
     const o = await owner();
     await api.sessionLogin(o.id, '1234');

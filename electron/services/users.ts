@@ -116,7 +116,9 @@ export const OWNER_ONLY = new Set([
   'usersList', 'userCreate', 'userUpdate', 'userSetPin', 'userRemove',
   'catalogueRename', 'catalogueDelete', 'designsTidy', 'designsBulk', 'designArchive', 'customerMerge', 'customersImport', 'customerArchive',
   'invoiceCancel', 'creditNoteCancel', 'paymentVoid', 'paymentWriteOff', 'weaverOrderCancel', 'weaverPaymentVoid', 'purchaseDelete', 'expenseDelete', 'transferDelete',
-  'reportProfitLoss', 'reportMargin', 'reportMarginDrill', 'reportGst', 'reportPurchases', 'gstNet', 'accountBook',
+  'reportProfitLoss', 'reportMargin', 'reportMarginDrill', 'reportGst', 'reportGstr1', 'reportPurchases', 'gstNet', 'accountBook',
+  // Money handed out, points given, stock written off or recounted, and money moved between accounts.
+  'creditNoteRefund', 'weaverOrderPay', 'transferCreate', 'loyaltyAdjust', 'stockAdjust', 'stockTakeApply',
 ]);
 
 /** Always open, so a person can sign in. */
