@@ -57,6 +57,13 @@ export function onReturn(db: Db, customerId: string | null, invoiceId: string, c
   add(db, customerId, -take, 'reversed', `Goods returned — ${creditNoteNumber}`, invoiceId);
 }
 
+/** A credit note was cancelled, so the goods did not come back after all: the points its return took are given back. */
+export function onReturnCancelled(db: Db, customerId: string | null, invoiceId: string, creditNoteNumber: string): void {
+  if (!customerId) return;
+  const taken = get<{ s: number }>(db, 'SELECT COALESCE(SUM(points), 0) AS s FROM loyalty_points WHERE customer_id = ? AND invoice_id = ? AND note = ?', customerId, invoiceId, `Goods returned — ${creditNoteNumber}`)?.s ?? 0;
+  if (taken < 0) add(db, customerId, -taken, 'reversed', `Return cancelled — ${creditNoteNumber}`, invoiceId);
+}
+
 export function adjust(db: Db, input: { customerId: string; points: number; note: string }): number {
   if (!get(db, 'SELECT 1 AS x FROM customers WHERE id = ? AND deleted_at IS NULL', input.customerId)) throw new UserError('That customer no longer exists.');
   const points = requireInt(input.points, 'Points', { min: -1_000_000, max: 1_000_000 });

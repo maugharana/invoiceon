@@ -80,6 +80,18 @@ describe('loyalty points', () => {
     expect(points()).toBe(0); // 2 left, 10 owed back: only what is there is taken
   });
 
+  it('are given back when the credit note that took them is cancelled, so cancelling the invoice later takes them only once', () => {
+    saveSettings(db, { loyaltySpendPaise: rupees(100) });
+    const inv = sell(3); // 30 points
+    const line = invoices.getInvoice(db, inv.id).lines[0]!;
+    const note = credits.createCreditNote(db, { invoiceId: inv.id, issueDate: today, reason: 'Returned', lines: [{ invoiceLineId: line.id, qty: 1, restock: true }], settlement: 'credit' });
+    expect(points()).toBe(20);
+    credits.cancelCreditNote(db, note.id, 'made by mistake');
+    expect(points()).toBe(30);
+    invoices.cancelInvoice(db, inv.id, 'changed mind');
+    expect(points()).toBe(0);
+  });
+
   it('can be adjusted by hand with a reason, and never below zero', () => {
     expect(() => loyalty.adjust(db, { customerId, points: 5, note: '' })).toThrow(/Say why/);
     expect(() => loyalty.adjust(db, { customerId, points: 0, note: 'x' })).toThrow(/points to add/);

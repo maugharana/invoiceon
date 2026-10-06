@@ -18,7 +18,7 @@ import { all, get, run, tx, type Db } from '../db/connection';
 import { UserError, newId, nowIso, optionalText, requireInt } from './common';
 import { createExpense } from './expenses';
 import { recordMovement } from './inventory';
-import { onReturn } from './loyalty';
+import { onReturn, onReturnCancelled } from './loyalty';
 import { brandingOf, getInvoice } from './invoices';
 import { paidFor } from './payments';
 import { getSettings } from './settings';
@@ -372,6 +372,7 @@ export function cancelCreditNote(db: Db, id: string, reason: string): CreditNote
     for (const l of note.lines) if (l.restocked) recordMovement(db, l.variantId, -l.qty, 'adjustment', `Credit note ${note.number} cancelled`, { type: 'credit_note', id });
     run(db, 'UPDATE credit_note_applications SET released_at = ? WHERE credit_note_id = ? AND released_at IS NULL', nowIso(), id);
     run(db, "UPDATE credit_notes SET status = 'cancelled', cancelled_at = ?, cancel_reason = ?, updated_at = ? WHERE id = ?", nowIso(), why, nowIso(), id);
+    onReturnCancelled(db, note.customerId, note.invoiceId, note.number);
   });
   return getCreditNote(db, id);
 }
