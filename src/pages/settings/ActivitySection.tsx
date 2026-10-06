@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { formatDate, todayIso } from '../../../shared/gst';
+import { formatDate, localDateOf, todayIso } from '../../../shared/gst';
 import type { AuditEntry } from '../../../shared/types';
 import { Card, EmptyState, Input, SearchInput, Select, Spinner } from '../../components/ui';
 import { api } from '../../lib/api';
@@ -86,7 +86,7 @@ export function ActivitySection() {
               return (
                 <li key={e.id} className="grid grid-cols-[9.5rem_1fr] gap-4 px-5 py-2.5">
                   <span className="num text-xs text-ink-muted">
-                    {formatDate(new Date(e.at).toISOString().slice(0, 10))}
+                    {formatDate(localDateOf(e.at))}
                     <br />
                     {new Date(e.at).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}
                   </span>

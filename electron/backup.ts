@@ -2,6 +2,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameS
 import { isAbsolute, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { BackupFileInfo, BackupSettings, BackupNote } from '../shared/types';
+import { todayIso } from '../shared/gst';
 import { LATEST_SCHEMA_VERSION } from './db/migrations';
 import type { Db } from './db/connection';
 import { UserError } from './services/common';
@@ -58,7 +59,7 @@ export function listBackups(dir: string): BackupFileInfo[] {
 export function backupDaily(db: Db, dir: string): string | null {
   try {
     mkdirSync(dir, { recursive: true });
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayIso();
     const name = `invoiceon-${today}.db`;
     const target = join(dir, name);
     if (!existsSync(target)) db.exec(`VACUUM INTO '${target.replace(/'/g, "''")}'`);

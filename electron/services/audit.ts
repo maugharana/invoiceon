@@ -173,14 +173,18 @@ export function listAudit(db: Db, query: AuditQuery = {}): AuditEntry[] {
     where.push('entity_type = ?');
     params.push(query.entityType);
   }
-  // The log keeps UTC timestamps, and a day means the whole of that day.
+  // The log keeps UTC timestamps, but a day means the whole of that day on the shop's own clock (so 1 a.m. in India is still that day).
+  const dayStart = (iso: string, plusDays = 0): string => {
+    const [y, m, d] = iso.split('-').map(Number) as [number, number, number];
+    return new Date(y, m - 1, d + plusDays).toISOString();
+  };
   if (query.from) {
     where.push('at >= ?');
-    params.push(`${query.from}T00:00:00.000Z`);
+    params.push(dayStart(query.from));
   }
   if (query.to) {
     where.push('at < ?');
-    params.push(new Date(Date.parse(`${query.to}T00:00:00.000Z`) + 86_400_000).toISOString());
+    params.push(dayStart(query.to, 1));
   }
   const search = (query.search ?? '').trim().toLowerCase();
   const limit = Math.min(Math.max(query.limit ?? 300, 1), 1000);

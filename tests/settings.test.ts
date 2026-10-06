@@ -6,6 +6,7 @@ import { createApi } from '../electron/api';
 import { backupDaily, listBackups } from '../electron/backup';
 import { openDb, type Db } from '../electron/db/connection';
 import { getSettings, saveSettings } from '../electron/services/settings';
+import { todayIso } from '../shared/gst';
 import { DEFAULT_EXPENSE_CATEGORIES } from '../shared/types';
 
 let db: Db;
@@ -80,6 +81,12 @@ describe('data management', () => {
     expect(info.backups).toHaveLength(2);
     expect(info.backups.filter((b) => b.manual).map((b) => b.name)).toEqual([name]);
     expect(listBackups(join(dir, 'backups')).every((b) => b.bytes > 0)).toBe(true);
+    file.close();
+  });
+
+  it('names the daily backup by the local date, not the UTC one', () => {
+    const file = openDb(join(dir, 'invoiceon.db'));
+    expect(backupDaily(file, join(dir, 'backups'))).toBe(`invoiceon-${todayIso()}.db`);
     file.close();
   });
 
