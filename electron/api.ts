@@ -453,7 +453,7 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
     backupSaveCopy: async () => {
       need();
       if (!host?.pickSavePath) throw new UserError(DESKTOP_ONLY);
-      const stamp = new Date().toISOString().slice(0, 10);
+      const stamp = todayIso();
       const file = await host.pickSavePath('Save a copy of your book', `InvoiceOn backup ${stamp}.db`);
       if (!file) return { saved: false };
       try {
@@ -500,7 +500,8 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
  * own message; anything else is logged and replaced with a generic one so internals never leak to the UI.
  */
 export async function invoke(api: Api, method: string, args: unknown[]): Promise<Envelope> {
-  const fn = (api as unknown as Record<string, ((...a: unknown[]) => Promise<unknown>) | undefined>)[method];
+  // Only the API's own calls: a name like "constructor" or "toString" is found on every object, and is not a call.
+  const fn = typeof method === 'string' && Object.hasOwn(api, method) ? (api as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>)[method] : undefined;
   if (typeof fn !== 'function') return { ok: false, error: `Unknown request: ${method}` };
   try {
     return { ok: true, data: (await fn(...args)) ?? null };

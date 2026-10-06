@@ -415,10 +415,25 @@ export function duplicateDesign(db: Db, id: string): DesignDetail {
   });
 }
 
+/**
+ * A piece can't be archived while unfinished work still counts on it: a quote that could still be invoiced, a weaver order still
+ * waiting for sarees, or a production order still being made. Finishing or closing those first keeps them from failing later.
+ */
+function checkNothingOpenOn(db: Db, variantId: string): void {
+  const sku = get<{ sku: string }>(db, 'SELECT sku FROM variants WHERE id = ?', variantId)?.sku ?? 'This piece';
+  const documents = [
+    ...all<{ n: string }>(db, "SELECT DISTINCT p.number AS n FROM proforma_lines l JOIN proformas p ON p.id = l.proforma_id WHERE l.variant_id = ? AND p.status = 'open' AND p.stage <> 'lost' AND l.qty > l.invoiced_qty", variantId),
+    ...all<{ n: string }>(db, 'SELECT DISTINCT o.number AS n FROM weaver_order_lines l JOIN weaver_orders o ON o.id = l.order_id WHERE l.variant_id = ? AND o.cancelled_at IS NULL AND l.received_qty < l.qty', variantId),
+    ...all<{ n: string }>(db, "SELECT number AS n FROM production_orders WHERE variant_id = ? AND status IN ('planned', 'making')", variantId),
+  ].map((r) => r.n);
+  if (documents.length > 0) throw new UserError(`${sku} is still on ${documents.length === 1 ? 'an open document' : 'open documents'} (${documents.join(', ')}). Finish or cancel ${documents.length === 1 ? 'it' : 'them'} first.`);
+}
+
 /** Archives rather than deletes, so past invoices that reference the design keep working. */
 export function archiveDesign(db: Db, id: string): void {
   getDesign(db, id);
   tx(db, () => {
+    for (const v of all<{ id: string }>(db, 'SELECT id FROM variants WHERE design_id = ? AND deleted_at IS NULL', id)) checkNothingOpenOn(db, v.id);
     const now = nowIso();
     run(db, 'UPDATE variants SET deleted_at = ?, updated_at = ? WHERE design_id = ? AND deleted_at IS NULL', now, now, id);
     run(db, 'UPDATE designs SET deleted_at = ?, updated_at = ? WHERE id = ?', now, now, id);
@@ -631,6 +646,7 @@ export function bulkAddSarees(db: Db, rows: BulkSareeRow[]): BulkAddResult {
     if (r.sku) {
       if (seenSkus.has(norm(r.sku))) fail(r.i, `Saree ID "${r.sku}" is used by more than one row.`);
       else if (get(db, 'SELECT 1 AS x FROM variants WHERE sku = ? COLLATE NOCASE AND deleted_at IS NULL', r.sku)) fail(r.i, `Saree ID "${r.sku}" is already in use.`);
+      else if (get(db, "SELECT 1 AS x FROM variants WHERE barcode <> '' AND barcode = ? COLLATE NOCASE AND deleted_at IS NULL", r.sku)) fail(r.i, `Saree ID "${r.sku}" is already used as a barcode.`);
       seenSkus.add(norm(r.sku));
     }
 
@@ -657,39 +673,48 @@ export function bulkAddSarees(db: Db, rows: BulkSareeRow[]): BulkAddResult {
   let designsCreated = 0;
   let designsExtended = 0;
   let variantsCreated = 0;
-  tx(db, () => {
-    for (const [key, group] of groups) {
-      const first = group[0]!;
-      const existing = designsByName.get(key)?.[0];
-      let designId: string;
-      if (existing) {
-        designId = existing.id;
-        designsExtended += 1;
-        // A design that has no short name yet takes the first one typed; one it already has is left alone.
-        const typed = group.find((r) => r.nickname)?.nickname;
-        if (typed && !existing.nickname) run(db, 'UPDATE designs SET nickname = ?, updated_at = ? WHERE id = ?', typed, nowIso(), existing.id);
-      } else {
-        designId = createDesign(db, {
-          code: nextDesignCode(db),
-          name: first.name,
-          nickname: group.find((r) => r.nickname)?.nickname ?? '',
-          fabric: group.find((r) => r.fabric)?.fabric ?? '',
-          weaveStyle: group.find((r) => r.weaveStyle)?.weaveStyle ?? '',
-          technique: group.find((r) => r.technique)?.technique ?? '',
-          pattern: group.find((r) => r.pattern)?.pattern ?? '',
-          work: group.find((r) => r.work)?.work ?? '',
-          hsnCode: group.find((r) => r.hsn)?.hsn ?? '',
-          description: '',
-          defaultPricePaise: first.sell,
-        }).id;
-        designsCreated += 1;
+  // A rule the checks above could not see (a generated ID that is already a barcode, say) still has to name its row, and nothing is kept.
+  let failedRow = -1;
+  try {
+    tx(db, () => {
+      for (const [key, group] of groups) {
+        failedRow = group[0]!.i;
+        const first = group[0]!;
+        const existing = designsByName.get(key)?.[0];
+        let designId: string;
+        if (existing) {
+          designId = existing.id;
+          designsExtended += 1;
+          // A design that has no short name yet takes the first one typed; one it already has is left alone.
+          const typed = group.find((r) => r.nickname)?.nickname;
+          if (typed && !existing.nickname) run(db, 'UPDATE designs SET nickname = ?, updated_at = ? WHERE id = ?', typed, nowIso(), existing.id);
+        } else {
+          designId = createDesign(db, {
+            code: nextDesignCode(db),
+            name: first.name,
+            nickname: group.find((r) => r.nickname)?.nickname ?? '',
+            fabric: group.find((r) => r.fabric)?.fabric ?? '',
+            weaveStyle: group.find((r) => r.weaveStyle)?.weaveStyle ?? '',
+            technique: group.find((r) => r.technique)?.technique ?? '',
+            pattern: group.find((r) => r.pattern)?.pattern ?? '',
+            work: group.find((r) => r.work)?.work ?? '',
+            hsnCode: group.find((r) => r.hsn)?.hsn ?? '',
+            description: '',
+            defaultPricePaise: first.sell,
+          }).id;
+          designsCreated += 1;
+        }
+        for (const r of group) {
+          failedRow = r.i;
+          createVariant(db, designId, { color: r.color, size: r.size, sku: r.sku || undefined, sellPricePaise: r.sell, mrpPaise: r.mrp, baseCostPaise: r.cost, reorderLevel: r.reorder, openingStock: r.stock, bom: [] });
+          variantsCreated += 1;
+        }
       }
-      for (const r of group) {
-        createVariant(db, designId, { color: r.color, size: r.size, sku: r.sku || undefined, sellPricePaise: r.sell, mrpPaise: r.mrp, baseCostPaise: r.cost, reorderLevel: r.reorder, openingStock: r.stock, bom: [] });
-        variantsCreated += 1;
-      }
-    }
-  });
+    });
+  } catch (err) {
+    if (err instanceof UserError && failedRow >= 0) return { errors: [{ row: failedRow, message: err.message }], designsCreated: 0, designsExtended: 0, variantsCreated: 0 };
+    throw err;
+  }
   return { errors: [], designsCreated, designsExtended, variantsCreated };
 }
 
@@ -707,6 +732,7 @@ export function quickAddSaree(db: Db, row: BulkSareeRow): string {
 
 export function archiveVariant(db: Db, id: string): void {
   getVariant(db, id);
+  checkNothingOpenOn(db, id);
   run(db, 'UPDATE variants SET deleted_at = ?, updated_at = ? WHERE id = ?', nowIso(), nowIso(), id);
 }
 
