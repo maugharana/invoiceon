@@ -32,10 +32,58 @@ beforeEach(() => {
   shopper = customers.createCustomer(db, { name: 'Meena', type: 'B2C', phone: '', email: '', gstin: '', address: '', city: 'Delhi', state: 'Delhi', pincode: '', notes: '' }).id;
 });
 
+const restock = () => {
+  inventory.adjustStock(db, { variantId: silk, delta: 100, reason: 'purchase', note: '' });
+  inventory.adjustStock(db, { variantId: cotton, delta: 100, reason: 'purchase', note: '' });
+};
+
 const sell = (over: Partial<Parameters<typeof invoices.createInvoice>[1]>) =>
   invoices.createInvoice(db, { type: 'B2C', customerId: null, issueDate: today, dueDate: today, discountPaise: 0, notes: '', lines: [{ variantId: cotton, qty: 1, unitPricePaise: rupees(800) }], ...over });
 
 describe('the GSTR-1 file', () => {
+  it('lists an inter-state sale to a private buyer above ₹1 lakh invoice by invoice, and keeps everything else in the small-supplies totals', () => {
+    restock();
+    // Silk is 18%: 33 × ₹3,000 = ₹99,000 + tax = ₹1,16,820 (large); 28 × ₹3,000 = ₹84,000 + tax = ₹99,120 (small).
+    const big = sell({ customerId: shopper, lines: [{ variantId: silk, qty: 33, unitPricePaise: rupees(3000) }] });
+    const small = sell({ customerId: shopper, lines: [{ variantId: silk, qty: 28, unitPricePaise: rupees(3000) }] });
+    expect([big.totalPaise, small.totalPaise]).toEqual([rupees(116820), rupees(99120)]);
+    const out = gstr1(db, month);
+    const file = JSON.parse(out.json);
+    expect(file.b2cl).toEqual([{ pos: '07', inv: [{ inum: big.number, idt: dmy(today), val: 116820, itms: [{ num: 1, itm_det: { txval: 99000, rt: 18, iamt: 17820, csamt: 0 } }] }] }]);
+    expect(file.b2cs).toEqual([{ sply_ty: 'INTER', rt: 18, typ: 'OE', pos: '07', txval: 84000, iamt: 15120, camt: 0, samt: 0, csamt: 0 }]);
+    expect(out.counts).toMatchObject({ b2clInvoices: 1, b2cLines: 1 });
+  });
+
+  it('does not list a large sale inside the state, or one of exactly ₹1 lakh, as B2CL', () => {
+    restock();
+    sell({ customerId: null, lines: [{ variantId: silk, qty: 40, unitPricePaise: rupees(3000) }] }); // ₹1,41,600 but within Uttar Pradesh
+    saveSettings(db, { gstRatePercent: 0 });
+    sell({ customerId: shopper, lines: [{ variantId: cotton, qty: 125, unitPricePaise: rupees(800) }] }); // exactly ₹1,00,000, inter-state
+    expect(JSON.parse(gstr1(db, month).json).b2cl).toBeUndefined();
+  });
+
+  it('puts a credit note against a B2CL invoice in the unregistered-credit-note table, not in the small totals', () => {
+    restock();
+    const big = sell({ customerId: shopper, lines: [{ variantId: silk, qty: 33, unitPricePaise: rupees(3000) }] });
+    const note = credits.createCreditNote(db, { invoiceId: big.id, issueDate: today, reason: 'Returned', lines: [{ invoiceLineId: invoices.getInvoice(db, big.id).lines[0]!.id, qty: 3, restock: true }], settlement: 'credit' });
+    const file = JSON.parse(gstr1(db, month).json);
+    expect(file.cdnur).toEqual([{ typ: 'B2CL', ntty: 'C', nt_num: note.number, nt_dt: dmy(today), pos: '07', val: 10620, itms: [{ num: 1, itm_det: { txval: 9000, rt: 18, iamt: 1620, csamt: 0 } }] }]);
+    expect(file.b2cs).toBeUndefined();
+  });
+
+  it('lists the documents issued separately for each numbering series', () => {
+    saveSettings(db, { b2bPrefix: 'B2B' });
+    sell({});
+    sell({ type: 'B2B', customerId: biz });
+    sell({ type: 'B2B', customerId: biz });
+    const fy = invoices.nextInvoiceNumber(db, today).split('/')[1];
+    const docs = JSON.parse(gstr1(db, month).json).doc_issue.doc_det;
+    expect(docs).toEqual([{ doc_num: 1, docs: [
+      { num: 1, from: `MG/${fy}/0001`, to: `MG/${fy}/0001`, totnum: 1, cancel: 0, net_issue: 1 },
+      { num: 2, from: `B2B/${fy}/0001`, to: `B2B/${fy}/0002`, totnum: 2, cancel: 0, net_issue: 2 },
+    ] }]);
+  });
+
   it('lists business invoices by buyer, with tax by rate, the date the portal wants, and the place of supply', () => {
     const inv = sell({ type: 'B2B', customerId: biz, lines: [{ variantId: cotton, qty: 2, unitPricePaise: rupees(800) }, { variantId: silk, qty: 1, unitPricePaise: rupees(3000) }] });
     const out = gstr1(db, month);

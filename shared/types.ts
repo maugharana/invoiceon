@@ -2331,6 +2331,6 @@ export interface ProductionQuery {
 export interface Gstr1Export {
   fileName: string;
   json: string;
-  counts: { b2bInvoices: number; b2cLines: number; creditNotes: number; hsnLines: number };
+  counts: { b2bInvoices: number; b2clInvoices: number; b2cLines: number; creditNotes: number; hsnLines: number };
   warnings: string[];
 }
