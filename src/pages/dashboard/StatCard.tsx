@@ -20,7 +20,8 @@ export function Delta({ now, before, compare }: { now: number; before: number | 
 }
 
 export function StatCard({ label, icon: Icon, tone = 'brand', value, sub, spark, sparkColor, delta, onClick, index }: { label: string; icon: LucideIcon; tone?: 'brand' | 'amber' | 'red'; value: ReactNode; sub: ReactNode; spark?: number[]; sparkColor?: string; delta?: ReactNode; onClick: () => void; index: number }) {
-  const tint = tone === 'red' ? 'bg-status-overdue-bg text-status-overdue-fg' : tone === 'amber' ? 'bg-status-partial-bg text-status-partial-fg' : 'bg-brand-tint text-brand';
+  // Only a warning gets a coloured chip; the ordinary figures keep a quiet icon, so a chip means "look at this".
+  const tint = tone === 'red' ? 'bg-status-overdue-bg text-status-overdue-fg' : tone === 'amber' ? 'bg-status-partial-bg text-status-partial-fg' : 'text-ink-muted';
   return (
     <button type="button" onClick={onClick} style={{ ['--i' as string]: index } as CSSProperties} className="card-hover animate-fade-up stagger flex flex-col justify-start rounded-lg border border-line bg-surface p-5 text-left shadow-card">
       <div className="flex items-start justify-between gap-3">

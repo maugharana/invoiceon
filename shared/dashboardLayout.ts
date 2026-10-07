@@ -6,12 +6,12 @@ export const DASHBOARD_SECTIONS = [
   { id: 'attention', label: 'Needs attention', hint: 'Reversed payments, quotes about to lapse, prices below cost' },
   { id: 'today', label: 'Today', hint: 'Invoices issued, cash collected, spent and due today' },
   { id: 'figures', label: 'Key figures', hint: 'Invoiced, received, outstanding and overdue' },
+  { id: 'activity', label: 'Recent invoices, low stock and quotes', hint: 'The latest invoices, what to reorder, quotes waiting' },
   { id: 'money', label: 'Profit, GST and target', hint: 'Profit for the period, GST this month and the monthly target' },
   { id: 'speed', label: 'Payment speed and spending', hint: 'How long customers take to pay, and what was spent' },
   { id: 'charts', label: 'Charts', hint: 'Aging, top clients, revenue and invoice trends, expenses' },
   { id: 'insights', label: 'Best sellers and stock not selling', hint: 'What sells best, and what has sat unsold for 90 days' },
   { id: 'mix', label: 'How customers paid and festival season', hint: 'Cash, UPI and bank split; this festival against last year' },
-  { id: 'activity', label: 'Recent invoices, low stock and quotes', hint: 'The latest invoices, what to reorder, quotes waiting' },
 ] as const;
 
 export type DashboardSectionId = (typeof DASHBOARD_SECTIONS)[number]['id'];
@@ -54,6 +54,18 @@ export function moveSection(layout: DashboardLayout, id: DashboardSectionId, by:
 /** Shows a hidden section or hides a shown one. */
 export function toggleSection(layout: DashboardLayout, id: DashboardSectionId): DashboardLayout {
   return { ...layout, hidden: layout.hidden.includes(id) ? layout.hidden.filter((h) => h !== id) : [...layout.hidden, id] };
+}
+
+/**
+ * What the day-to-day view is built from: what needs doing now, today, the headline figures and the latest activity. Everything else
+ * is analysis, kept one click away under "More detail" so the page opens calm.
+ */
+const CORE = new Set<DashboardSectionId>(['attention', 'today', 'figures', 'activity']);
+
+/** The shown sections, in order, split into the ones drawn straight away and the ones kept under "More detail". */
+export function splitSections(layout: DashboardLayout): { main: DashboardSectionId[]; detail: DashboardSectionId[] } {
+  const shown = visibleSections(layout);
+  return { main: shown.filter((id) => CORE.has(id)), detail: shown.filter((id) => !CORE.has(id)) };
 }
 
 /** The sections to draw, in order, without the hidden ones. */

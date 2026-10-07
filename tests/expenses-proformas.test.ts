@@ -5,7 +5,7 @@ import { dashboardNow, dashboardOverview } from '../electron/services/dashboard'
 import { festivalComparison } from '../electron/services/festival';
 import * as expenses from '../electron/services/expenses';
 import { reorderList } from '../electron/services/deadstock';
-import { DASHBOARD_SECTIONS, defaultLayout, moveSection, normaliseLayout, toggleSection, visibleSections } from '../shared/dashboardLayout';
+import { DASHBOARD_SECTIONS, defaultLayout, moveSection, normaliseLayout, splitSections, toggleSection, visibleSections } from '../shared/dashboardLayout';
 import { expensesBreakdownCsv, expensesCsv } from '../shared/csv';
 import { FESTIVALS, festivalById, festivalSeason } from '../shared/festivals';
 import { invoiceMessage, mailtoLink, quoteReminder, reorderNote, whatsappLink, whatsappPhone } from '../shared/messages';
@@ -432,8 +432,8 @@ describe('dashboard layout', () => {
     expect(l.order.slice(0, 2)).toEqual(['today', 'attention']);
     l = moveSection(l, 'today', -1); // already first
     expect(l.order.slice(0, 2)).toEqual(['today', 'attention']);
-    l = moveSection(l, 'activity', 1); // already last
-    expect(l.order.at(-1)).toBe('activity');
+    l = moveSection(l, 'mix', 1); // already last
+    expect(l.order.at(-1)).toBe('mix');
     expect(l.order).toHaveLength(ALL.length);
   });
 
@@ -444,6 +444,13 @@ describe('dashboard layout', () => {
     expect(l.order).toContain('charts'); // still in the order, ready to come back
     l = toggleSection(l, 'charts');
     expect(l).toEqual(defaultLayout());
+  });
+
+  it('opens with what needs doing, and keeps the analysis under "more detail", each in the owner\'s order', () => {
+    expect(splitSections(defaultLayout())).toEqual({ main: ['attention', 'today', 'figures', 'activity'], detail: ['money', 'speed', 'charts', 'insights', 'mix'] });
+    let l = moveSection(toggleSection(defaultLayout(), 'speed'), 'activity', -1);
+    l = moveSection(l, 'charts', -1);
+    expect(splitSections(l)).toEqual({ main: ['attention', 'today', 'activity', 'figures'], detail: ['money', 'charts', 'insights', 'mix'] });
   });
 
   it('repairs whatever was saved: unknown ids dropped, repeats removed, new sections added at the end', () => {
