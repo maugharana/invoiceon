@@ -15,19 +15,12 @@ import { plural } from '../../lib/format';
 import { navigate, paths, type ReportTab } from '../../lib/router';
 
 // ── Shell: title, tabs, period ──────────────────────────────────────────────
-const TABS: { id: ReportTab; label: string }[] = [
-  { id: 'sales', label: 'Sales' },
-  { id: 'profit', label: 'Profit & loss' },
-  { id: 'margin', label: 'Margins' },
-  { id: 'gst', label: 'GST' },
-  { id: 'daybook', label: 'Day & cash book' },
-  { id: 'stock', label: 'Stock valuation' },
-  { id: 'movement', label: 'Stock movement' },
-  { id: 'movers', label: 'Fast & slow' },
-  { id: 'receivables', label: 'Receivables' },
-  { id: 'quotes', label: 'Quotes' },
-  { id: 'purchases', label: 'Purchases & input GST' },
-  { id: 'accountbook', label: 'Account book' },
+// Twelve reports are too many for one row, so they sit under four headings: what you sold, where the money is, what's on the shelf, tax.
+const GROUPS: { label: string; tabs: { id: ReportTab; label: string }[] }[] = [
+  { label: 'Sales', tabs: [{ id: 'sales', label: 'Sales' }, { id: 'margin', label: 'Margins' }, { id: 'quotes', label: 'Quotes' }] },
+  { label: 'Money', tabs: [{ id: 'profit', label: 'Profit & loss' }, { id: 'receivables', label: 'Receivables' }, { id: 'daybook', label: 'Day & cash book' }, { id: 'accountbook', label: 'Account book' }] },
+  { label: 'Stock', tabs: [{ id: 'stock', label: 'Stock valuation' }, { id: 'movement', label: 'Stock movement' }, { id: 'movers', label: 'Fast & slow' }] },
+  { label: 'Tax', tabs: [{ id: 'gst', label: 'GST' }, { id: 'purchases', label: 'Purchases & input GST' }] },
 ];
 
 /** These reports aren't about a stretch of dates: stock is as of a day, the rest look back a fixed way or at today. */
@@ -62,21 +55,38 @@ function PeriodPicker({ tab, period }: { tab: ReportTab; period: PeriodSpec }) {
 }
 
 function ReportsShell({ tab, period, asOf, children }: { tab: ReportTab; period: PeriodSpec; asOf: string | null; children: ReactNode }) {
+  const group = GROUPS.find((g) => g.tabs.some((t) => t.id === tab)) ?? GROUPS[0]!;
+  const hrefFor = (id: ReportTab) => `#${paths.reports(id, NO_PERIOD.includes(id) ? undefined : period, id === 'stock' ? asOf : undefined)}`;
   return (
     <>
       <PageHeader title="Reports" subtitle="How the business is doing — sales, profit, GST, cash and what's on the shelf." actions={<PrintButton />} />
-      <div className="mb-6 flex gap-5 overflow-x-auto border-b border-line print:hidden" role="tablist">
-        {TABS.map((t) => (
-          <a
-            key={t.id}
-            href={`#${paths.reports(t.id, NO_PERIOD.includes(t.id) ? undefined : period, t.id === 'stock' ? asOf : undefined)}`}
-            role="tab"
-            aria-selected={tab === t.id}
-            className={`-mb-px whitespace-nowrap border-b-2 pb-2.5 transition-colors duration-150 ${tab === t.id ? 'border-brand font-medium text-brand' : 'border-transparent text-ink-muted hover:text-ink'}`}
-          >
-            {t.label}
-          </a>
-        ))}
+      <div className="mb-6 print:hidden">
+        <div className="flex gap-6 border-b border-line" role="tablist" aria-label="Kind of report">
+          {GROUPS.map((g) => (
+            <a
+              key={g.label}
+              href={hrefFor(g.tabs[0]!.id)}
+              role="tab"
+              aria-selected={g === group}
+              className={`-mb-px border-b-2 pb-2.5 transition-colors duration-150 ${g === group ? 'border-brand font-medium text-brand' : 'border-transparent text-ink-muted hover:text-ink'}`}
+            >
+              {g.label}
+            </a>
+          ))}
+        </div>
+        <div className="mt-3 flex flex-wrap gap-1.5" role="tablist" aria-label={`${group.label} reports`}>
+          {group.tabs.map((t) => (
+            <a
+              key={t.id}
+              href={hrefFor(t.id)}
+              role="tab"
+              aria-selected={tab === t.id}
+              className={`rounded-full px-3 py-1 text-sm transition-colors duration-150 ${tab === t.id ? 'bg-brand-tint font-medium text-brand' : 'text-ink-muted hover:bg-ink/5 hover:text-ink'}`}
+            >
+              {t.label}
+            </a>
+          ))}
+        </div>
       </div>
       {children}
     </>

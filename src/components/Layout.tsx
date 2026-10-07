@@ -1,4 +1,4 @@
-import { BarChart3, Boxes, CalendarDays, ClipboardList, FileText, LayoutDashboard, LogOut, PanelLeftClose, PanelLeftOpen, Plus, Receipt, Search, Settings as SettingsIcon, Users, Wallet, type LucideIcon } from 'lucide-react';
+import { BarChart3, Boxes, CalendarDays, ClipboardList, FileText, LayoutDashboard, LogOut, PanelLeftClose, PanelLeftOpen, Receipt, Search, Settings as SettingsIcon, Users, Wallet, type LucideIcon } from 'lucide-react';
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { financialYear, todayIso } from '../../shared/gst';
 import { CHORD_MS, goTarget, isTypingContext } from '../../shared/shortcuts';
@@ -9,9 +9,8 @@ import { useQuery, useRefresh } from '../lib/data';
 import { navigate, paths, type Section } from '../lib/router';
 import { CommandPaletteProvider, useCommandPalette } from './CommandPalette';
 import { NotificationBell } from './NotificationBell';
-import { QuickCreateFab, QuickCreateProvider } from './QuickCreate';
+import { QuickCreateButton, QuickCreateProvider } from './QuickCreate';
 import { ShortcutsHelp } from './ShortcutsHelp';
-import { Button } from './ui';
 
 /** The mark. The ring around it breathes slowly: InvoiceOn is "always on", and it looks it. */
 export function Logo({ size = 28, live = false }: { size?: number; live?: boolean }) {
@@ -36,7 +35,7 @@ export function TopBar() {
       <a href="#/dashboard" className="flex items-center gap-2.5 rounded-lg">
         <Logo live />
         <span className="text-base tracking-tight">InvoiceOn</span>
-        <span className="hidden text-xs text-ink-muted sm:inline">simple, always on</span>
+        <span className="hidden text-xs text-ink-muted xl:inline">simple, always on</span>
       </a>
       <button
         type="button"
@@ -59,9 +58,7 @@ export function TopBar() {
             {session.current.name}
           </button>
         )}
-        <Button variant="primary" title="New invoice (Ctrl+N)" icon={<Plus className="h-4 w-4" />} onClick={() => navigate(paths.newInvoice())}>
-          New invoice
-        </Button>
+        <QuickCreateButton />
       </div>
     </div>
   );
@@ -207,7 +204,7 @@ export function Sidebar({ active }: { active: Section }) {
   );
 }
 
-export function AppShell({ active, children, pageKey, hideFab }: { active: Section; children: ReactNode; pageKey: string; hideFab?: boolean }) {
+export function AppShell({ active, children, pageKey }: { active: Section; children: ReactNode; pageKey: string }) {
   const main = useRef<HTMLElement>(null);
   const prefs = useApplyPreferences();
 
@@ -256,13 +253,12 @@ export function AppShell({ active, children, pageKey, hideFab }: { active: Secti
           <div className="flex min-h-0 flex-1 print:block">
             <Sidebar active={active} />
             <main ref={main} tabIndex={-1} className="min-w-0 flex-1 overflow-y-auto outline-none print:overflow-visible">
-              <div key={`${pageKey}:${prefs?.dateFormat ?? ''}`} className="animate-fade-up mx-auto max-w-6xl px-8 pb-28 pt-9">
+              <div key={`${pageKey}:${prefs?.dateFormat ?? ''}`} className="animate-fade-up mx-auto max-w-6xl px-8 pb-16 pt-9">
                 {children}
               </div>
             </main>
           </div>
         </div>
-        <QuickCreateFab hidden={hideFab} />
         {help && <ShortcutsHelp onClose={() => setHelp(false)} />}
       </CommandPaletteProvider>
     </QuickCreateProvider>

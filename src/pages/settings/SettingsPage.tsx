@@ -54,6 +54,16 @@ const SECTIONS: SectionInfo[] = [
   { id: 'plus', label: 'InvoiceOn Plus', icon: Sparkles, title: 'InvoiceOn Plus', subtitle: 'Sync, teams and access from anywhere: what is planned.', saves: false },
 ];
 
+/** The sixteen sections, under headings so the list can be scanned. */
+const GROUPS: { label: string; ids: SettingsSection[] }[] = [
+  { label: 'Business', ids: ['business', 'tax', 'accounts', 'instructions'] },
+  { label: 'Documents', ids: ['invoice', 'proforma', 'messages'] },
+  { label: 'Lists', ids: ['expenses', 'catalogue'] },
+  { label: 'App', ids: ['notifications', 'preferences'] },
+  { label: 'Data and access', ids: ['data', 'backup', 'people', 'activity'] },
+  { label: 'More', ids: ['plus'] },
+];
+
 function renderSection(id: SettingsSection, draft: Draft, set: SetDraft): ReactNode {
   switch (id) {
     case 'business':
@@ -150,38 +160,57 @@ export function SettingsPage({ section }: { section: SettingsSection }) {
 
       <div className="flex items-start gap-8">
         <nav aria-label="Settings" className="sticky top-0 w-52 shrink-0">
-          <ul className="space-y-0.5">
-            {SECTIONS.map((s) => {
-              const active = s.id === section;
-              return (
-                <li key={s.id}>
-                  <a
-                    href={`#${paths.settingsSection(s.id)}`}
-                    aria-current={active ? 'page' : undefined}
-                    className={`flex h-10 items-center gap-3 border-l-2 px-3 transition-colors duration-150 ${active ? 'border-brand bg-brand-tint font-medium text-brand' : 'border-transparent text-ink-muted hover:bg-ink/5 hover:text-ink'}`}
-                  >
-                    <s.icon className="h-[18px] w-[18px] shrink-0" aria-hidden />
-                    <span className="truncate">{s.label}</span>
-                  </a>
-                </li>
-              );
-            })}
-          </ul>
+          {GROUPS.map((g, gi) => (
+            <div key={g.label} className={gi === 0 ? '' : 'mt-4'}>
+              <div className="px-3 pb-1 text-[11px] uppercase tracking-wider text-ink-muted/80">{g.label}</div>
+              <ul className="space-y-0.5">
+                {g.ids.map((id) => {
+                  const s = SECTIONS.find((x) => x.id === id)!;
+                  const active = s.id === section;
+                  return (
+                    <li key={s.id}>
+                      <a
+                        href={`#${paths.settingsSection(s.id)}`}
+                        aria-current={active ? 'page' : undefined}
+                        className={`flex h-9 items-center gap-3 border-l-2 px-3 transition-colors duration-150 ${active ? 'border-brand bg-brand-tint font-medium text-brand' : 'border-transparent text-ink-muted hover:bg-ink/5 hover:text-ink'}`}
+                      >
+                        <s.icon className="h-[18px] w-[18px] shrink-0" aria-hidden />
+                        <span className="truncate">{s.label}</span>
+                      </a>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
         </nav>
 
-        <Card className="min-w-0 flex-1 p-6">
-          {/* Keyed so each section eases in when you switch. */}
-          <div key={info.id} className="animate-fade-in">
-            <h2 className="text-xl tracking-tight">{info.title}</h2>
-            <p className="mb-6 mt-1 text-ink-muted">{info.subtitle}</p>
-            {error && (
-              <div className="mb-5">
-                <ErrorNote>{error}</ErrorNote>
-              </div>
-            )}
+        <div className="min-w-0 flex-1">
+          <Card className="p-6">
+            {/* Keyed so each section eases in when you switch. */}
+            <div key={info.id} className="animate-fade-in">
+              <h2 className="text-xl tracking-tight">{info.title}</h2>
+              <p className="mb-6 mt-1 text-ink-muted">{info.subtitle}</p>
+              {error && (
+                <div className="mb-5">
+                  <ErrorNote>{error}</ErrorNote>
+                </div>
+              )}
             {renderSection(info.id, draft, set)}
           </div>
         </Card>
+        {dirty && (
+          <div className="animate-fade-up sticky bottom-4 z-20 mt-4 flex items-center justify-between gap-4 rounded-xl border border-line bg-surface px-5 py-3 shadow-overlay print:hidden" role="status">
+            <span className="text-ink-muted">You have unsaved changes.</span>
+            <span className="flex items-center gap-2">
+              <Button onClick={() => settings.data && setDraft(toDraft(settings.data))}>Discard</Button>
+              <Button variant="primary" loading={saving} onClick={save}>
+                Save changes
+              </Button>
+            </span>
+          </div>
+        )}
+        </div>
       </div>
     </>
   );
