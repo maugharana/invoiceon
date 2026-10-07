@@ -1,4 +1,4 @@
-import { MoreHorizontal, Minus, Plus } from 'lucide-react';
+import { Check, ChevronDown, MoreHorizontal, Minus, Plus } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { moneyToInput, parseMoney } from '../../../shared/money';
 import type { SaleVariant } from '../../../shared/types';
@@ -18,6 +18,18 @@ export const ITEM_NOTES = ['Matching blouse piece included', 'Fall and pico done
 export const BILL_NOTES = ['Thank you for shopping with us.', 'Exchange within 7 days with the tag intact.', 'Goods once sold will not be taken back.', 'Dry clean only.', 'Handloom: slight irregularities are the mark of the weave.'];
 /** Days from the invoice date, for the due-date list. */
 export const DUE_DAYS = [0, 7, 15, 30, 45, 60];
+
+/** The cover photo of a design, small; a tinted tile with its first letter when it has none yet. */
+export function DesignThumb({ src, name, size = 40 }: { src?: string; name: string; size?: number }) {
+  const box = { width: size, height: size };
+  return src ? (
+    <img src={src} alt="" style={box} className="shrink-0 rounded-lg border border-line object-cover" />
+  ) : (
+    <span aria-hidden style={{ ...box, fontSize: Math.max(10, Math.round(size * 0.4)) }} className="flex shrink-0 items-center justify-center rounded-lg bg-brand-tint text-brand">
+      {name.trim().charAt(0).toUpperCase()}
+    </span>
+  );
+}
 
 /** − 2 + : the quantity as a stepper you can also type into. The value stays text so a half-typed number is never rewritten. */
 export function QtyStepper({ value, onChange, label, invalid }: { value: string; onChange: (v: string) => void; label: string; invalid?: boolean }) {
@@ -225,7 +237,7 @@ export function Choice({ label, hint, children, className = '' }: { label: strin
  * Choosing a piece without typing: design, then colour, then size, then how many. Each list only holds what the one before leaves, and
  * a list with a single choice fills itself in. Pieces with nothing in stock are shown but cannot be picked (unless a quote allows it).
  */
-export function BrowseAdd({ variants, onAdd, allowOutOfStock = false }: { variants: SaleVariant[]; onAdd: (v: SaleVariant, qty: number) => void; allowOutOfStock?: boolean }) {
+export function BrowseAdd({ variants, onAdd, covers = {}, allowOutOfStock = false }: { variants: SaleVariant[]; onAdd: (v: SaleVariant, qty: number) => void; covers?: Record<string, string>; allowOutOfStock?: boolean }) {
   const [designId, setDesignId] = useState('');
   const [color, setColor] = useState('');
   const [size, setSize] = useState('');
@@ -271,16 +283,10 @@ export function BrowseAdd({ variants, onAdd, allowOutOfStock = false }: { varian
 
   return (
     <div className="grid grid-cols-[1.6fr_1fr_1fr_5.5rem_auto] items-end gap-3">
-      <Choice label="Design">
-        <Select value={designId} onChange={(e) => pickDesign(e.target.value)} aria-label="Design">
-          <option value="">Choose a design…</option>
-          {designs.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.name} · {d.stock > 0 ? `${d.stock} in stock` : 'out of stock'}
-            </option>
-          ))}
-        </Select>
-      </Choice>
+      <div>
+        <span className="mb-1.5 block text-xs font-medium text-ink-muted">Design</span>
+        <DesignSelect designs={designs} value={designId} onChange={pickDesign} covers={covers} />
+      </div>
       <Choice label="Colour">
         <Select value={color} onChange={(e) => pickColor(e.target.value)} disabled={!designId} aria-label="Colour">
           <option value="">{designId ? 'Choose…' : '—'}</option>
@@ -346,5 +352,98 @@ export function StepTitle({ n, title }: { n: number; title: string }) {
       </span>
       {title}
     </h2>
+  );
+}
+
+/**
+ * The design list with a photo beside each name. A plain drop-down can't show pictures, so this is a button that opens a list
+ * (arrow keys and Enter work, Escape closes). A design with no photo yet shows its first letter.
+ */
+export function DesignSelect({ designs, value, onChange, covers }: { designs: { id: string; name: string; stock: number }[]; value: string; onChange: (id: string) => void; covers: Record<string, string> }) {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const box = useRef<HTMLDivElement>(null);
+  const picked = designs.find((d) => d.id === value);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!box.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const choose = (id: string) => {
+    onChange(id);
+    setOpen(false);
+  };
+  return (
+    <div ref={box} className="relative">
+      <button
+        type="button"
+        aria-label="Design"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => {
+          setActive(Math.max(0, designs.findIndex((d) => d.id === value)));
+          setOpen((o) => !o);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (!open) {
+              setActive(Math.max(0, designs.findIndex((d) => d.id === value)));
+              setOpen(true);
+            } else setActive((a) => Math.min(designs.length - 1, Math.max(0, a + (e.key === 'ArrowDown' ? 1 : -1))));
+          } else if (e.key === 'Enter' && open) {
+            e.preventDefault();
+            const d = designs[active];
+            if (d) choose(d.id);
+          } else if (e.key === 'Escape' && open) {
+            e.stopPropagation();
+            setOpen(false);
+          }
+        }}
+        className="flex h-9 w-full items-center gap-2 rounded-lg border border-line bg-surface px-2 text-left text-sm transition-[border-color,box-shadow] duration-150 hover:border-ink/25 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/15"
+      >
+        {picked ? (
+          <>
+            <DesignThumb src={covers[picked.id]} name={picked.name} size={24} />
+            <span className="min-w-0 flex-1 truncate">{picked.name}</span>
+          </>
+        ) : (
+          <span className="flex-1 pl-1 text-ink-muted/60">Choose a design…</span>
+        )}
+        <ChevronDown className="h-4 w-4 shrink-0 text-ink-muted" aria-hidden />
+      </button>
+      {open && (
+        <ul role="listbox" aria-label="Designs" className="animate-pop-in absolute z-30 mt-1.5 max-h-80 w-[22rem] overflow-y-auto rounded-lg border border-line bg-surface py-1 shadow-overlay">
+          {designs.map((d, i) => (
+            <li key={d.id} role="option" aria-selected={d.id === value}>
+              <button
+                type="button"
+                onClick={() => choose(d.id)}
+                onMouseEnter={() => setActive(i)}
+                className={`flex w-full items-center gap-3 px-3 py-2 text-left ${i === active ? 'bg-brand-tint' : ''}`}
+              >
+                <DesignThumb src={covers[d.id]} name={d.name} size={40} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate">{d.name}</span>
+                  <span className={`num block text-xs ${d.stock > 0 ? 'text-ink-muted' : 'text-status-overdue-fg'}`}>{d.stock > 0 ? `${d.stock} in stock` : 'Out of stock'}</span>
+                </span>
+                {d.id === value && <Check className="h-4 w-4 shrink-0 text-brand" aria-hidden />}
+              </button>
+            </li>
+          ))}
+          {designs.length === 0 && <li className="px-3 py-2 text-ink-muted">No designs yet.</li>}
+        </ul>
+      )}
+    </div>
   );
 }

@@ -16,7 +16,7 @@ import { plural, toNumber } from '../../lib/format';
 import { navigate, paths, type AdvancePreset } from '../../lib/router';
 import { CustomerFormModal } from '../customers/CustomerFormModal';
 import { HeldListModal, HoldModal } from './HeldBills';
-import { BILL_NOTES, BrowseAdd, Choice, Chip, DUE_DAYS, DiscountSelect, ItemDetails, QtyStepper, StepTitle } from './invoiceParts';
+import { BILL_NOTES, BrowseAdd, Choice, Chip, DUE_DAYS, DesignThumb, DiscountSelect, ItemDetails, QtyStepper, StepTitle } from './invoiceParts';
 import { QuickAddItemModal } from './QuickAddItemModal';
 import { ShipToCard } from './ShipToCard';
 
@@ -145,7 +145,7 @@ function CustomerPicker({ customers, type, value, onChange, onCreate }: { custom
 }
 
 // ── Item picker ─────────────────────────────────────────────────────────────
-export function ItemPicker({ variants, taken, onPick, onCreate, allowOutOfStock = false, direction = 'up', large = false, autoFocus = false }: { variants: SaleVariant[]; taken: Set<string>; onPick: (v: SaleVariant, qty?: number) => void; onCreate: (name: string) => void; allowOutOfStock?: boolean; direction?: 'up' | 'down'; large?: boolean; autoFocus?: boolean }) {
+export function ItemPicker({ variants, taken, onPick, onCreate, allowOutOfStock = false, direction = 'up', large = false, autoFocus = false, covers = {} }: { variants: SaleVariant[]; taken: Set<string>; onPick: (v: SaleVariant, qty?: number) => void; onCreate: (name: string) => void; allowOutOfStock?: boolean; direction?: 'up' | 'down'; large?: boolean; autoFocus?: boolean; covers?: Record<string, string> }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -224,9 +224,10 @@ export function ItemPicker({ variants, taken, onPick, onCreate, allowOutOfStock 
                   disabled={out}
                   onClick={() => pick(v)}
                   onMouseEnter={() => setActive(i)}
-                  className={`flex w-full items-center justify-between gap-4 px-3 py-2 text-left ${i === active && !out ? 'bg-brand-tint' : ''} ${out ? 'cursor-not-allowed opacity-50' : ''}`}
+                  className={`flex w-full items-center gap-3 px-3 py-2 text-left ${i === active && !out ? 'bg-brand-tint' : ''} ${out ? 'cursor-not-allowed opacity-50' : ''}`}
                 >
-                  <span className="min-w-0">
+                  <DesignThumb src={covers[v.designId]} name={v.designName} size={40} />
+                  <span className="min-w-0 flex-1">
                     <span className="block truncate">
                       {v.designName} <span className="text-ink-muted">· {v.color} · {v.size}</span>
                     </span>
@@ -383,6 +384,8 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
 
   const customer = customers.data?.find((c) => c.id === customerId) ?? null;
   const accounts = settings.data?.paymentAccounts ?? [];
+  const coverQuery = useQuery(() => api.designCovers());
+  const covers = coverQuery.data ?? {};
   // Tap-to-choose helpers: the people billed most recently, and what the chosen customer has bought before.
   const recentInvoices = useQuery(() => (editId ? Promise.resolve([]) : api.invoicesList()), [editId]);
   const purchases = useQuery(() => (customerId ? api.customerPurchases(customerId) : Promise.resolve([])), [customerId]);
@@ -716,17 +719,17 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
         <Card className="overflow-visible">
           <div className="space-y-4 border-b border-line p-5">
             <StepTitle n={2} title="What are they buying?" />
-            <ItemPicker direction="down" large autoFocus variants={sellable} taken={new Set(lines.map((l) => l.variantId))} onPick={addVariant} onCreate={(name) => setAddingItem(name)} allowOutOfStock={quote} />
+            <ItemPicker direction="down" large autoFocus covers={covers} variants={sellable} taken={new Set(lines.map((l) => l.variantId))} onPick={addVariant} onCreate={(name) => setAddingItem(name)} allowOutOfStock={quote} />
             <div>
               <p className="mb-2 text-xs text-ink-muted">Or choose from your stock</p>
-              <BrowseAdd variants={sellable} onAdd={addVariant} allowOutOfStock={quote} />
+              <BrowseAdd variants={sellable} onAdd={addVariant} covers={covers} allowOutOfStock={quote} />
             </div>
             {boughtBefore.length > 0 && (
               <div className="flex flex-wrap items-center gap-2 text-xs">
                 <span className="text-ink-muted">{customer?.name.split(' ')[0]} bought before</span>
                 {boughtBefore.map((v) => (
                   <Chip key={v.variantId} onClick={() => addVariant(v)} title={`${v.designName} · ${v.color} · ${v.size} — ${v.stock} in stock`}>
-                    <Plus className="h-3 w-3" aria-hidden /> {v.designName} · {v.color}
+                    <DesignThumb src={covers[v.designId]} name={v.designName} size={20} /> {v.designName} · {v.color}
                   </Chip>
                 ))}
               </div>
@@ -768,12 +771,13 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
                 const tax = totals.lines[i]?.taxPaise ?? 0;
                 return (
                   <li key={r.line.variantId} className="animate-fade-in flex items-start gap-3 border-b border-line/70 px-5 py-3.5 last:border-0">
+                    <DesignThumb src={r.variant ? covers[r.variant.designId] : undefined} name={r.variant?.designName ?? '?'} size={48} />
                     <div className="min-w-0 flex-1">
                       <div className="truncate">{r.variant?.designName}</div>
                       <div className="truncate text-xs text-ink-muted">
                         {r.variant?.color} · {r.variant?.size} · {r.variant?.sku}
                       </div>
-                      <div className="num mt-0.5 truncate text-xs text-ink-muted">
+                      <div className="num mt-0.5 text-xs text-ink-muted">
                         {r.variant?.hsn ? `HSN ${r.variant.hsn} · ` : ''}GST {r.rate}%{tax > 0 ? ` (${formatMoney(tax)})` : ''} · {r.variant?.stock ?? 0} in stock
                       </div>
                       {r.short && <div className="mt-1 text-xs text-status-overdue-fg">Only {Math.max(0, (r.variant?.stock ?? 0) - (r.variant?.held ?? 0))} can be sold{(r.variant?.held ?? 0) > 0 ? ` (${r.variant?.held} held for quotes)` : ''}</div>}
