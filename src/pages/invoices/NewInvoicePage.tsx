@@ -5,6 +5,7 @@ import { checkCredit, dueDateFromTerms } from '../../../shared/credit';
 import { addDays, computeInvoice, formatDate, isIsoDate, isValidRate, resolveRate, todayIso } from '../../../shared/gst';
 import { formatMoney, mulPaise } from '../../../shared/money';
 import { billCost, discountForTarget, lowestSafe, roundFigures } from '../../../shared/meetPrice';
+import type { RepeatItem } from '../../../shared/repeatBill';
 import { matchesAll } from '../../../shared/search';
 import { parseInvoiceDraft, type InvoiceDraft } from '../../../shared/invoiceDraft';
 import { sameState } from '../../../shared/states';
@@ -18,6 +19,7 @@ import { navigate, paths, type AdvancePreset } from '../../lib/router';
 import { useSession } from '../../lib/session';
 import { CustomerFormModal } from '../customers/CustomerFormModal';
 import { HeldListModal, HoldModal } from './HeldBills';
+import { RepeatBill } from './RepeatBill';
 import { BILL_NOTES, BrowseAdd, Choice, Chip, DUE_DAYS, DesignThumb, DiscountSelect, ExtraPayRow, ItemDetails, QtyStepper, StepTitle, type ExtraPay } from './invoiceParts';
 import { QuickAddItemModal } from './QuickAddItemModal';
 import { ShipToCard } from './ShipToCard';
@@ -531,6 +533,19 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
   if (sellerGstinMissing) problems.push('Add your GSTIN in Settings first.');
   const canSubmit = problems.length === 0 && !saving;
 
+  /** Items from an earlier bill: a piece already on this one just gets the extra quantity. */
+  function addRepeat(items: RepeatItem[]) {
+    setLines((ls) => {
+      const next = [...ls];
+      for (const it of items) {
+        const i = next.findIndex((l) => l.variantId === it.variantId);
+        if (i >= 0) next[i] = { ...next[i]!, qty: String((toNumber(next[i]!.qty) || 0) + it.qty) };
+        else next.push({ ...newLine(it.variantId, String(it.qty), it.price), discount: it.discount, note: it.note });
+      }
+      return next;
+    });
+  }
+
   function addVariant(v: SaleVariant, qty = 1) {
     setLines((ls) => {
       const existing = ls.find((l) => l.variantId === v.variantId);
@@ -760,6 +775,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
         <Card className="overflow-visible">
           <div className="space-y-4 border-b border-line p-5">
             <StepTitle n={2} title="What are they buying?" />
+            {customer && !editId && <RepeatBill key={customer.id} customerId={customer.id} customerName={customer.name} variants={sellable} covers={covers} allowOutOfStock={quote} onAdd={addRepeat} />}
             <ItemPicker direction="down" large autoFocus covers={covers} variants={sellable} taken={new Set(lines.map((l) => l.variantId))} onPick={addVariant} onCreate={(name) => setAddingItem(name)} allowOutOfStock={quote} />
             <div>
               <p className="mb-2 text-xs text-ink-muted">Or choose from your stock</p>
