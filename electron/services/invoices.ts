@@ -13,6 +13,8 @@ import { heldByQuotes } from './reservations';
 import { getSettings } from './settings';
 
 const MAX_PAISE = 100_000_000_00;
+/** How many separate payments can settle one invoice as it is made. */
+const MAX_SPLIT_PAYMENTS = 6;
 
 interface InvoiceRow {
   id: string;
@@ -407,7 +409,11 @@ export function createInvoice(db: Db, input: InvoiceInput, opts: { exceptQuoteId
   if (input.dueDate !== null && isIsoDate(input.issueDate) && input.dueDate < input.issueDate) throw new UserError("The due date can't be before the invoice date.");
   const { type, customer, buyer, placeOfSupply, intraState, discount, notes } = checkDocument(db, settings, input);
 
-  const receivedNow = input.payment ? requireInt(input.payment.amountPaise, 'Payment', { max: MAX_PAISE }) : 0;
+  // Money handed over as the invoice is made: one payment, or several by different methods (part cash, part UPI).
+  const handed = input.payments ?? (input.payment ? [input.payment] : []);
+  if (!Array.isArray(handed) || handed.length > MAX_SPLIT_PAYMENTS) throw new UserError(`An invoice can be paid by up to ${MAX_SPLIT_PAYMENTS} payments at once.`);
+  const paymentsNow = handed.map((p) => ({ ...p, amountPaise: requireInt(p.amountPaise, 'Payment', { min: 1, max: MAX_PAISE }) }));
+  const receivedNow = paymentsNow.reduce((s, p) => s + p.amountPaise, 0);
   const advanceToApply = input.applyAdvancePaise ? requireInt(input.applyAdvancePaise, 'Advance to apply', { max: MAX_PAISE }) : 0;
   if (advanceToApply > 0 && !customer) throw new UserError("Advance can only be applied to a saved customer's invoice.");
 
@@ -470,17 +476,19 @@ export function createInvoice(db: Db, input: InvoiceInput, opts: { exceptQuoteId
       due -= applied;
     }
     if (receivedNow > 0) {
-      if (receivedNow > due) throw new UserError(`The payment (${formatMoney(receivedNow)}) is more than the ${formatMoney(due)} due on this invoice.`);
-      recordPaymentTx(db, {
-        customerId: customer?.id ?? null,
-        amountPaise: receivedNow,
-        method: input.payment!.method,
-        reference: input.payment!.reference ?? '',
-        accountId: input.payment!.accountId,
-        receivedOn: input.issueDate > todayIso() ? todayIso() : input.issueDate,
-        note: `With invoice ${number}`,
-        allocations: [{ invoiceId: id, amountPaise: receivedNow }],
-      });
+      if (receivedNow > due) throw new UserError(`${paymentsNow.length === 1 ? 'The payment' : 'The payments'} (${formatMoney(receivedNow)}) ${paymentsNow.length === 1 ? 'is' : 'are'} more than the ${formatMoney(due)} due on this invoice.`);
+      for (const p of paymentsNow) {
+        recordPaymentTx(db, {
+          customerId: customer?.id ?? null,
+          amountPaise: p.amountPaise,
+          method: p.method,
+          reference: p.reference ?? '',
+          accountId: p.accountId,
+          receivedOn: input.issueDate > todayIso() ? todayIso() : input.issueDate,
+          note: `With invoice ${number}`,
+          allocations: [{ invoiceId: id, amountPaise: p.amountPaise }],
+        });
+      }
     }
   });
   return getInvoice(db, id);

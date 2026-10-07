@@ -1,8 +1,9 @@
-import { Check, ChevronDown, MoreHorizontal, Minus, Plus } from 'lucide-react';
+import { Check, ChevronDown, MoreHorizontal, Minus, Plus, X } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { moneyToInput, parseMoney } from '../../../shared/money';
-import type { SaleVariant } from '../../../shared/types';
-import { Button, Input, Select } from '../../components/ui';
+import { suggestAccount } from '../../../shared/accountChoice';
+import { PAYMENT_METHODS, PAYMENT_METHOD_LABEL, type PaymentAccount, type PaymentMethod, type SaleVariant } from '../../../shared/types';
+import { Button, Input, MoneyInput, Select } from '../../components/ui';
 import { toNumber } from '../../lib/format';
 
 // Small parts of the invoice screen: how many, how much off, and the details of one item. Each keeps its own typing and reports
@@ -444,6 +445,55 @@ export function DesignSelect({ designs, value, onChange, covers }: { designs: { 
           {designs.length === 0 && <li className="px-3 py-2 text-ink-muted">No designs yet.</li>}
         </ul>
       )}
+    </div>
+  );
+}
+
+/** One more part of a payment made in parts: by its own method, into its own account. */
+export interface ExtraPay {
+  id: string;
+  method: PaymentMethod;
+  amountPaise: number;
+  reference: string;
+  accountId: string;
+}
+
+/** A row for one extra part of a split payment. Changing the method moves the account to the one that usually goes with it. */
+export function ExtraPayRow({ line, index, accounts, onChange, onRemove }: { line: ExtraPay; index: number; accounts: PaymentAccount[]; onChange: (patch: Partial<ExtraPay>) => void; onRemove: () => void }) {
+  return (
+    <div className="grid grid-cols-[10rem_9rem_1fr_1fr_2rem] items-end gap-3">
+      <Choice label={`Part ${index} paid by`}>
+        <Select value={line.method} onChange={(e) => onChange({ method: e.target.value as PaymentMethod, accountId: suggestAccount(e.target.value as PaymentMethod, accounts) })} aria-label={`Method of part ${index}`}>
+          {PAYMENT_METHODS.map((m) => (
+            <option key={m} value={m}>
+              {PAYMENT_METHOD_LABEL[m]}
+            </option>
+          ))}
+        </Select>
+      </Choice>
+      <Choice label="Received">
+        <MoneyInput value={line.amountPaise} onChange={(p) => onChange({ amountPaise: p })} aria-label={`Amount of part ${index}`} className="h-9" />
+      </Choice>
+      <Choice label="Into account">
+        <Select value={line.accountId} onChange={(e) => onChange({ accountId: e.target.value })} aria-label={`Account of part ${index}`}>
+          <option value="">Not recorded</option>
+          {accounts.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
+        </Select>
+      </Choice>
+      {line.method !== 'cash' ? (
+        <Choice label={line.method === 'cheque' ? 'Cheque number' : 'UTR / reference'}>
+          <Input value={line.reference} onChange={(e) => onChange({ reference: e.target.value })} aria-label={`Reference of part ${index}`} />
+        </Choice>
+      ) : (
+        <span />
+      )}
+      <button type="button" aria-label={`Remove part ${index}`} onClick={onRemove} className="flex h-9 w-8 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-ink/5 hover:text-ink">
+        <X className="h-4 w-4" />
+      </button>
     </div>
   );
 }

@@ -8,7 +8,7 @@ import { billCost, discountForTarget, lowestSafe, roundFigures } from '../../../
 import { matchesAll } from '../../../shared/search';
 import { parseInvoiceDraft, type InvoiceDraft } from '../../../shared/invoiceDraft';
 import { sameState } from '../../../shared/states';
-import { type Customer, type Invoice, type InvoiceType, type LineInput, type PaymentMethod, type Proforma, type QuoteTemplate, type SaleVariant, type ShipTo } from '../../../shared/types';
+import { PAYMENT_METHOD_LABEL, type Customer, type Invoice, type InvoiceType, type LineInput, type PaymentMethod, type Proforma, type QuoteTemplate, type SaleVariant, type ShipTo } from '../../../shared/types';
 import { useToast } from '../../components/Toast';
 import { Button, Card, ErrorNote, Input, Money, MoneyInput, PageHeader, Select, Textarea } from '../../components/ui';
 import { api, errorMessage } from '../../lib/api';
@@ -18,7 +18,7 @@ import { navigate, paths, type AdvancePreset } from '../../lib/router';
 import { useSession } from '../../lib/session';
 import { CustomerFormModal } from '../customers/CustomerFormModal';
 import { HeldListModal, HoldModal } from './HeldBills';
-import { BILL_NOTES, BrowseAdd, Choice, Chip, DUE_DAYS, DesignThumb, DiscountSelect, ItemDetails, QtyStepper, StepTitle } from './invoiceParts';
+import { BILL_NOTES, BrowseAdd, Choice, Chip, DUE_DAYS, DesignThumb, DiscountSelect, ExtraPayRow, ItemDetails, QtyStepper, StepTitle, type ExtraPay } from './invoiceParts';
 import { QuickAddItemModal } from './QuickAddItemModal';
 import { ShipToCard } from './ShipToCard';
 
@@ -302,6 +302,9 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
   /** How it is being paid: later, or by which method. "Full" keeps the amount at whatever the bill comes to as items change. */
   const [payMode, setPayMode] = useState<'later' | PaymentMethod>(advance?.amountPaise ? advance.method : 'later');
   const [payFull, setPayFull] = useState(false);
+  /** More parts of the payment, when it is made in parts (part cash, part UPI). The first part is the one above. */
+  const [extras, setExtras] = useState<ExtraPay[]>([]);
+  const extraId = useRef(0);
   const [payRef, setPayRef] = useState(advance?.reference ?? '');
   const [useAdvance, setUseAdvance] = useState(true);
   const [creating, setCreating] = useState<string | null>(null); // name typed into "New customer", or null when closed
@@ -342,6 +345,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
     setPayMethod(d.payMethod);
     setPayMode(d.receivedPaise > 0 ? d.payMethod : 'later');
     setPayFull(false);
+    setExtras([]);
   }
   function restoreDraft() {
     if (!draft || !variants.data) return;
@@ -508,13 +512,14 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
   const advanceHeld = quote ? 0 : (customer?.advancePaise ?? 0);
   const advanceApplied = useAdvance ? Math.min(advanceHeld, totals.totalPaise) : 0;
   const maxReceivable = totals.totalPaise - advanceApplied;
-  const balanceDue = maxReceivable - Math.min(received, maxReceivable);
+  const receivedAll = received + extras.reduce((sum, e) => sum + e.amountPaise, 0);
+  const balanceDue = maxReceivable - Math.min(receivedAll, maxReceivable);
   // A warning, not a block: the shop can still choose to bill a regular customer past their limit.
   const credit = !quote && customer ? checkCredit(customer.creditLimitPaise, customer.outstandingPaise, Math.max(0, balanceDue)) : null;
 
   const sellerGstinMissing = type === 'B2B' && !!settings.data && !settings.data.gstin;
   const problems: string[] = [];
-  if (!quote && lines.length > 0 && received > maxReceivable) problems.push(`The payment is ${formatMoney(received - maxReceivable)} more than this invoice needs. Lower it — record any extra separately as an advance.`);
+  if (!quote && lines.length > 0 && receivedAll > maxReceivable) problems.push(`The ${extras.length > 0 ? 'payments are' : 'payment is'} ${formatMoney(receivedAll - maxReceivable)} more than this invoice needs. Lower it — record any extra separately as an advance.`);
   if (lines.length === 0) problems.push('Add at least one item.');
   if (rows.some((r) => !r.validQty)) problems.push('Every item needs a quantity of 1 or more.');
   if (rows.some((r) => r.short)) problems.push('Some items are short of stock.');
@@ -539,18 +544,33 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
     if (quote) return;
     if (payMode === 'later') {
       if (received !== 0) setReceived(0);
-    } else if (payFull && received !== maxReceivable) setReceived(maxReceivable);
-  }, [quote, payMode, payFull, maxReceivable, received]);
+      if (extras.length > 0) setExtras([]);
+    } else if (payFull && extras.length === 0 && received !== maxReceivable) setReceived(maxReceivable);
+  }, [quote, payMode, payFull, maxReceivable, received, extras.length]);
   function chooseMode(mode: 'later' | PaymentMethod) {
     setPayMode(mode);
     if (mode === 'later') {
       setPayFull(false);
       setReceived(0);
+      setExtras([]);
     } else {
       setPayMethod(mode);
       setPayFull(true);
       setAccountId(suggestAccount(mode, accounts));
     }
+  }
+
+  /** Starts a second part: the first is cut to half if it was the whole bill, and the new part takes what is left, by another method. */
+  function addSplit() {
+    const first = extras.length === 0 && received >= maxReceivable ? Math.round(maxReceivable / 2) : received;
+    if (extras.length === 0) {
+      setPayFull(false);
+      setReceived(first);
+    }
+    const taken = first + extras.reduce((sum, e) => sum + e.amountPaise, 0);
+    const method: PaymentMethod = [payMethod === 'cash' ? 'upi' : 'cash', 'cash', 'upi', 'card', 'bank', 'cheque', 'other'].find((m) => m !== payMethod && !extras.some((e) => e.method === m)) as PaymentMethod;
+    extraId.current += 1;
+    setExtras((list) => [...list, { id: String(extraId.current), method, amountPaise: Math.max(0, maxReceivable - taken), reference: '', accountId: suggestAccount(method, accounts) }]);
   }
 
   // Ctrl+Enter issues the invoice from anywhere on the page, unless a dialog is open.
@@ -594,7 +614,10 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
         transport,
         trackingNo,
         lines: rows.map(lineInput),
-        payment: received > 0 ? { amountPaise: received, method: payMethod, reference: payRef, accountId: accountId || undefined } : undefined,
+        payments: [
+          ...(received > 0 ? [{ amountPaise: received, method: payMethod, reference: payRef, accountId: accountId || undefined }] : []),
+          ...extras.filter((e) => e.amountPaise > 0).map((e) => ({ amountPaise: e.amountPaise, method: e.method, reference: e.reference, accountId: e.accountId || undefined })),
+        ],
         applyAdvancePaise: advanceApplied > 0 ? advanceApplied : undefined,
       });
       clearDraft();
@@ -964,7 +987,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
                   Agree a price
                 </button>
               )}
-              {!quote && totals.totalPaise > 0 && (advanceApplied > 0 || received > 0) && (
+              {!quote && totals.totalPaise > 0 && (advanceApplied > 0 || receivedAll > 0) && (
                 <div className="num mt-1 text-xs text-ink-muted">
                   {balanceDue > 0 ? <>Balance due {formatMoney(balanceDue)}</> : 'Paid in full'}
                 </div>
@@ -1127,56 +1150,89 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
           </div>
 
           {!quote && payMode !== 'later' && (
-            <div className="mt-3 grid grid-cols-[10rem_9rem_1fr_1fr] items-end gap-3 border-t border-line pt-3">
-              <Choice label="How much was paid">
-                <Select
-                  value={amountChoice}
-                  aria-label="How much was paid"
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (v === 'full') {
-                      setPayFull(true);
-                      setReceived(maxReceivable);
-                    } else if (v === 'half' || v === 'quarter') {
+            <div className="mt-3 max-h-[40vh] space-y-3 overflow-y-auto border-t border-line pt-3">
+              <div className="grid grid-cols-[10rem_9rem_1fr_1fr_2rem] items-end gap-3">
+                {extras.length === 0 ? (
+                  <Choice label="How much was paid">
+                    <Select
+                      value={amountChoice}
+                      aria-label="How much was paid"
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (v === 'full') {
+                          setPayFull(true);
+                          setReceived(maxReceivable);
+                        } else if (v === 'half' || v === 'quarter') {
+                          setPayFull(false);
+                          setReceived(Math.round(maxReceivable / (v === 'half' ? 2 : 4)));
+                        }
+                      }}
+                    >
+                      <option value="full">All of it</option>
+                      <option value="half">Half</option>
+                      <option value="quarter">A quarter</option>
+                      <option value="custom">Another amount</option>
+                    </Select>
+                  </Choice>
+                ) : (
+                  <Choice label="Part 1 paid by">
+                    <div className="flex h-9 items-center text-sm">{PAYMENT_METHOD_LABEL[payMethod]}</div>
+                  </Choice>
+                )}
+                <Choice label="Received">
+                  <MoneyInput
+                    value={received}
+                    onChange={(p) => {
                       setPayFull(false);
-                      setReceived(Math.round(maxReceivable / (v === 'half' ? 2 : 4)));
-                    }
-                  }}
-                >
-                  <option value="full">All of it</option>
-                  <option value="half">Half</option>
-                  <option value="quarter">A quarter</option>
-                  <option value="custom">Another amount</option>
-                </Select>
-              </Choice>
-              <Choice label="Received">
-                <MoneyInput
-                  value={received}
-                  onChange={(p) => {
-                    setPayFull(false);
-                    setReceived(p);
-                  }}
-                  aria-label="Received now"
-                  className="h-9"
-                />
-              </Choice>
-              <Choice label="Into account">
-                <Select value={accountId} onChange={(e) => setAccountId(e.target.value)} aria-label="Into account">
-                  <option value="">Not recorded</option>
-                  {accounts.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}
-                    </option>
-                  ))}
-                </Select>
-              </Choice>
-              {payMode !== 'cash' ? (
-                <Choice label={payMode === 'cheque' ? 'Cheque number' : 'UTR / reference'}>
-                  <Input value={payRef} onChange={(e) => setPayRef(e.target.value)} aria-label="Payment reference" />
+                      setReceived(p);
+                    }}
+                    aria-label="Received now"
+                    className="h-9"
+                  />
                 </Choice>
-              ) : (
+                <Choice label="Into account">
+                  <Select value={accountId} onChange={(e) => setAccountId(e.target.value)} aria-label="Into account">
+                    <option value="">Not recorded</option>
+                    {accounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
+                      </option>
+                    ))}
+                  </Select>
+                </Choice>
+                {payMode !== 'cash' ? (
+                  <Choice label={payMode === 'cheque' ? 'Cheque number' : 'UTR / reference'}>
+                    <Input value={payRef} onChange={(e) => setPayRef(e.target.value)} aria-label="Payment reference" />
+                  </Choice>
+                ) : (
+                  <span />
+                )}
                 <span />
-              )}
+              </div>
+              {extras.map((e, i) => (
+                <ExtraPayRow
+                  key={e.id}
+                  line={e}
+                  index={i + 2}
+                  accounts={accounts}
+                  onChange={(patch) => setExtras((list) => list.map((x) => (x.id === e.id ? { ...x, ...patch } : x)))}
+                  onRemove={() => setExtras((list) => list.filter((x) => x.id !== e.id))}
+                />
+              ))}
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                <button type="button" onClick={addSplit} disabled={extras.length >= 3 || maxReceivable <= 0} className="text-brand transition-colors hover:text-brand-hover disabled:text-ink-muted disabled:opacity-50">
+                  + Split with another method
+                </button>
+                <span className="num text-ink-muted">
+                  Received {formatMoney(receivedAll)} of {formatMoney(maxReceivable)}
+                  {maxReceivable > receivedAll && ` · ${formatMoney(maxReceivable - receivedAll)} left to pay later`}
+                  {extras.length > 0 && maxReceivable > receivedAll && (
+                    <button type="button" onClick={() => setExtras((list) => list.map((x, i) => (i === list.length - 1 ? { ...x, amountPaise: x.amountPaise + (maxReceivable - receivedAll) } : x)))} className="ml-2 text-brand hover:text-brand-hover">
+                      Put it on part {extras.length + 1}
+                    </button>
+                  )}
+                </span>
+              </div>
             </div>
           )}
         </div>
@@ -1197,6 +1253,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
             setDiscount(0);
             setNotes('');
             setReceived(0);
+            setExtras([]);
             setShipTo(null);
             dueTouched.current = false;
           }}
