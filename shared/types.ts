@@ -1372,17 +1372,20 @@ export interface ProformaRevision {
   lines: { designName: string; color: string; size: string; sku: string; qty: number; unitPricePaise: Paise; amountPaise: Paise }[];
 }
 
-/** A saved set of items to start new quotes from. */
+/**
+ * A saved set of items to start a bill or a quote from: a bundle. Each item can carry a discount, which is how a bundle sells at a
+ * price of its own.
+ */
 export interface QuoteTemplate {
   id: string;
   name: string;
   notes: string;
-  lines: { variantId: string; qty: number; unitPricePaise: Paise }[];
+  lines: { variantId: string; qty: number; unitPricePaise: Paise; /** Taken off this item, in paise. Absent in bundles saved before items could carry one. */ discountPaise?: Paise }[];
 }
 export interface QuoteTemplateInput {
   name: string;
   notes: string;
-  lines: { variantId: string; qty: number; unitPricePaise: Paise }[];
+  lines: { variantId: string; qty: number; unitPricePaise: Paise; discountPaise?: Paise }[];
 }
 
 export interface ProformaInput {

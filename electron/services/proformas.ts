@@ -429,6 +429,7 @@ export function saveTemplate(db: Db, input: QuoteTemplateInput): QuoteTemplate {
   const seen = new Set<string>();
   for (const l of input.lines) {
     if (!Number.isInteger(l.qty) || l.qty < 1 || !Number.isInteger(l.unitPricePaise) || l.unitPricePaise < 0) throw new UserError('Each item needs a whole quantity and a price.');
+    if (l.discountPaise !== undefined && (!Number.isInteger(l.discountPaise) || l.discountPaise < 0 || l.discountPaise > l.qty * l.unitPricePaise)) throw new UserError("An item's discount can't be more than the item itself.");
     if (seen.has(l.variantId)) throw new UserError('The same item appears twice.');
     seen.add(l.variantId);
     if (!get(db, 'SELECT 1 AS x FROM variants WHERE id = ? AND deleted_at IS NULL', l.variantId)) throw new UserError('One of the items no longer exists.');
@@ -436,7 +437,7 @@ export function saveTemplate(db: Db, input: QuoteTemplateInput): QuoteTemplate {
   const now = nowIso();
   const existing = get<{ id: string }>(db, 'SELECT id FROM quote_templates WHERE name = ? COLLATE NOCASE AND deleted_at IS NULL', name);
   const id = existing?.id ?? newId();
-  const lines = JSON.stringify(input.lines.map((l) => ({ variantId: l.variantId, qty: l.qty, unitPricePaise: l.unitPricePaise })));
+  const lines = JSON.stringify(input.lines.map((l) => ({ variantId: l.variantId, qty: l.qty, unitPricePaise: l.unitPricePaise, ...(l.discountPaise ? { discountPaise: l.discountPaise } : {}) })));
   const notes = optionalText(input.notes, 'Notes', 300);
   // Saving under a name already in use replaces that template, which is what "update this template" means.
   if (existing) run(db, 'UPDATE quote_templates SET notes = ?, lines_json = ?, updated_at = ? WHERE id = ?', notes, lines, now, id);

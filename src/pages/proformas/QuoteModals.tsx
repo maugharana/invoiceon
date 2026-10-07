@@ -267,7 +267,7 @@ export function RevisionsModal({ proforma: p, onClose }: { proforma: Proforma; o
   );
 }
 
-/** Keeps the items of this quote as a template for starting similar quotes. */
+/** Keeps the items of this quote as a bundle, to add to later quotes and invoices. */
 export function SaveTemplateModal({ proforma: p, onClose }: { proforma: Proforma; onClose: () => void }) {
   const toast = useToast();
   const [name, setName] = useState('');
@@ -277,8 +277,8 @@ export function SaveTemplateModal({ proforma: p, onClose }: { proforma: Proforma
   async function submit() {
     setSaving(true);
     try {
-      await api.quoteTemplateSave({ name, notes: p.notes, lines: p.lines.map((l) => ({ variantId: l.variantId, qty: l.qty, unitPricePaise: l.unitPricePaise })) });
-      toast.success(`Template “${name.trim()}” saved`);
+      await api.quoteTemplateSave({ name, notes: p.notes, lines: p.lines.map((l) => ({ variantId: l.variantId, qty: l.qty, unitPricePaise: l.unitPricePaise, ...(l.discountPaise > 0 ? { discountPaise: l.discountPaise } : {}) })) });
+      toast.success(`Bundle “${name.trim()}” saved`);
       onClose();
     } catch (err) {
       setError(errorMessage(err));
@@ -288,21 +288,21 @@ export function SaveTemplateModal({ proforma: p, onClose }: { proforma: Proforma
 
   return (
     <Modal
-      title="Save as a template"
+      title="Save as a bundle"
       onClose={onClose}
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
           <Button variant="primary" loading={saving} disabled={!name.trim()} onClick={() => void submit()}>
-            Save template
+            Save bundle
           </Button>
         </>
       }
     >
       <div className="space-y-4">
-        <p className="text-ink-muted">The items, quantities and prices of {p.number} are kept, to start a new quote from. Saving under a name you already use replaces that template.</p>
-        <Field label="Template name">
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Wedding bundle" data-autofocus />
+        <p className="text-ink-muted">The items, quantities, prices and item discounts of {p.number} are kept as a bundle, to add to a new quote or invoice in one tap. Saving under a name you already use replaces that bundle.</p>
+        <Field label="Bundle name">
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Wedding set" data-autofocus />
         </Field>
         {error && <ErrorNote>{error}</ErrorNote>}
       </div>

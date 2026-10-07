@@ -9,7 +9,7 @@ import type { RepeatItem } from '../../../shared/repeatBill';
 import { matchesAll } from '../../../shared/search';
 import { parseInvoiceDraft, type InvoiceDraft } from '../../../shared/invoiceDraft';
 import { sameState } from '../../../shared/states';
-import { PAYMENT_METHOD_LABEL, type Customer, type Invoice, type InvoiceType, type LineInput, type PaymentMethod, type Proforma, type QuoteTemplate, type SaleVariant, type ShipTo } from '../../../shared/types';
+import { PAYMENT_METHOD_LABEL, type Customer, type Invoice, type InvoiceType, type LineInput, type PaymentMethod, type Proforma, type SaleVariant, type ShipTo } from '../../../shared/types';
 import { useToast } from '../../components/Toast';
 import { Button, Card, ErrorNote, Input, Money, MoneyInput, PageHeader, Select, Textarea } from '../../components/ui';
 import { api, errorMessage } from '../../lib/api';
@@ -19,6 +19,7 @@ import { navigate, paths, type AdvancePreset } from '../../lib/router';
 import { useSession } from '../../lib/session';
 import { CustomerFormModal } from '../customers/CustomerFormModal';
 import { HeldListModal, HoldModal } from './HeldBills';
+import { Bundles } from './Bundles';
 import { RepeatBill } from './RepeatBill';
 import { BILL_NOTES, BrowseAdd, Choice, Chip, DUE_DAYS, DesignThumb, DiscountSelect, ExtraPayRow, ItemDetails, QtyStepper, StepTitle, type ExtraPay } from './invoiceParts';
 import { QuickAddItemModal } from './QuickAddItemModal';
@@ -282,7 +283,6 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
   const [usePoints, setUsePoints] = useState(false);
   const [discount, setDiscount] = useState(0);
   const [notes, setNotes] = useState('');
-  const templates = useQuery(() => (quote ? api.quoteTemplatesList() : Promise.resolve([])), [quote]);
   const [shipTo, setShipTo] = useState<ShipTo | null>(null);
   const [transport, setTransport] = useState('');
   const [trackingNo, setTrackingNo] = useState('');
@@ -474,16 +474,6 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
     const byTerms = quote ? null : dueDateFromTerms(issueDate, customer?.paymentTermsDays);
     setDueDate(quote ? addDays(issueDate, settings.data.proformaValidDays) : (byTerms ?? (type === 'B2B' ? addDays(issueDate, settings.data.defaultDueDays) : issueDate)));
   }, [type, issueDate, settings.data, quote, customer?.paymentTermsDays]);
-
-  // A template brings its items at the prices it was saved with, and its note. Items that no longer exist are left out, and the person is told.
-  function applyTemplate(t: QuoteTemplate) {
-    const known = new Set((variants.data ?? []).map((v) => v.variantId));
-    const kept = t.lines.filter((l) => known.has(l.variantId));
-    setLines(kept.map((l) => newLine(l.variantId, String(l.qty), l.unitPricePaise)));
-    if (t.notes) setNotes(t.notes);
-    const dropped = t.lines.length - kept.length;
-    toast.info(dropped > 0 ? `“${t.name}” added. ${dropped} item${dropped === 1 ? ' is' : 's are'} no longer available and left out.` : `“${t.name}” added. Check the quantities, then create the proforma.`);
-  }
 
   function changeType(next: InvoiceType) {
     typeTouched.current = true;
@@ -817,29 +807,15 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
                 ))}
               </div>
             )}
+            <Bundles
+              variants={sellable}
+              quote={quote}
+              current={rows.filter((r) => r.validQty).map((r) => ({ variantId: r.line.variantId, qty: r.qty, unitPricePaise: r.line.price, discountPaise: r.discount }))}
+              onAdd={addRepeat}
+              onNote={(n) => setNotes((cur) => (cur.trim() ? cur : n))}
+            />
             {variants.data?.length === 0 && <p className="text-xs text-ink-muted">There's nothing to sell yet — add designs and stock under Inventory first.</p>}
           </div>
-
-          {quote && !editId && !copyFrom && lines.length === 0 && (templates.data?.length ?? 0) > 0 && (
-            <div className="flex flex-wrap items-center gap-3 border-b border-line p-4">
-              <span className="text-ink-muted">Start from a template:</span>
-              {templates.data?.map((t) => (
-                <span key={t.id} className="inline-flex items-center overflow-hidden rounded-lg border border-line">
-                  <button type="button" onClick={() => applyTemplate(t)} className="px-3 py-1.5 transition-colors hover:bg-brand-tint hover:text-brand">
-                    {t.name}
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={`Delete template ${t.name}`}
-                    onClick={() => void api.quoteTemplateDelete(t.id).then(() => refresh())}
-                    className="border-l border-line px-2 py-1.5 text-ink-muted transition-colors hover:bg-status-overdue-bg hover:text-status-overdue-fg"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
 
           {rows.length === 0 ? (
             <div className="px-6 py-8 text-center">
