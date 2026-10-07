@@ -3,6 +3,7 @@ import { openDb, type Db } from '../electron/db/connection';
 import * as customers from '../electron/services/customers';
 import * as inventory from '../electron/services/inventory';
 import * as invoices from '../electron/services/invoices';
+import * as payments from '../electron/services/payments';
 import { getSettings, saveSettings } from '../electron/services/settings';
 import { addDays, todayIso } from '../shared/gst';
 import type { CustomerInput, InvoiceInput } from '../shared/types';
@@ -23,6 +24,16 @@ const biz: CustomerInput = { name: 'Kanchan Sarees', type: 'B2B', phone: '', ema
 const customer = (over: Partial<CustomerInput> = {}) => customers.createCustomer(db, { ...biz, gstin: '09AAACH7409R1ZZ', ...over });
 const invoice = (over: Partial<InvoiceInput> = {}) =>
   invoices.createInvoice(db, { type: 'B2C', customerId: null, issueDate: today, dueDate: today, discountPaise: 0, notes: '', lines: [{ variantId, qty: 1, unitPricePaise: rupees(1000) }], ...over });
+
+describe('money handed over with the invoice', () => {
+  it('goes into the account chosen for it, and is refused if that account is not one of the shop accounts', () => {
+    saveSettings(db, { paymentAccounts: [{ id: 'acc-upi', name: 'Shop UPI', kind: 'upi', details: '' }] });
+    const inv = invoice({ payment: { amountPaise: rupees(1000), method: 'upi', reference: 'UTR1', accountId: 'acc-upi' } });
+    expect(inv.payments[0]).toMatchObject({ method: 'upi', reference: 'UTR1' });
+    expect(payments.getPayment(db, inv.payments[0]!.paymentId).accountId).toBe('acc-upi');
+    expect(() => invoice({ payment: { amountPaise: rupees(1000), method: 'upi', reference: '', accountId: 'nope' } })).toThrow(/account/);
+  });
+});
 
 describe('numbering series', () => {
   it('uses one run for everything until a B2B prefix is set', () => {

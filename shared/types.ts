@@ -873,7 +873,7 @@ export interface InvoiceInput {
   notes: string;
   lines: LineInput[];
   /** Money the customer hands over as the invoice is made — recorded in the same step as issuing it. */
-  payment?: { amountPaise: Paise; method: PaymentMethod; reference: string };
+  payment?: { amountPaise: Paise; method: PaymentMethod; reference: string; /** Which of the shop's accounts it went into (Settings > Payment accounts). */ accountId?: string };
   /** How much of the customer's held advance to put toward this invoice. */
   applyAdvancePaise?: Paise;
   /** Loyalty points being spent. Their value must be part of the discount. */

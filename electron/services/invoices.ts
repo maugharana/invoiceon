@@ -474,6 +474,7 @@ export function createInvoice(db: Db, input: InvoiceInput, opts: { exceptQuoteId
         amountPaise: receivedNow,
         method: input.payment!.method,
         reference: input.payment!.reference ?? '',
+        accountId: input.payment!.accountId,
         receivedOn: input.issueDate > todayIso() ? todayIso() : input.issueDate,
         note: `With invoice ${number}`,
         allocations: [{ invoiceId: id, amountPaise: receivedNow }],
