@@ -4,6 +4,7 @@ import { customersCsv } from '../../../shared/csv';
 import { CUSTOMER_FILTER_LABEL, filterCustomers, findDuplicateGroups, type CustomerFilter } from '../../../shared/customerList';
 import { todayIso } from '../../../shared/gst';
 import { hasTag, tagCounts } from '../../../shared/tags';
+import { Menu } from '../../components/Menu';
 import { Pager, SortableTh, sortBy, usePager, useSort } from '../../components/listTools';
 import { TagChips } from '../../components/TagInput';
 import { Button, Card, EmptyState, ErrorNote, Money, PageHeader, SearchInput, Segmented, Select, TableSkeleton, TypePill } from '../../components/ui';
@@ -59,15 +60,14 @@ export function CustomersPage() {
         subtitle="Everyone you sell to, with what you've billed them."
         actions={
           <>
-            {!none && (
-              <Button icon={<Download className="h-4 w-4" />} disabled={shown.length === 0} onClick={() => void saveCsv(`customers-${todayIso()}.csv`, customersCsv(shown), 'Customers saved')} title="Save the customers shown as a spreadsheet">
-                Export CSV
-              </Button>
-            )}
-            <Button icon={<Upload className="h-4 w-4" />} onClick={() => setImporting(true)} title="Add many customers from an Excel or CSV sheet">
-              Import
-            </Button>
-            <Button icon={<Plus className="h-4 w-4" />} onClick={() => setAdding(true)}>
+            <Menu
+              label="More"
+              items={[
+                { label: 'Import from a sheet', icon: <Upload className="h-4 w-4" />, onClick: () => setImporting(true) },
+                ...(none ? [] : [{ label: 'Export CSV', icon: <Download className="h-4 w-4" />, disabledReason: shown.length === 0 ? 'Nothing to export' : undefined, onClick: () => void saveCsv(`customers-${todayIso()}.csv`, customersCsv(shown), 'Customers saved') }]),
+              ]}
+            />
+            <Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => setAdding(true)}>
               Add customer
             </Button>
           </>

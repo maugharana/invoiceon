@@ -1,7 +1,24 @@
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { PERIOD_LABEL, resolvePeriod, type PeriodPreset } from '../../shared/periods';
 import { Input, Select } from './ui';
+
+// ── Filter bar ──────────────────────────────────────────────────────────────
+/**
+ * The same arrangement on every list: the search box with the other filters beside it on the first line, and the one that says
+ * "which kind" (All, Open, Overdue…) on its own line beneath, so the two never end up misaligned or wrapped differently per page.
+ */
+export function FilterBar({ search, filters, status }: { search: ReactNode; filters?: ReactNode; status?: ReactNode }) {
+  return (
+    <div className="mb-4 space-y-3">
+      <div className="flex flex-wrap items-center gap-3">
+        {search}
+        {filters}
+      </div>
+      {status && <div className="flex flex-wrap items-center gap-3">{status}</div>}
+    </div>
+  );
+}
 
 // ── Date range ──────────────────────────────────────────────────────────────
 export interface DateRangeValue {
