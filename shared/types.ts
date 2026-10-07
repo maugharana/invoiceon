@@ -573,6 +573,41 @@ export interface CustomerPurchase {
   variants: string[];
 }
 
+// ── Sales team ──────────────────────────────────────────────────────────────
+export interface Salesperson {
+  id: string;
+  name: string;
+  /** Share of what they sell (before GST) that is theirs, as a percentage. */
+  commissionPercent: number;
+  /** No longer on the list for new bills. What they sold stays on record. */
+  archived: boolean;
+  /** Invoices still standing that carry their name. */
+  invoiceCount: number;
+}
+export interface SalespersonInput {
+  name: string;
+  commissionPercent: number;
+}
+export interface SalespersonReportRow {
+  /** Null for sales with nobody recorded. */
+  salespersonId: string | null;
+  name: string;
+  /** Their rate now, null for "No one recorded". Each bill carries the rate it was made at. */
+  commissionPercent: number | null;
+  invoices: number;
+  /** What they sold in the period, before GST. */
+  salesPaise: Paise;
+  /** Goods taken back in the period on what they sold, before GST. */
+  returnsPaise: Paise;
+  netPaise: Paise;
+  commissionPaise: Paise;
+}
+export interface SalespeopleReport {
+  range: { from: string; to: string };
+  rows: SalespersonReportRow[];
+  totals: { invoices: number; salesPaise: Paise; returnsPaise: Paise; netPaise: Paise; commissionPaise: Paise };
+}
+
 // ── Payments ────────────────────────────────────────────────────────────────
 export const PAYMENT_METHODS = ['cash', 'upi', 'bank', 'cheque', 'card', 'other'] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
@@ -816,7 +851,17 @@ export interface InvoiceSummary {
   status: InvoiceStatus;
 }
 
+/** The person credited with an invoice, and the commission rate their sale carries. */
+export interface InvoiceSoldBy {
+  /** Null when the invoice was recorded under a name only (the person has since been removed) or under nobody. */
+  id: string | null;
+  name: string;
+  commissionPercent: number;
+}
+
 export interface Invoice extends InvoiceSummary {
+  /** Who made the sale, if anyone was recorded. Not part of the tax document: it can be corrected after the invoice is issued. */
+  soldBy: InvoiceSoldBy | null;
   /**
    * The seller's details as they were when the invoice was issued. Content that matters legally or to the customer (address,
    * GSTIN, terms, where to pay) is frozen here; how it's dressed is `branding`, below.
@@ -876,6 +921,8 @@ export interface InvoiceInput {
   payment?: { amountPaise: Paise; method: PaymentMethod; reference: string; /** Which of the shop's accounts it went into (Settings > Payment accounts). */ accountId?: string };
   /** The same, when several payments by different methods settle it together (part cash, part UPI). Used instead of `payment`. */
   payments?: { amountPaise: Paise; method: PaymentMethod; reference: string; accountId?: string }[];
+  /** Who made the sale. Optional: not every shop records it. */
+  salespersonId?: string | null;
   /** How much of the customer's held advance to put toward this invoice. */
   applyAdvancePaise?: Paise;
   /** Loyalty points being spent. Their value must be part of the discount. */

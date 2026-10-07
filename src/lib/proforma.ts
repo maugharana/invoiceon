@@ -22,6 +22,7 @@ export function proformaAsInvoice(p: Proforma): Invoice {
     trackingNo: '',
     deliveredOn: null,
     series: '',
+    soldBy: null,
     seller: p.seller,
     branding: p.branding,
     buyer: p.buyer,

@@ -1,6 +1,6 @@
 import { ChevronRight, Table2 } from 'lucide-react';
 import { Fragment, useState, type ReactNode } from 'react';
-import { accountBookCsv, dayBookCsv, marginCsv, movementCsv, moversCsv, profitLossCsv, purchasesCsv, quotesCsv, receivablesCsv } from '../../../shared/csv';
+import { accountBookCsv, dayBookCsv, marginCsv, movementCsv, moversCsv, profitLossCsv, purchasesCsv, quotesCsv, receivablesCsv, salespeopleCsv } from '../../../shared/csv';
 import { formatDate } from '../../../shared/gst';
 import { formatMoney } from '../../../shared/money';
 import { resolvePeriod, type PeriodSpec } from '../../../shared/periods';
@@ -547,6 +547,94 @@ export function DayBookTab({ period }: { period: PeriodSpec }) {
             </tbody>
           </table>
         </Card>
+      )}
+    </>
+  );
+}
+
+// ── Sold by ─────────────────────────────────────────────────────────────────
+export function SalespeopleTab({ period }: { period: PeriodSpec }) {
+  const exportCsv = useReportExport();
+  const range = resolvePeriod(period);
+  const q = useQuery(() => api.reportSalespeople(range), [range.from, range.to]);
+  const r = q.data;
+  if (q.error && !r) return <ErrorNote>{q.error}</ErrorNote>;
+  if (!r) return <Spinner />;
+  const top = r.rows.find((x) => x.salespersonId !== null && x.netPaise > 0);
+  const nothing = r.totals.invoices === 0 && r.totals.returnsPaise === 0;
+
+  return (
+    <>
+      <Toolbar>
+        <p className="text-xs text-ink-muted">What each person sold in this period, before GST, less goods taken back. Commission is worked out at the rate each bill was made at. Add people under Settings → Sales team.</p>
+        <div className="flex gap-2">
+          <ExportButton onClick={() => void exportCsv(`sold-by-${range.from}_${range.to}.csv`, salespeopleCsv(r))} />
+        </div>
+      </Toolbar>
+      {nothing && r.rows.length <= 1 ? (
+        <Empty title="Nothing sold in this period" body="Choose who made each sale on the New invoice screen, and it shows up here." />
+      ) : (
+        <>
+          <div className="mb-8 grid grid-cols-4 gap-6">
+            <Figure label="Net sales" sub={`${plural(r.totals.invoices, 'invoice')} · before GST`}>
+              <Money paise={r.totals.netPaise} fractionDigits={0} />
+            </Figure>
+            <Figure label="Commission to pay" sub="At each bill's own rate" highlight>
+              <Money paise={r.totals.commissionPaise} fractionDigits={0} />
+            </Figure>
+            <Figure label="Goods taken back" sub="In this period, on what was sold">
+              <Money paise={r.totals.returnsPaise} fractionDigits={0} />
+            </Figure>
+            <Figure label="Top seller" sub={top ? `${plural(top.invoices, 'invoice')}` : 'Nobody recorded yet'}>
+              {top ? top.name : '—'}
+            </Figure>
+          </div>
+          <Card className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-line">
+                  <th className="th">Salesperson</th>
+                  <th className="th text-right">Rate</th>
+                  <th className="th text-right">Invoices</th>
+                  <th className="th text-right">Sold</th>
+                  <th className="th text-right">Taken back</th>
+                  <th className="th text-right">Net</th>
+                  <th className="th text-right">Commission</th>
+                </tr>
+              </thead>
+              <tbody>
+                {r.rows.map((x) => (
+                  <tr key={x.salespersonId ?? 'none'} className={`border-b border-line/70 last:border-0 ${x.salespersonId === null ? 'text-ink-muted' : ''}`}>
+                    <td className="td">{x.name}</td>
+                    <td className="td num text-right">{x.commissionPercent === null ? dash : `${x.commissionPercent}%`}</td>
+                    <td className="td num text-right">{x.invoices || dash}</td>
+                    <td className="td text-right">{x.salesPaise ? <Money paise={x.salesPaise} /> : dash}</td>
+                    <td className="td text-right">{x.returnsPaise ? <Money paise={x.returnsPaise} /> : dash}</td>
+                    <td className="td text-right">{x.netPaise ? <Money paise={x.netPaise} /> : dash}</td>
+                    <td className="td text-right">{x.commissionPaise ? <Money paise={x.commissionPaise} /> : dash}</td>
+                  </tr>
+                ))}
+                <tr className="bg-canvas">
+                  <td className="td">Total</td>
+                  <td className="td" />
+                  <td className="td num text-right">{r.totals.invoices}</td>
+                  <td className="td text-right">
+                    <Money paise={r.totals.salesPaise} />
+                  </td>
+                  <td className="td text-right">
+                    <Money paise={r.totals.returnsPaise} />
+                  </td>
+                  <td className="td text-right">
+                    <Money paise={r.totals.netPaise} />
+                  </td>
+                  <td className="td text-right">
+                    <Money paise={r.totals.commissionPaise} />
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </Card>
+        </>
       )}
     </>
   );

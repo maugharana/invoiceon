@@ -1,4 +1,4 @@
-import { Bell, Building2, Tags, CloudUpload, History, MessageSquare, ClipboardList, CreditCard, Database, FileText, Percent, Settings2, Sparkles, Tag, UserCog, Wallet, type LucideIcon } from 'lucide-react';
+import { Bell, Building2, Users, Tags, CloudUpload, History, MessageSquare, ClipboardList, CreditCard, Database, FileText, Percent, Settings2, Sparkles, Tag, UserCog, Wallet, type LucideIcon } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useToast } from '../../components/Toast';
 import { Button, Card, ErrorNote, PageHeader, Spinner } from '../../components/ui';
@@ -8,6 +8,7 @@ import { useSession } from '../../lib/session';
 import type { SettingsSection } from '../../lib/router';
 import { paths } from '../../lib/router';
 import { PeopleSection } from './PeopleSection';
+import { SalesTeamSection } from './SalesTeamSection';
 import { ActivitySection } from './ActivitySection';
 import { BackupSection } from './BackupSection';
 import { BusinessProfileSection } from './BusinessProfileSection';
@@ -49,6 +50,7 @@ const SECTIONS: SectionInfo[] = [
   { id: 'backup', label: 'Backup & Restore', icon: CloudUpload, title: 'Backup & Restore', subtitle: 'Copies of your book on this computer, on a second disk and in Google Drive.', saves: false },
   { id: 'catalogue', label: 'Saree Choices', icon: Tags, title: 'Saree Choices', subtitle: 'The lists you pick from when adding a saree: fix a typo, merge two spellings, remove what you do not use.', saves: false },
   { id: 'people', label: 'People', icon: UserCog, title: 'People', subtitle: 'Who can use the book, and what each person may do.', saves: false },
+  { id: 'team', label: 'Sales team', icon: Users, title: 'Sales team', subtitle: 'The people who make sales, and what each earns on them.', saves: false },
   { id: 'preferences', label: 'Preferences', icon: Settings2, title: 'Preferences', subtitle: 'Defaults used across the app.', saves: true },
   { id: 'activity', label: 'Activity', icon: History, title: 'Activity', subtitle: 'A record of what was done in InvoiceOn and when.', saves: false },
   { id: 'plus', label: 'InvoiceOn Plus', icon: Sparkles, title: 'InvoiceOn Plus', subtitle: 'Sync, teams and access from anywhere: what is planned.', saves: false },
@@ -56,7 +58,7 @@ const SECTIONS: SectionInfo[] = [
 
 /** The sixteen sections, under headings so the list can be scanned. */
 const GROUPS: { label: string; ids: SettingsSection[] }[] = [
-  { label: 'Business', ids: ['business', 'tax', 'accounts', 'instructions'] },
+  { label: 'Business', ids: ['business', 'tax', 'accounts', 'instructions', 'team'] },
   { label: 'Documents', ids: ['invoice', 'proforma', 'messages'] },
   { label: 'Lists', ids: ['expenses', 'catalogue'] },
   { label: 'App', ids: ['notifications', 'preferences'] },
@@ -92,6 +94,8 @@ function renderSection(id: SettingsSection, draft: Draft, set: SetDraft): ReactN
       return <CatalogueSection />;
     case 'people':
       return <PeopleSection />;
+    case 'team':
+      return <SalesTeamSection />;
     case 'preferences':
       return <PreferencesSection draft={draft} set={set} />;
     case 'activity':

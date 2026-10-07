@@ -6,7 +6,7 @@ import { formatMoney } from '../../../shared/money';
 import { PERIOD_LABEL, PERIOD_PRESETS, resolvePeriod, type PeriodPreset, type PeriodSpec } from '../../../shared/periods';
 import { PAYMENT_METHOD_LABEL } from '../../../shared/types';
 import { SalesChart, bucketLabel } from '../../components/SalesChart';
-import { AccountBookTab, DayBookTab, MarginTab, MoversTab, MovementTab, ProfitTab, PurchasesTab, QuotesTab, ReceivablesTab } from './MoreReports';
+import { AccountBookTab, DayBookTab, MarginTab, MoversTab, MovementTab, ProfitTab, PurchasesTab, QuotesTab, ReceivablesTab, SalespeopleTab } from './MoreReports';
 import { ExportButton, PrintButton, Section, useReportExport } from './parts';
 import { Button, Card, EmptyState, ErrorNote, Field, Figure, Input, Money, PageHeader, Segmented, Spinner, TypePill } from '../../components/ui';
 import { api } from '../../lib/api';
@@ -17,7 +17,7 @@ import { navigate, paths, type ReportTab } from '../../lib/router';
 // ── Shell: title, tabs, period ──────────────────────────────────────────────
 // Twelve reports are too many for one row, so they sit under four headings: what you sold, where the money is, what's on the shelf, tax.
 const GROUPS: { label: string; tabs: { id: ReportTab; label: string }[] }[] = [
-  { label: 'Sales', tabs: [{ id: 'sales', label: 'Sales' }, { id: 'margin', label: 'Margins' }, { id: 'quotes', label: 'Quotes' }] },
+  { label: 'Sales', tabs: [{ id: 'sales', label: 'Sales' }, { id: 'salespeople', label: 'Sold by' }, { id: 'margin', label: 'Margins' }, { id: 'quotes', label: 'Quotes' }] },
   { label: 'Money', tabs: [{ id: 'profit', label: 'Profit & loss' }, { id: 'receivables', label: 'Receivables' }, { id: 'daybook', label: 'Day & cash book' }, { id: 'accountbook', label: 'Account book' }] },
   { label: 'Stock', tabs: [{ id: 'stock', label: 'Stock valuation' }, { id: 'movement', label: 'Stock movement' }, { id: 'movers', label: 'Fast & slow' }] },
   { label: 'Tax', tabs: [{ id: 'gst', label: 'GST' }, { id: 'purchases', label: 'Purchases & input GST' }] },
@@ -643,6 +643,7 @@ export function ReportsPage({ tab, period, asOf }: { tab: ReportTab; period: Per
       {tab === 'movers' && <MoversTab />}
       {tab === 'receivables' && <ReceivablesTab />}
       {tab === 'quotes' && <QuotesTab period={period} />}
+      {tab === 'salespeople' && <SalespeopleTab period={period} />}
       {tab === 'purchases' && <PurchasesTab period={period} />}
       {tab === 'accountbook' && <AccountBookTab period={period} />}
     </ReportsShell>

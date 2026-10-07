@@ -33,6 +33,7 @@ import * as photos from './services/photos';
 import * as proformas from './services/proformas';
 import * as purchases from './services/purchases';
 import * as receivables from './services/receivables';
+import * as salespeople from './services/salespeople';
 import * as reports from './services/reports';
 import { loadSampleData } from './services/seed';
 import * as settings from './services/settings';
@@ -267,6 +268,13 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
     invoiceGet: async (id) => invoices.getInvoice(db, id),
     invoiceNextNumber: async (date, type) => invoices.nextInvoiceNumber(db, date, type),
     invoiceSetDelivery: async (id, update) => invoices.setDelivery(db, id, update),
+    invoiceSetSoldBy: async (id, salespersonId) => invoices.setSoldBy(db, id, salespersonId ?? null),
+    salespeopleList: async () => salespeople.listSalespeople(db),
+    salespersonCreate: async (input) => salespeople.createSalesperson(db, input),
+    salespersonUpdate: async (id, input) => salespeople.updateSalesperson(db, id, input),
+    salespersonArchive: async (id) => salespeople.archiveSalesperson(db, id),
+    salespersonRestore: async (id) => salespeople.restoreSalesperson(db, id),
+    reportSalespeople: async (range) => salespeople.salespeopleReport(db, range),
     invoiceCreate: async (input) => invoices.createInvoice(db, input),
     invoiceCancel: async (id, reason) => invoices.cancelInvoice(db, id, reason),
     paymentGet: async (id) => payments.getPayment(db, id),

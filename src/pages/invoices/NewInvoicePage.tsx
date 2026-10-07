@@ -41,6 +41,7 @@ const newLine = (variantId: string, qty: string, price: number): Line => ({ vari
 
 // An invoice that was being built is kept as you go, so a crash or a closed window doesn't lose it.
 const DRAFT_KEY = 'invoiceon.draft.invoice';
+const SOLD_BY_KEY = 'invoiceon.soldBy';
 function loadDraft(): InvoiceDraft | null {
   try {
     return parseInvoiceDraft(JSON.parse(localStorage.getItem(DRAFT_KEY) ?? 'null'));
@@ -290,6 +291,18 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
   const [addingItem, setAddingItem] = useState<string | null>(null);
   /** Items added to the inventory from this screen, kept here until the list of items has loaded them. */
   const [justAdded, setJustAdded] = useState<SaleVariant[]>([]);
+  /** Who is making this sale, when the shop keeps a sales team. The last person chosen on this computer is remembered. */
+  const [soldBy, setSoldByState] = useState('');
+  const soldByTouched = useRef(false);
+  const setSoldBy = (id: string) => {
+    soldByTouched.current = true;
+    setSoldByState(id);
+    try {
+      localStorage.setItem(SOLD_BY_KEY, id);
+    } catch {
+      /* remembering is a nicety */
+    }
+  };
   const [pickIssue, setPickIssue] = useState(false);
   const [pickDue, setPickDue] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
@@ -398,6 +411,18 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
 
   const customer = customers.data?.find((c) => c.id === customerId) ?? null;
   const accounts = settings.data?.paymentAccounts ?? [];
+  const teamQuery = useQuery(() => api.salespeopleList());
+  const team = (teamQuery.data ?? []).filter((p) => !p.archived);
+  // Start from whoever sold last on this computer, if they are still on the team.
+  useEffect(() => {
+    if (soldByTouched.current || soldBy || team.length === 0) return;
+    try {
+      const last = localStorage.getItem(SOLD_BY_KEY) ?? '';
+      if (team.some((p) => p.id === last)) setSoldByState(last);
+    } catch {
+      /* no memory to read */
+    }
+  }, [team, soldBy]);
   const coverQuery = useQuery(() => api.designCovers());
   const covers = coverQuery.data ?? {};
   // Tap-to-choose helpers: the people billed most recently, and what the chosen customer has bought before.
@@ -629,6 +654,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
         transport,
         trackingNo,
         lines: rows.map(lineInput),
+        salespersonId: soldBy && team.some((p) => p.id === soldBy) ? soldBy : null,
         payments: [
           ...(received > 0 ? [{ amountPaise: received, method: payMethod, reference: payRef, accountId: accountId || undefined }] : []),
           ...extras.filter((e) => e.amountPaise > 0).map((e) => ({ amountPaise: e.amountPaise, method: e.method, reference: e.reference, accountId: e.accountId || undefined })),
@@ -935,6 +961,18 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
               )}
             </Choice>
           </div>
+          {!quote && team.length > 0 && (
+            <Choice label="Sold by" hint="Credited on the invoice. Reports show what each person sold.">
+              <Select value={soldBy} onChange={(e) => setSoldBy(e.target.value)} aria-label="Sold by">
+                <option value="">No one in particular</option>
+                {team.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </Select>
+            </Choice>
+          )}
           {quote && (
             <label className="flex cursor-pointer items-start gap-3">
               <input type="checkbox" checked={reserve} onChange={(e) => setReserve(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#0F6E56]" />

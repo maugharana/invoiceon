@@ -10,6 +10,7 @@ import { getVariant, loadVariants, recordMovement } from './inventory';
 import { advanceHeld, applyAdvance, loadPaid, paidFor, paymentsOnInvoice, recordPaymentTx, releaseInvoicePayments } from './payments';
 import { fulfilWishes, onInvoiceCancelled, onInvoiceIssued } from './loyalty';
 import { heldByQuotes } from './reservations';
+import { resolveSalesperson } from './salespeople';
 import { getSettings } from './settings';
 
 const MAX_PAISE = 100_000_000_00;
@@ -50,6 +51,9 @@ interface InvoiceRow {
   tracking_no: string;
   delivery_status: DeliveryStatus;
   delivered_on: string | null;
+  salesperson_id: string | null;
+  salesperson_name: string;
+  commission_percent: number;
   created_at: string;
 }
 
@@ -181,6 +185,7 @@ function toInvoice(db: Db, r: InvoiceRow): Invoice {
     trackingNo: r.tracking_no,
     deliveredOn: r.delivered_on,
     series: r.series,
+    soldBy: r.salesperson_name || r.salesperson_id ? { id: r.salesperson_id, name: r.salesperson_name, commissionPercent: r.commission_percent } : null,
     cancelledAt: r.cancelled_at,
     cancelReason: r.cancel_reason,
     createdAt: r.created_at,
@@ -327,6 +332,18 @@ export function setDelivery(db: Db, id: string, update: DeliveryUpdate): Invoice
   return getInvoice(db, id);
 }
 
+/**
+ * Credits an issued invoice to someone else, or to no one. Who made the sale is not part of the tax document, so it can be put
+ * right afterwards; the rate on the invoice becomes that person's rate now.
+ */
+export function setSoldBy(db: Db, id: string, salespersonId: string | null): Invoice {
+  const invoice = getInvoice(db, id);
+  if (invoice.status === 'cancelled') throw new UserError('This invoice is cancelled.');
+  const who = salespersonId ? resolveSalesperson(db, salespersonId) : null;
+  run(db, 'UPDATE invoices SET salesperson_id = ?, salesperson_name = ?, commission_percent = ?, updated_at = ? WHERE id = ?', who?.id ?? null, who?.name ?? '', who?.commissionPercent ?? 0, nowIso(), id);
+  return getInvoice(db, id);
+}
+
 // ── Issue ───────────────────────────────────────────────────────────────────
 type DocumentInput = Pick<InvoiceInput, 'type' | 'customerId' | 'buyerName' | 'issueDate' | 'discountPaise' | 'notes' | 'lines'>;
 
@@ -423,6 +440,7 @@ export function createInvoice(db: Db, input: InvoiceInput, opts: { exceptQuoteId
   const trackingNo = optionalText(input.trackingNo, 'Tracking number', 60);
   const deliveryStatus: DeliveryStatus = input.deliveryStatus && input.deliveryStatus in DELIVERY_STATUS_LABEL ? input.deliveryStatus : shipTo || transport ? 'pending' : 'none';
   const { series, prefix } = seriesOf(settings, type);
+  const soldBy = input.salespersonId ? resolveSalesperson(db, input.salespersonId) : null;
 
   const id = newId();
   tx(db, () => {
@@ -437,10 +455,10 @@ export function createInvoice(db: Db, input: InvoiceInput, opts: { exceptQuoteId
       run(
         db,
         `INSERT INTO invoices (id, number, fy, seq, series, type, customer_id, seller_json, buyer_json, place_of_supply, issue_date, due_date, gst_rate_percent, prices_include_gst, intra_state,
-           subtotal_paise, line_discount_paise, discount_paise, taxable_paise, cgst_paise, sgst_paise, igst_paise, round_off_paise, total_paise, notes, ship_to_json, transport, tracking_no, delivery_status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           subtotal_paise, line_discount_paise, discount_paise, taxable_paise, cgst_paise, sgst_paise, igst_paise, round_off_paise, total_paise, notes, ship_to_json, transport, tracking_no, delivery_status, salesperson_id, salesperson_name, commission_percent, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id, number, fy, seq, series, type, customer?.id ?? null, JSON.stringify(seller), JSON.stringify(buyer), placeOfSupply, input.issueDate, input.dueDate, settings.gstRatePercent, settings.pricesIncludeGst ? 1 : 0, intraState ? 1 : 0,
-        totals.subtotalPaise, totals.lineDiscountPaise, totals.discountPaise, totals.taxablePaise, totals.cgstPaise, totals.sgstPaise, totals.igstPaise, totals.roundOffPaise, totals.totalPaise, notes, shipTo ? JSON.stringify(shipTo) : '', transport, trackingNo, deliveryStatus, now, now,
+        totals.subtotalPaise, totals.lineDiscountPaise, totals.discountPaise, totals.taxablePaise, totals.cgstPaise, totals.sgstPaise, totals.igstPaise, totals.roundOffPaise, totals.totalPaise, notes, shipTo ? JSON.stringify(shipTo) : '', transport, trackingNo, deliveryStatus, soldBy?.id ?? null, soldBy?.name ?? '', soldBy?.commissionPercent ?? 0, now, now,
       );
     } catch (err) {
       if (isUniqueViolation(err)) throw new UserError('Another invoice took that number a moment ago. Please try again.');

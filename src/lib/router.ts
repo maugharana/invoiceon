@@ -6,7 +6,7 @@ import { LABEL_LAYOUTS, PAYMENT_METHODS, type LabelLayout, type PaymentMethod, t
 
 export type Section = 'dashboard' | 'inventory' | 'invoices' | 'proformas' | 'customers' | 'payments' | 'expenses' | 'reports' | 'settings';
 
-export const SETTINGS_SECTIONS = ['business', 'tax', 'invoice', 'proforma', 'expenses', 'accounts', 'instructions', 'notifications', 'messages', 'data', 'backup', 'catalogue', 'people', 'preferences', 'activity', 'plus'] as const;
+export const SETTINGS_SECTIONS = ['business', 'tax', 'invoice', 'proforma', 'expenses', 'accounts', 'instructions', 'notifications', 'messages', 'data', 'backup', 'catalogue', 'people', 'team', 'preferences', 'activity', 'plus'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 export type Route =
@@ -53,7 +53,7 @@ export type Route =
   | { name: 'print-invoices'; ids: string[] }
   | { name: 'reports'; tab: ReportTab; period: PeriodSpec; /** Stock valuation date; null means today. */ asOf: string | null };
 
-export const REPORT_TABS = ['sales', 'profit', 'margin', 'gst', 'daybook', 'stock', 'movement', 'movers', 'receivables', 'quotes', 'purchases', 'accountbook'] as const;
+export const REPORT_TABS = ['sales', 'profit', 'margin', 'gst', 'daybook', 'stock', 'movement', 'movers', 'receivables', 'quotes', 'purchases', 'accountbook', 'salespeople'] as const;
 export type ReportTab = (typeof REPORT_TABS)[number];
 
 /** Money a customer has just paid, carried into the New invoice screen so it's recorded in the same step as the invoice. */

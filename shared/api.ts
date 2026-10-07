@@ -76,6 +76,9 @@ import type {
   DayBookMode,
   MarginBy,
   QuotesReport,
+  Salesperson,
+  SalespersonInput,
+  SalespeopleReport,
   PricePoint,
   MarginLine,
   MarginReport,
@@ -314,6 +317,15 @@ export interface Api {
   invoiceNextNumber(issueDate: string, type?: InvoiceType): Promise<string>;
   /** Updates carrier, tracking and delivery progress on an issued invoice. */
   invoiceSetDelivery(id: string, update: DeliveryUpdate): Promise<Invoice>;
+  /** Credits an invoice to a person on the sales team (or to no one, with null). */
+  invoiceSetSoldBy(id: string, salespersonId: string | null): Promise<Invoice>;
+  salespeopleList(): Promise<Salesperson[]>;
+  salespersonCreate(input: SalespersonInput): Promise<Salesperson>;
+  salespersonUpdate(id: string, input: SalespersonInput): Promise<Salesperson>;
+  salespersonArchive(id: string): Promise<void>;
+  salespersonRestore(id: string): Promise<Salesperson>;
+  /** What each person sold in the period, and the commission on it. */
+  reportSalespeople(range: { from: string; to: string }): Promise<SalespeopleReport>;
   /** Issues the invoice and takes the stock out, atomically. */
   invoiceCreate(input: InvoiceInput): Promise<Invoice>;
   /** Cancels an issued invoice and puts its stock back. The number is never reused. */

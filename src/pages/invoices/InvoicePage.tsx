@@ -19,6 +19,7 @@ import { RecordPaymentModal } from '../payments/RecordPaymentModal';
 import { CreditNoteModal } from './CreditNoteModal';
 import { GovFormsModal } from './GovFormsModal';
 import { DeliveryCard } from './DeliveryCard';
+import { SoldByCard } from './SoldByCard';
 import { InstalmentsCard } from './InstalmentsCard';
 import { WriteOffModal } from './WriteOffModal';
 
@@ -254,6 +255,7 @@ ${message.body}`)) ? toast.success('Message copied — paste it anywhere') : toa
 
       {!cancelled && <InstalmentsCard invoice={inv} />}
       {!cancelled && <DeliveryCard invoice={inv} />}
+      {!cancelled && <SoldByCard invoice={inv} />}
       {!cancelled && <NotesPanel subjectType="invoice" subjectId={inv.id} kinds={['promise', 'followup', 'call', 'note']} title="Follow-up and promises" />}
 
       {/* The paper itself — the same component the PDF and the printer use. */}
