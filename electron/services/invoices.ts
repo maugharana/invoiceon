@@ -6,7 +6,7 @@ import { DELIVERY_STATUS_LABEL, type DashboardSummary, type DeliveryStatus, type
 import { all, get, run, tx, type Db } from '../db/connection';
 import { UserError, isUniqueViolation, newId, nowIso, optionalText, requireInt } from './common';
 import { getCustomer } from './customers';
-import { getVariant, recordMovement } from './inventory';
+import { getVariant, loadVariants, recordMovement } from './inventory';
 import { advanceHeld, applyAdvance, loadPaid, paidFor, paymentsOnInvoice, recordPaymentTx, releaseInvoicePayments } from './payments';
 import { fulfilWishes, onInvoiceCancelled, onInvoiceIssued } from './loyalty';
 import { heldByQuotes } from './reservations';
@@ -232,6 +232,7 @@ export function listInvoices(db: Db, query: InvoiceQuery = {}): InvoiceSummary[]
 
 export function variantsForSale(db: Db): SaleVariant[] {
   const held = heldByQuotes(db);
+  const cost = new Map(loadVariants(db).map((v) => [v.id, v.unitCostPaise]));
   return all<{
     id: string;
     design_id: string;
@@ -267,6 +268,7 @@ export function variantsForSale(db: Db): SaleVariant[] {
     held: held.get(r.id)?.qty ?? 0,
     stock: r.stock,
     sellPricePaise: r.sell_price_paise,
+    unitCostPaise: cost.get(r.id) ?? 0,
   }));
 }
 

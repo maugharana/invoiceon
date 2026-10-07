@@ -916,6 +916,8 @@ export interface SaleVariant {
   sku: string;
   stock: number;
   sellPricePaise: Paise;
+  /** What one piece costs the shop (making or buying, plus materials). Used to warn before a bill goes below cost. */
+  unitCostPaise: Paise;
 }
 
 export interface DashboardSummary {

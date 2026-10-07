@@ -35,6 +35,14 @@ describe('money handed over with the invoice', () => {
   });
 });
 
+describe('what a piece costs, for the sale screen', () => {
+  it('comes with each piece on sale, counting making cost and materials, so a bill can be checked against cost', () => {
+    const d = inventory.createDesign(db, { code: 'MG-050', name: 'Kadhua', fabric: '', hsnCode: '5007', description: '', defaultPricePaise: rupees(5000) });
+    const v = inventory.createVariant(db, d.id, { color: 'Wine', size: '6 m', sellPricePaise: rupees(5000), baseCostPaise: rupees(3200), reorderLevel: 0, openingStock: 3, bom: [] });
+    expect(invoices.variantsForSale(db).find((x) => x.variantId === v.id)?.unitCostPaise).toBe(rupees(3200));
+  });
+});
+
 describe('numbering series', () => {
   it('uses one run for everything until a B2B prefix is set', () => {
     const c = customer();

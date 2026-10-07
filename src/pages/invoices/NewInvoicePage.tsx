@@ -4,6 +4,7 @@ import { suggestAccount } from '../../../shared/accountChoice';
 import { checkCredit, dueDateFromTerms } from '../../../shared/credit';
 import { addDays, computeInvoice, formatDate, isIsoDate, isValidRate, resolveRate, todayIso } from '../../../shared/gst';
 import { formatMoney, mulPaise } from '../../../shared/money';
+import { billCost, discountForTarget, lowestSafe, roundFigures } from '../../../shared/meetPrice';
 import { matchesAll } from '../../../shared/search';
 import { parseInvoiceDraft, type InvoiceDraft } from '../../../shared/invoiceDraft';
 import { sameState } from '../../../shared/states';
@@ -14,6 +15,7 @@ import { api, errorMessage } from '../../lib/api';
 import { useQuery, useRefresh } from '../../lib/data';
 import { plural, toNumber } from '../../lib/format';
 import { navigate, paths, type AdvancePreset } from '../../lib/router';
+import { useSession } from '../../lib/session';
 import { CustomerFormModal } from '../customers/CustomerFormModal';
 import { HeldListModal, HoldModal } from './HeldBills';
 import { BILL_NOTES, BrowseAdd, Choice, Chip, DUE_DAYS, DesignThumb, DiscountSelect, ItemDetails, QtyStepper, StepTitle } from './invoiceParts';
@@ -258,6 +260,9 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
   const quote = mode === 'proforma';
   const toast = useToast();
   const refresh = useRefresh();
+  const session = useSession();
+  /** What the pieces cost is shown only to an owner (or when nobody has signed in): it is the shop's own margin. */
+  const canSeeCost = !session.enabled || session.current?.role === 'owner';
   const settings = useQuery(() => api.getSettings());
   const customers = useQuery(() => api.customersList());
   const variants = useQuery(() => api.variantsForSale());
@@ -286,6 +291,9 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
   const [pickIssue, setPickIssue] = useState(false);
   const [pickDue, setPickDue] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
+  /** "Agree a price": the figure the customer has agreed to pay, in paise, and whether its panel is open. */
+  const [meetOpen, setMeetOpen] = useState(false);
+  const [meetTarget, setMeetTarget] = useState(0);
   /** Which of the shop's accounts the money handed over now goes into. */
   const [accountId, setAccountId] = useState('');
   // Money received as the invoice is made. It can arrive pre-filled from "Record payment → Record & create invoice".
@@ -606,6 +614,16 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
   );
 
   const hasItems = lines.length > 0;
+  const pricedLines = rows.map((r) => ({ amountPaise: r.amount, discountPaise: r.discount, ratePercent: r.rate }));
+  const meetBill = { lines: pricedLines, intraState, inclusive, roundOff: settings.data?.roundOff, otherDiscountPaise: pointsUsed * pointValue };
+  const billWorth = billCost(rows.map((r) => ({ qty: r.validQty ? r.qty : 0, unitCostPaise: r.variant ? r.variant.unitCostPaise : null })));
+  // Worked out only while the panel is open: it searches for the discount that gives the agreed total.
+  const fullTotal = meetOpen ? computeInvoice({ lines: pricedLines, discountPaise: pointsUsed * pointValue, intraState, inclusive, roundOff: settings.data?.roundOff }).totalPaise : 0;
+  const meet = meetOpen && meetTarget > 0 ? discountForTarget(meetBill, meetTarget) : null;
+  const meetTaxable = meet ? computeInvoice({ lines: pricedLines, discountPaise: pointsUsed * pointValue + meet.discountPaise, intraState, inclusive, roundOff: settings.data?.roundOff }).taxablePaise : 0;
+  const meetBelowCost = !!meet && billWorth.known && meetTaxable < billWorth.costPaise;
+  const meetSafe = meetOpen && billWorth.known && canSeeCost ? lowestSafe(meetBill, billWorth.costPaise) : null;
+  const billNet = rows.reduce((sum, r) => sum + r.amount - r.discount, 0);
   const today = todayIso();
   const issueSelect = pickIssue || !isIsoDate(issueDate) ? 'custom' : issueDate === today ? 'today' : issueDate === addDays(today, -1) ? 'yesterday' : 'custom';
   const dueDiff = isIsoDate(issueDate) && isIsoDate(dueDate) ? Math.round((Date.parse(dueDate) - Date.parse(issueDate)) / 86_400_000) : -1;
@@ -922,7 +940,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
         <div className="rounded-xl border border-line bg-surface px-5 py-3.5 shadow-overlay">
           <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
             <div className="relative">
-              <button type="button" onClick={() => setShowDetails((v) => !v)} aria-expanded={showDetails} className="block text-left" title="Show how this total is made up">
+              <button type="button" onClick={() => { setShowDetails((v) => !v); setMeetOpen(false); }} aria-expanded={showDetails} className="block text-left" title="Show how this total is made up">
                 <span className="flex items-center gap-1 text-xs text-ink-muted">
                   Total · {plural(rows.length, 'item')}
                   <ChevronUp className={`h-3 w-3 transition-transform duration-150 ${showDetails ? '' : 'rotate-180'}`} aria-hidden />
@@ -932,9 +950,111 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
                 </span>
               </button>
               <div aria-hidden className="mt-1 h-0.5 w-8 rounded-full bg-gold" />
+              {hasItems && totals.totalPaise > 0 && (
+                <button
+                  type="button"
+                  aria-expanded={meetOpen}
+                  onClick={() => {
+                    setMeetOpen((o) => !o);
+                    setShowDetails(false);
+                  }}
+                  className="mt-1.5 text-xs text-brand transition-colors hover:text-brand-hover"
+                  title="The customer has agreed to a round figure: work out the discount that gets the bill there"
+                >
+                  Agree a price
+                </button>
+              )}
               {!quote && totals.totalPaise > 0 && (advanceApplied > 0 || received > 0) && (
                 <div className="num mt-1 text-xs text-ink-muted">
                   {balanceDue > 0 ? <>Balance due {formatMoney(balanceDue)}</> : 'Paid in full'}
+                </div>
+              )}
+              {meetOpen && (
+                <div
+                  role="group"
+                  aria-label="Agree a price"
+                  onKeyDown={(e) => e.key === 'Escape' && setMeetOpen(false)}
+                  className="animate-pop-in absolute bottom-full left-0 mb-3 w-[26rem] space-y-3 rounded-lg border border-line bg-surface p-5 shadow-overlay"
+                >
+                  <div>
+                    <p className="font-medium">The customer agreed to pay</p>
+                    <p className="mt-0.5 text-xs text-ink-muted">The bill comes to {formatMoney(fullTotal)} now. Enter the figure they agreed, GST included, and the discount is worked out for you.</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="w-36">
+                      <MoneyInput autoFocus value={meetTarget} onChange={setMeetTarget} aria-label="Agreed price" className="h-9" />
+                    </div>
+                    {roundFigures(fullTotal).map((f) => (
+                      <Chip key={f} onClick={() => setMeetTarget(f)} active={meetTarget === f}>
+                        {formatMoney(f, { fractionDigits: 0 })}
+                      </Chip>
+                    ))}
+                  </div>
+
+                  {meetSafe && meetSafe.totalPaise < fullTotal && (
+                    <button type="button" onClick={() => setMeetTarget(meetSafe.totalPaise)} className="text-xs text-brand transition-colors hover:text-brand-hover">
+                      Lowest without a loss: {formatMoney(meetSafe.totalPaise)} — use it
+                    </button>
+                  )}
+
+                  {meet && meetTarget > fullTotal && <p className="rounded-lg bg-status-partial-bg px-3 py-2 text-xs text-status-partial-fg">That is more than the bill ({formatMoney(fullTotal)}), so there is nothing to take off.</p>}
+                  {meet && meetTarget <= fullTotal && (
+                    <dl className="space-y-1.5 rounded-lg bg-canvas px-4 py-3">
+                      <div className="flex justify-between">
+                        <dt className="text-ink-muted">Discount on the bill</dt>
+                        <dd className="num">
+                          {formatMoney(meet.discountPaise)}
+                          {billNet > 0 && <span className="text-ink-muted"> · {((meet.discountPaise / billNet) * 100).toFixed(1)}%</span>}
+                        </dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt className="text-ink-muted">New total</dt>
+                        <dd className="num font-medium">{formatMoney(meet.totalPaise)}</dd>
+                      </div>
+                      {meet.totalPaise !== meetTarget && <p className="text-xs text-ink-muted">The nearest the bill can get to {formatMoney(meetTarget)} is {formatMoney(meet.totalPaise)}.</p>}
+                      {canSeeCost && billWorth.known && !meetBelowCost && (
+                        <div className="flex justify-between border-t border-line pt-1.5 text-xs text-ink-muted">
+                          <dt>You still keep</dt>
+                          <dd className="num">
+                            {formatMoney(meetTaxable - billWorth.costPaise)}
+                            {meetTaxable > 0 && ` · ${(((meetTaxable - billWorth.costPaise) / meetTaxable) * 100).toFixed(0)}%`}
+                          </dd>
+                        </div>
+                      )}
+                    </dl>
+                  )}
+                  {meetBelowCost && (
+                    <div role="alert" className="rounded-lg bg-status-overdue-bg px-3 py-2 text-xs text-status-overdue-fg">
+                      {canSeeCost ? `This is ${formatMoney(billWorth.costPaise - meetTaxable)} below what these pieces cost you.` : 'This is below what these pieces cost. Check with the owner before agreeing.'}
+                    </div>
+                  )}
+                  {discount > 0 && meet && meetTarget <= fullTotal && <p className="text-xs text-ink-muted">This replaces the {formatMoney(discount)} discount already on the bill.</p>}
+
+                  <div className="flex items-center justify-between gap-2">
+                    {discount > 0 ? (
+                      <button type="button" onClick={() => setDiscount(0)} className="text-xs text-ink-muted transition-colors hover:text-ink">
+                        Remove the {formatMoney(discount)} discount
+                      </button>
+                    ) : (
+                      <span />
+                    )}
+                    <span className="flex gap-2">
+                      <Button onClick={() => setMeetOpen(false)}>Close</Button>
+                      <Button
+                        variant="primary"
+                        disabled={!meet || meetTarget > fullTotal}
+                        onClick={() => {
+                          if (!meet) return;
+                          setDiscount(meet.discountPaise);
+                          setMeetOpen(false);
+                          setMeetTarget(0);
+                          toast.success(`Bill set to ${formatMoney(meet.totalPaise)}`);
+                        }}
+                      >
+                        Apply
+                      </Button>
+                    </span>
+                  </div>
                 </div>
               )}
               {showDetails && (
