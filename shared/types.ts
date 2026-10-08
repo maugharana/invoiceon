@@ -573,6 +573,13 @@ export interface CustomerPurchase {
   variants: string[];
 }
 
+/** A document made ready to send: a PDF in a folder of its own, and on the clipboard when the computer allows it. */
+export interface SharedFile {
+  path: string;
+  /** The file is on the clipboard, so pasting into a chat or an email attaches it. */
+  copied: boolean;
+}
+
 // ── Sales team ──────────────────────────────────────────────────────────────
 export interface Salesperson {
   id: string;

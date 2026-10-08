@@ -56,6 +56,10 @@ export interface Host {
   /** Asks for a backup file to open; null if cancelled. */
   pickFile?(title: string): Promise<string | null>;
   pickFolder?(title: string): Promise<string | null>;
+  /** Makes a document's PDF ready to send: writes it into a folder of its own and puts the file on the clipboard where it can. */
+  shareDocument?(route: string, fileName: string): Promise<{ path: string; copied: boolean }>;
+  /** Shows a file made by `shareDocument` in the file manager. */
+  revealFile?(path: string): Promise<void>;
   /** Opens another window on the same book. */
   openWindow?(): Promise<void>;
   /** Closes the app and opens it again, so a prepared restore can be applied. */
@@ -269,6 +273,16 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
     invoiceNextNumber: async (date, type) => invoices.nextInvoiceNumber(db, date, type),
     invoiceSetDelivery: async (id, update) => invoices.setDelivery(db, id, update),
     invoiceSetSoldBy: async (id, salespersonId) => invoices.setSoldBy(db, id, salespersonId ?? null),
+    invoiceShareFile: async (id) => {
+      if (!host?.shareDocument) throw new UserError(DESKTOP_ONLY);
+      const inv = invoices.getInvoice(db, id);
+      if (inv.status === 'cancelled') throw new UserError('This invoice is cancelled, so there is nothing to send.');
+      return host.shareDocument(`/print/invoice/${encodeURIComponent(id)}`, `Invoice ${inv.number.replace(/[\\/:*?"<>|]/g, '-')}.pdf`);
+    },
+    shareReveal: async (path) => {
+      if (!host?.revealFile) throw new UserError(DESKTOP_ONLY);
+      return host.revealFile(String(path));
+    },
     salespeopleList: async () => salespeople.listSalespeople(db),
     salespersonCreate: async (input) => salespeople.createSalesperson(db, input),
     salespersonUpdate: async (id, input) => salespeople.updateSalesperson(db, id, input),

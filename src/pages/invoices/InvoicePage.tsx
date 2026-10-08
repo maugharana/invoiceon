@@ -1,7 +1,7 @@
-import { ArrowLeft, Ban, ClipboardCopy, Copy, Download, HandCoins, Mail, MessageCircle, PackageMinus, Printer, Receipt, Send, FileJson } from 'lucide-react';
-import { useState } from 'react';
+import { ArrowLeft, Ban, ClipboardCopy, Copy, Download, HandCoins, PackageMinus, Printer, Receipt, Send, FileJson } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { formatDate } from '../../../shared/gst';
-import { invoiceMessage, mailtoLink, whatsappLink, whatsappPhone } from '../../../shared/messages';
+import { invoiceMessage } from '../../../shared/messages';
 import { formatMoney } from '../../../shared/money';
 import { PAYMENT_METHOD_LABEL } from '../../../shared/types';
 import { InvoiceDocument } from '../../components/InvoiceDocument';
@@ -21,6 +21,7 @@ import { GovFormsModal } from './GovFormsModal';
 import { DeliveryCard } from './DeliveryCard';
 import { SoldByCard } from './SoldByCard';
 import { InstalmentsCard } from './InstalmentsCard';
+import { JUST_ISSUED_KEY, JustIssuedCard, ShareInvoiceModal } from './ShareInvoice';
 import { WriteOffModal } from './WriteOffModal';
 
 export function InvoicePage({ id }: { id: string }) {
@@ -38,6 +39,19 @@ export function InvoicePage({ id }: { id: string }) {
   const [govForm, setGovForm] = useState<'eway' | 'einvoice' | null>(null);
   const [paying, setPaying] = useState(false);
   const [reason, setReason] = useState('');
+  const [sharing, setSharing] = useState(false);
+  // Right after an invoice is issued, its page offers to send it. Only once: the mark is cleared as soon as it is read.
+  const [justIssued, setJustIssued] = useState(false);
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem(JUST_ISSUED_KEY) === id) {
+        sessionStorage.removeItem(JUST_ISSUED_KEY);
+        setJustIssued(true);
+      }
+    } catch {
+      /* no mark to read */
+    }
+  }, [id]);
 
   const back = (
     <a href={`#${paths.invoices()}`} className="inline-flex items-center gap-1.5 rounded-lg text-ink-muted transition-colors hover:text-ink">
@@ -86,20 +100,9 @@ export function InvoicePage({ id }: { id: string }) {
   const exportPdf = () => (window.invoiceon ? run('pdf', async () => ((await api.invoiceExportPdf(id)).saved ? toast.success('PDF saved') : undefined)) : openPrintView());
   const print = () => (window.invoiceon ? run('print', () => api.invoicePrint(id)) : openPrintView());
   const printSlip = () => (window.invoiceon ? run('print', () => api.invoiceSlipPrint(id)) : void window.open(`${location.origin}${location.pathname}#${paths.printSlip(id)}`, '_blank'));
-  // Sharing: a ready-written message. WhatsApp and email can't take the PDF from us, so the person attaches the one they save.
+  // Sharing: a ready-written message the person can edit, with the PDF made and copied so one paste attaches it.
   const message = invoiceMessage(inv, { name: inv.seller.name, upiId: inv.seller.upiId }, settings.data?.msgInvoice ?? '');
-  const phone = whatsappPhone(inv.buyer.phone ?? '');
   const email = customer.data?.email ?? '';
-  const remindToAttach = 'Save the PDF (Save PDF) and attach it before you send.';
-  const shareWhatsApp = () => {
-    if (!phone) return;
-    window.open(whatsappLink(phone, message.body), '_blank');
-    toast.info(`WhatsApp opened with the message. ${remindToAttach}`);
-  };
-  const shareEmail = () => {
-    window.open(mailtoLink(email, message.subject, message.body), '_blank');
-    toast.info(`Your mail program opened with the message. ${remindToAttach}`);
-  };
   const copyMessage = async () => (await copyText(`${message.subject}
 
 ${message.body}`)) ? toast.success('Message copied — paste it anywhere') : toast.error('Couldn’t copy to the clipboard');
@@ -138,8 +141,7 @@ ${message.body}`)) ? toast.success('Message copied — paste it anywhere') : toa
                 label="Share"
                 icon={<Send className="h-4 w-4" />}
                 items={[
-                  { label: 'WhatsApp', icon: <MessageCircle className="h-4 w-4" />, onClick: shareWhatsApp, disabledReason: phone ? undefined : 'No phone number saved for this customer' },
-                  { label: 'Email', icon: <Mail className="h-4 w-4" />, onClick: shareEmail },
+                  { label: 'Send to the customer…', icon: <Send className="h-4 w-4" />, onClick: () => setSharing(true) },
                   { label: 'Copy the message', icon: <ClipboardCopy className="h-4 w-4" />, onClick: () => void copyMessage() },
                 ]}
               />
@@ -170,6 +172,8 @@ ${message.body}`)) ? toast.success('Message copied — paste it anywhere') : toa
           </>
         }
       />
+
+      {justIssued && !cancelled && <JustIssuedCard inv={inv} email={email} template={settings.data?.msgInvoice ?? ''} onMore={() => setSharing(true)} onDismiss={() => setJustIssued(false)} />}
 
       {/* Payment position */}
       {!cancelled && (
@@ -265,6 +269,7 @@ ${message.body}`)) ? toast.success('Message copied — paste it anywhere') : toa
         </div>
       </div>
 
+      {sharing && <ShareInvoiceModal inv={inv} email={email} template={settings.data?.msgInvoice ?? ''} onClose={() => setSharing(false)} />}
       {govForm && <GovFormsModal invoice={inv} kind={govForm} onClose={() => setGovForm(null)} />}
       {takingBack && <CreditNoteModal invoice={inv} customer={customer.data} onClose={() => setTakingBack(false)} />}
       {writingOff && <WriteOffModal invoice={inv} onClose={() => setWritingOff(false)} />}

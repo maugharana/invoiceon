@@ -76,6 +76,7 @@ import type {
   DayBookMode,
   MarginBy,
   QuotesReport,
+  SharedFile,
   Salesperson,
   SalespersonInput,
   SalespeopleReport,
@@ -319,6 +320,10 @@ export interface Api {
   invoiceSetDelivery(id: string, update: DeliveryUpdate): Promise<Invoice>;
   /** Credits an invoice to a person on the sales team (or to no one, with null). */
   invoiceSetSoldBy(id: string, salespersonId: string | null): Promise<Invoice>;
+  /** Makes the invoice's PDF ready to send: saved in a folder of its own and copied, so it can be pasted into a chat or an email. Desktop app only. */
+  invoiceShareFile(id: string): Promise<SharedFile>;
+  /** Shows a PDF made by `invoiceShareFile` in its folder. Desktop app only. */
+  shareReveal(path: string): Promise<void>;
   salespeopleList(): Promise<Salesperson[]>;
   salespersonCreate(input: SalespersonInput): Promise<Salesperson>;
   salespersonUpdate(id: string, input: SalespersonInput): Promise<Salesperson>;

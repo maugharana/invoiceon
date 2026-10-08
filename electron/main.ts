@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron';
-import { writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { execFile } from 'node:child_process';
+import { mkdir, readdir, stat, unlink, writeFile } from 'node:fs/promises';
+import { join, relative, resolve, isAbsolute } from 'node:path';
 import { createApi, invoke, type Host } from './api';
 import { applyPendingRestore } from './backup';
 import { driveContext, runAutoBackup } from './backupService';
@@ -43,6 +44,20 @@ async function chooseSavePath(parent: BrowserWindow | null, title: string, fileN
   const options = { title, defaultPath: join(app.getPath('documents'), fileName), filters: [filter] };
   const chosen = parent ? await dialog.showSaveDialog(parent, options) : await dialog.showSaveDialog(options);
   return chosen.canceled || !chosen.filePath ? null : chosen.filePath;
+}
+
+/** Where PDFs made for sending are kept. Anything in it more than a day old is tidied away the next time one is made. */
+const shareDir = () => join(app.getPath('temp'), 'InvoiceOn share');
+
+/**
+ * Puts a file on the Windows clipboard the way Explorer's Copy does, so pasting into WhatsApp, Outlook or a folder attaches the file.
+ * The path travels in an environment variable, never in the command text. Other systems simply report that it wasn't copied.
+ */
+function copyFileToClipboard(file: string): Promise<boolean> {
+  if (process.platform !== 'win32') return Promise.resolve(false);
+  return new Promise((done) => {
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Set-Clipboard -LiteralPath $env:INVOICEON_FILE'], { env: { ...process.env, INVOICEON_FILE: file }, windowsHide: true, timeout: 15_000 }, (err) => done(!err));
+  });
 }
 
 /** Secrets (the Google client secret and sign-in) are encrypted with the Windows account when it can, otherwise only hidden. */
@@ -90,6 +105,31 @@ function createHost(getParent: () => BrowserWindow | null, newWindow: () => void
       } finally {
         w.destroy();
       }
+    },
+    async shareDocument(route, fileName) {
+      const dir = shareDir();
+      await mkdir(dir, { recursive: true });
+      for (const name of await readdir(dir).catch(() => [] as string[])) {
+        const old = await stat(join(dir, name)).catch(() => null);
+        if (old && Date.now() - old.mtimeMs > 24 * 60 * 60 * 1000) await unlink(join(dir, name)).catch(() => undefined);
+      }
+      const filePath = join(dir, fileName);
+      const w = await openDocumentWindow(route);
+      try {
+        await writeFile(filePath, await w.webContents.printToPDF({ pageSize: 'A4', printBackground: true, preferCSSPageSize: true }));
+      } catch (err) {
+        if (err instanceof UserError) throw err;
+        throw new UserError(`Couldn't make the PDF: ${(err as Error).message}`);
+      } finally {
+        w.destroy();
+      }
+      return { path: filePath, copied: await copyFileToClipboard(filePath) };
+    },
+    async revealFile(path) {
+      // Only files made for sending: the screen can't ask for any other file on the computer to be shown.
+      const inside = relative(shareDir(), resolve(String(path)));
+      if (!inside || inside.startsWith('..') || isAbsolute(inside)) throw new UserError("That isn't a file InvoiceOn made for sending.");
+      shell.showItemInFolder(resolve(String(path)));
     },
     async openWindow() {
       newWindow();

@@ -21,6 +21,7 @@ import { CustomerFormModal } from '../customers/CustomerFormModal';
 import { HeldListModal, HoldModal } from './HeldBills';
 import { Bundles } from './Bundles';
 import { RepeatBill } from './RepeatBill';
+import { JUST_ISSUED_KEY } from './ShareInvoice';
 import { BILL_NOTES, BrowseAdd, Choice, Chip, DUE_DAYS, DesignThumb, DiscountSelect, ExtraPayRow, ItemDetails, QtyStepper, StepTitle, type ExtraPay } from './invoiceParts';
 import { QuickAddItemModal } from './QuickAddItemModal';
 import { ShipToCard } from './ShipToCard';
@@ -652,6 +653,11 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
         applyAdvancePaise: advanceApplied > 0 ? advanceApplied : undefined,
       });
       clearDraft();
+      try {
+        sessionStorage.setItem(JUST_ISSUED_KEY, inv.id);
+      } catch {
+        /* the offer to send it is a nicety */
+      }
       refresh();
       toast.success(inv.paidPaise > 0 ? `Invoice ${inv.number} issued — ${formatMoney(inv.paidPaise)} received` : `Invoice ${inv.number} issued`);
       navigate(paths.invoice(inv.id));
