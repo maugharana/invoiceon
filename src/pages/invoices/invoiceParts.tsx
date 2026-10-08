@@ -238,7 +238,7 @@ export function Choice({ label, hint, children, className = '' }: { label: strin
  * Choosing a piece without typing: design, then colour, then size, then how many. Each list only holds what the one before leaves, and
  * a list with a single choice fills itself in. Pieces with nothing in stock are shown but cannot be picked (unless a quote allows it).
  */
-export function BrowseAdd({ variants, onAdd, covers = {}, allowOutOfStock = false }: { variants: SaleVariant[]; onAdd: (v: SaleVariant, qty: number) => void; covers?: Record<string, string>; allowOutOfStock?: boolean }) {
+export function BrowseAdd({ variants, onAdd, covers = {}, allowOutOfStock = false, focusDesign }: { variants: SaleVariant[]; onAdd: (v: SaleVariant, qty: number) => void; covers?: Record<string, string>; allowOutOfStock?: boolean; /** Choose this design, as if picked from the list. Pick the same one again by changing `n`. */ focusDesign?: { id: string; n: number } }) {
   const [designId, setDesignId] = useState('');
   const [color, setColor] = useState('');
   const [size, setSize] = useState('');
@@ -258,6 +258,13 @@ export function BrowseAdd({ variants, onAdd, covers = {}, allowOutOfStock = fals
   const sizes = [...new Set(ofDesign.filter((v) => v.color === color).map((v) => v.size))];
   const chosen = ofDesign.find((v) => v.color === color && v.size === size) ?? null;
   const sellable = !!chosen && (chosen.stock > 0 || allowOutOfStock);
+
+  // Told from outside (a design the customer asked for): the same as choosing it from the list.
+  const focusKey = focusDesign?.n;
+  useEffect(() => {
+    if (focusDesign && variants.some((v) => v.designId === focusDesign.id)) pickDesign(focusDesign.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusKey]);
 
   function pickDesign(id: string) {
     setDesignId(id);

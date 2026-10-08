@@ -20,6 +20,7 @@ import { useSession } from '../../lib/session';
 import { CustomerFormModal } from '../customers/CustomerFormModal';
 import { HeldListModal, HoldModal } from './HeldBills';
 import { Bundles } from './Bundles';
+import { CustomerBrief } from './CustomerBrief';
 import { RepeatBill } from './RepeatBill';
 import { JUST_ISSUED_KEY } from './ShareInvoice';
 import { BILL_NOTES, BrowseAdd, Choice, Chip, DUE_DAYS, DesignThumb, DiscountSelect, ExtraPayRow, ItemDetails, QtyStepper, StepTitle, type ExtraPay } from './invoiceParts';
@@ -308,6 +309,8 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
   const [pickDue, setPickDue] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   /** "Agree a price": the figure the customer has agreed to pay, in paise, and whether its panel is open. */
+  /** A design to show in the item picker: one the customer asked for. */
+  const [wantDesign, setWantDesign] = useState<{ id: string; n: number } | undefined>(undefined);
   const [meetOpen, setMeetOpen] = useState(false);
   const [meetTarget, setMeetTarget] = useState(0);
   /** Which of the shop's accounts the money handed over now goes into. */
@@ -766,6 +769,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
               ))}
             </div>
           )}
+          {customer && <CustomerBrief key={customer.id} customer={customer} onWant={(id) => setWantDesign({ id, n: Date.now() })} />}
           {customer && !quote && customer.paymentTermsDays != null && (
             <p className="-mt-2 text-xs text-ink-muted">
               {customer.name} pays within {customer.paymentTermsDays === 0 ? 'the day' : `${customer.paymentTermsDays} days`} — the due date follows that.
@@ -801,7 +805,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
             <ItemPicker direction="down" large autoFocus covers={covers} variants={sellable} taken={new Set(lines.map((l) => l.variantId))} onPick={addVariant} onCreate={(name) => setAddingItem(name)} allowOutOfStock={quote} />
             <div>
               <p className="mb-2 text-xs text-ink-muted">Or choose from your stock</p>
-              <BrowseAdd variants={sellable} onAdd={addVariant} covers={covers} allowOutOfStock={quote} />
+              <BrowseAdd variants={sellable} onAdd={addVariant} covers={covers} allowOutOfStock={quote} focusDesign={wantDesign} />
             </div>
             {boughtBefore.length > 0 && (
               <div className="flex flex-wrap items-center gap-2 text-xs">

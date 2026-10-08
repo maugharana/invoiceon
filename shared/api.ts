@@ -71,6 +71,7 @@ import type {
   NoteSubject,
   CustomerInput,
   CustomerPurchase,
+  CustomerTaste,
   DashboardNow,
   DayBook,
   DayBookMode,
@@ -270,6 +271,8 @@ export interface Api {
   customersImport(rows: { row: number; value: CustomerInput }[]): Promise<CustomerImportResult>;
   /** What this customer has bought, by design, most recent first. */
   customerPurchases(id: string): Promise<CustomerPurchase[]>;
+  /** What this customer usually buys: favourite colours and sizes, and the usual price of a piece. */
+  customerTaste(id: string): Promise<CustomerTaste>;
   /** Folds a duplicate into the customer you keep: their invoices, payments and quotes move across, blank details are filled in, and the duplicate is archived. */
   customerMerge(keepId: string, duplicateId: string): Promise<Customer>;
 

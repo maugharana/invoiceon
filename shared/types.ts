@@ -573,6 +573,19 @@ export interface CustomerPurchase {
   variants: string[];
 }
 
+/** What a customer usually buys, from their issued invoices: their favourite colours and sizes, and what a piece usually costs them. */
+export interface CustomerTaste {
+  /** Pieces bought in all. Zero for a customer with no purchases yet. */
+  pieces: number;
+  invoiceCount: number;
+  /** What one piece came to on average, before GST and before any discount. */
+  averagePiecePaise: Paise;
+  lastBoughtOn: string | null;
+  /** The colours they buy most, with how many pieces of each. Most first. */
+  colors: { name: string; pieces: number }[];
+  sizes: { name: string; pieces: number }[];
+}
+
 /** A document made ready to send: a PDF in a folder of its own, and on the clipboard when the computer allows it. */
 export interface SharedFile {
   path: string;

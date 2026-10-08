@@ -237,6 +237,7 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
     customerCreate: async (input) => customers.createCustomer(db, input),
     customerUpdate: async (id, input) => customers.updateCustomer(db, id, input),
     customerPurchases: async (id) => customers.customerPurchases(db, id),
+    customerTaste: async (id) => customers.customerTaste(db, id),
     customerMerge: async (keepId, duplicateId) => customers.mergeCustomers(db, keepId, duplicateId),
 
     notesList: async (subjectType, subjectId) => notes.listNotes(db, subjectType, subjectId),
