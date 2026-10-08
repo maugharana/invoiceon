@@ -21,6 +21,7 @@ import { CustomerFormModal } from '../customers/CustomerFormModal';
 import { HeldListModal, HoldModal } from './HeldBills';
 import { Bundles } from './Bundles';
 import { CustomerBrief } from './CustomerBrief';
+import { QuickBillBar, type QuickApply } from './QuickBillBar';
 import { RepeatBill } from './RepeatBill';
 import { JUST_ISSUED_KEY } from './ShareInvoice';
 import { BILL_NOTES, BrowseAdd, Choice, Chip, DUE_DAYS, DesignThumb, DiscountSelect, ExtraPayRow, ItemDetails, QtyStepper, StepTitle, type ExtraPay } from './invoiceParts';
@@ -594,6 +595,45 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
     }
   }
 
+  /** Puts a line typed in the "Type the whole bill" box, once the person has checked it, onto the bill. It fills in; it never issues. */
+  function applyQuick(a: QuickApply) {
+    if (a.customer) chooseCustomer(a.customer);
+    else if (a.walkIn) {
+      chooseCustomer(null);
+      if (a.walkInName) setBuyerName(a.walkInName);
+    }
+    const percent = a.discount?.kind === 'percent' ? a.discount.percent : null;
+    setLines((ls) => {
+      const next = [...ls];
+      for (const it of a.items) {
+        const i = next.findIndex((l) => l.variantId === it.variant.variantId);
+        if (i >= 0) next[i] = { ...next[i]!, qty: String((toNumber(next[i]!.qty) || 0) + it.qty), ...(it.pricePaise !== null ? { price: it.pricePaise } : {}) };
+        else next.push(newLine(it.variant.variantId, String(it.qty), it.pricePaise ?? it.variant.sellPricePaise));
+      }
+      // A percentage is on every item, so it keeps up if a quantity changes.
+      return percent === null ? next : next.map((l) => ({ ...l, discountPct: percent, discount: Math.round(((toNumber(l.qty) || 0) * l.price * percent) / 100) }));
+    });
+    if (a.discount?.kind === 'amount') setDiscount(a.discount.paise);
+    if (!quote && a.payment) {
+      if (a.payment.mode === 'later') chooseMode('later');
+      else {
+        chooseMode(a.payment.method ?? 'cash');
+        if (a.payment.amountPaise !== null) {
+          setPayFull(false);
+          setReceived(a.payment.amountPaise);
+        }
+      }
+    }
+    if (!quote && a.soldById) setSoldBy(a.soldById);
+    if (a.dueDays !== null) {
+      dueTouched.current = true;
+      setPickDue(false);
+      setDueDate(addDays(issueDate, a.dueDays));
+    }
+    if (a.note) setNotes(a.note);
+    toast.success('Filled in. Check the bill, then issue it.');
+  }
+
   /** Starts a second part: the first is cut to half if it was the whole bill, and the new part takes what is left, by another method. */
   function addSplit() {
     const first = extras.length === 0 && received >= maxReceivable ? Math.round(maxReceivable / 2) : received;
@@ -745,6 +785,8 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
       )}
 
       <div className="mx-auto max-w-4xl space-y-5">
+        {!editId && <QuickBillBar variants={sellable} customers={customers.data ?? []} team={team} quote={quote} onApply={applyQuick} />}
+
         {/* 1. Who is it for */}
         <Card className="space-y-4 overflow-visible p-5">
           <StepTitle n={1} title="Who is it for?" />
