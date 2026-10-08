@@ -7,7 +7,7 @@ import type { ProformaStatus, ProformaSummary } from '../../../shared/types';
 import { Button, Card, EmptyState, ErrorNote, Money, PageHeader, ProformaPill, SearchInput, Segmented, TableSkeleton, TypePill } from '../../components/ui';
 import { api } from '../../lib/api';
 import { useQuery } from '../../lib/data';
-import { DateRangeFilter, Pager, SortableTh, sortBy, usePager, useSort, type DateRangeValue } from '../../components/listTools';
+import { DateRangeFilter, FilterBar, Pager, SortableTh, sortBy, usePager, useSort, type DateRangeValue } from '../../components/listTools';
 import { useCsvExport } from '../../lib/exportCsv';
 import { navigate, paths } from '../../lib/router';
 
@@ -129,37 +129,41 @@ export function ProformasPage({ initialStatus }: { initialStatus: Status }) {
         </Card>
       ) : (
         <>
-          <div className="mb-4 flex items-center justify-between gap-4">
-            <SearchInput value={search} onChange={setSearch} placeholder="Search proforma number or customer" />
-            <div className="flex flex-wrap items-center justify-end gap-3">
-            <DateRangeFilter onChange={setDates} />
-            <Segmented
-              label="View"
-              value={view}
-              onChange={setView}
-              options={[
-                { value: 'list', label: 'List' },
-                { value: 'board', label: 'Board' },
-              ]}
-            />
-            {view === 'list' && (
-            <Segmented
-              label="Proforma status"
-              value={status}
-              onChange={setStatus}
-              options={[
-                { value: 'all', label: 'All' },
-                { value: 'open', label: 'Open' },
-                { value: 'expired', label: 'Expired' },
-                { value: 'partial', label: 'Part' },
-                { value: 'converted', label: 'Invoiced' },
-                { value: 'lost', label: 'Lost' },
-                { value: 'cancelled', label: 'Cancelled' },
-              ]}
-            />
-            )}
-            </div>
-          </div>
+          <FilterBar
+            search={<SearchInput value={search} onChange={setSearch} placeholder="Search proforma number or customer" />}
+            filters={
+              <>
+                <DateRangeFilter onChange={setDates} />
+                <Segmented
+                  label="View"
+                  value={view}
+                  onChange={setView}
+                  options={[
+                    { value: 'list', label: 'List' },
+                    { value: 'board', label: 'Board' },
+                  ]}
+                />
+              </>
+            }
+            status={
+              view === 'list' ? (
+                <Segmented
+                  label="Proforma status"
+                  value={status}
+                  onChange={setStatus}
+                  options={[
+                    { value: 'all', label: 'All' },
+                    { value: 'open', label: 'Open' },
+                    { value: 'expired', label: 'Expired' },
+                    { value: 'partial', label: 'Part' },
+                    { value: 'converted', label: 'Invoiced' },
+                    { value: 'lost', label: 'Lost' },
+                    { value: 'cancelled', label: 'Cancelled' },
+                  ]}
+                />
+              ) : undefined
+            }
+          />
 
           {view === 'board' ? (
             <Board quotes={(view === 'board' ? proformas.data : undefined) ?? []} loading={proformas.loading} />

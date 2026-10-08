@@ -6,13 +6,16 @@ import { DELIVERY_STATUS_LABEL, type DashboardSummary, type DeliveryStatus, type
 import { all, get, run, tx, type Db } from '../db/connection';
 import { UserError, isUniqueViolation, newId, nowIso, optionalText, requireInt } from './common';
 import { getCustomer } from './customers';
-import { getVariant, recordMovement } from './inventory';
+import { getVariant, loadVariants, recordMovement } from './inventory';
 import { advanceHeld, applyAdvance, loadPaid, paidFor, paymentsOnInvoice, recordPaymentTx, releaseInvoicePayments } from './payments';
 import { fulfilWishes, onInvoiceCancelled, onInvoiceIssued } from './loyalty';
 import { heldByQuotes } from './reservations';
+import { resolveSalesperson } from './salespeople';
 import { getSettings } from './settings';
 
 const MAX_PAISE = 100_000_000_00;
+/** How many separate payments can settle one invoice as it is made. */
+const MAX_SPLIT_PAYMENTS = 6;
 
 interface InvoiceRow {
   id: string;
@@ -48,6 +51,9 @@ interface InvoiceRow {
   tracking_no: string;
   delivery_status: DeliveryStatus;
   delivered_on: string | null;
+  salesperson_id: string | null;
+  salesperson_name: string;
+  commission_percent: number;
   created_at: string;
 }
 
@@ -179,6 +185,7 @@ function toInvoice(db: Db, r: InvoiceRow): Invoice {
     trackingNo: r.tracking_no,
     deliveredOn: r.delivered_on,
     series: r.series,
+    soldBy: r.salesperson_name || r.salesperson_id ? { id: r.salesperson_id, name: r.salesperson_name, commissionPercent: r.commission_percent } : null,
     cancelledAt: r.cancelled_at,
     cancelReason: r.cancel_reason,
     createdAt: r.created_at,
@@ -232,6 +239,7 @@ export function listInvoices(db: Db, query: InvoiceQuery = {}): InvoiceSummary[]
 
 export function variantsForSale(db: Db): SaleVariant[] {
   const held = heldByQuotes(db);
+  const cost = new Map(loadVariants(db).map((v) => [v.id, v.unitCostPaise]));
   return all<{
     id: string;
     design_id: string;
@@ -267,6 +275,7 @@ export function variantsForSale(db: Db): SaleVariant[] {
     held: held.get(r.id)?.qty ?? 0,
     stock: r.stock,
     sellPricePaise: r.sell_price_paise,
+    unitCostPaise: cost.get(r.id) ?? 0,
   }));
 }
 
@@ -320,6 +329,18 @@ export function setDelivery(db: Db, id: string, update: DeliveryUpdate): Invoice
   if (deliveredOn !== null && !isIsoDate(deliveredOn)) throw new UserError('Enter a valid delivery date.');
   if (deliveredOn !== null && deliveredOn < invoice.issueDate) throw new UserError("It can't have been delivered before the invoice date.");
   run(db, 'UPDATE invoices SET delivery_status = ?, transport = ?, tracking_no = ?, delivered_on = ?, updated_at = ? WHERE id = ?', update.status, optionalText(update.transport, 'Transport', 80), optionalText(update.trackingNo, 'Tracking number', 60), deliveredOn, nowIso(), id);
+  return getInvoice(db, id);
+}
+
+/**
+ * Credits an issued invoice to someone else, or to no one. Who made the sale is not part of the tax document, so it can be put
+ * right afterwards; the rate on the invoice becomes that person's rate now.
+ */
+export function setSoldBy(db: Db, id: string, salespersonId: string | null): Invoice {
+  const invoice = getInvoice(db, id);
+  if (invoice.status === 'cancelled') throw new UserError('This invoice is cancelled.');
+  const who = salespersonId ? resolveSalesperson(db, salespersonId) : null;
+  run(db, 'UPDATE invoices SET salesperson_id = ?, salesperson_name = ?, commission_percent = ?, updated_at = ? WHERE id = ?', who?.id ?? null, who?.name ?? '', who?.commissionPercent ?? 0, nowIso(), id);
   return getInvoice(db, id);
 }
 
@@ -405,7 +426,12 @@ export function createInvoice(db: Db, input: InvoiceInput, opts: { exceptQuoteId
   if (input.dueDate !== null && isIsoDate(input.issueDate) && input.dueDate < input.issueDate) throw new UserError("The due date can't be before the invoice date.");
   const { type, customer, buyer, placeOfSupply, intraState, discount, notes } = checkDocument(db, settings, input);
 
-  const receivedNow = input.payment ? requireInt(input.payment.amountPaise, 'Payment', { max: MAX_PAISE }) : 0;
+  // Money handed over as the invoice is made: one payment, or several by different methods (part cash, part UPI).
+  // A single legacy `payment` of nothing (a ₹0 bill) means no payment; a zero in a `payments` list is still refused.
+  const handed = input.payments ?? (input.payment && input.payment.amountPaise !== 0 ? [input.payment] : []);
+  if (!Array.isArray(handed) || handed.length > MAX_SPLIT_PAYMENTS) throw new UserError(`An invoice can be paid by up to ${MAX_SPLIT_PAYMENTS} payments at once.`);
+  const paymentsNow = handed.map((p) => ({ ...p, amountPaise: requireInt(p.amountPaise, 'Payment', { min: 1, max: MAX_PAISE }) }));
+  const receivedNow = paymentsNow.reduce((s, p) => s + p.amountPaise, 0);
   const advanceToApply = input.applyAdvancePaise ? requireInt(input.applyAdvancePaise, 'Advance to apply', { max: MAX_PAISE }) : 0;
   if (advanceToApply > 0 && !customer) throw new UserError("Advance can only be applied to a saved customer's invoice.");
 
@@ -415,6 +441,7 @@ export function createInvoice(db: Db, input: InvoiceInput, opts: { exceptQuoteId
   const trackingNo = optionalText(input.trackingNo, 'Tracking number', 60);
   const deliveryStatus: DeliveryStatus = input.deliveryStatus && input.deliveryStatus in DELIVERY_STATUS_LABEL ? input.deliveryStatus : shipTo || transport ? 'pending' : 'none';
   const { series, prefix } = seriesOf(settings, type);
+  const soldBy = input.salespersonId ? resolveSalesperson(db, input.salespersonId) : null;
 
   const id = newId();
   tx(db, () => {
@@ -429,10 +456,10 @@ export function createInvoice(db: Db, input: InvoiceInput, opts: { exceptQuoteId
       run(
         db,
         `INSERT INTO invoices (id, number, fy, seq, series, type, customer_id, seller_json, buyer_json, place_of_supply, issue_date, due_date, gst_rate_percent, prices_include_gst, intra_state,
-           subtotal_paise, line_discount_paise, discount_paise, taxable_paise, cgst_paise, sgst_paise, igst_paise, round_off_paise, total_paise, notes, ship_to_json, transport, tracking_no, delivery_status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           subtotal_paise, line_discount_paise, discount_paise, taxable_paise, cgst_paise, sgst_paise, igst_paise, round_off_paise, total_paise, notes, ship_to_json, transport, tracking_no, delivery_status, salesperson_id, salesperson_name, commission_percent, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id, number, fy, seq, series, type, customer?.id ?? null, JSON.stringify(seller), JSON.stringify(buyer), placeOfSupply, input.issueDate, input.dueDate, settings.gstRatePercent, settings.pricesIncludeGst ? 1 : 0, intraState ? 1 : 0,
-        totals.subtotalPaise, totals.lineDiscountPaise, totals.discountPaise, totals.taxablePaise, totals.cgstPaise, totals.sgstPaise, totals.igstPaise, totals.roundOffPaise, totals.totalPaise, notes, shipTo ? JSON.stringify(shipTo) : '', transport, trackingNo, deliveryStatus, now, now,
+        totals.subtotalPaise, totals.lineDiscountPaise, totals.discountPaise, totals.taxablePaise, totals.cgstPaise, totals.sgstPaise, totals.igstPaise, totals.roundOffPaise, totals.totalPaise, notes, shipTo ? JSON.stringify(shipTo) : '', transport, trackingNo, deliveryStatus, soldBy?.id ?? null, soldBy?.name ?? '', soldBy?.commissionPercent ?? 0, now, now,
       );
     } catch (err) {
       if (isUniqueViolation(err)) throw new UserError('Another invoice took that number a moment ago. Please try again.');
@@ -468,16 +495,19 @@ export function createInvoice(db: Db, input: InvoiceInput, opts: { exceptQuoteId
       due -= applied;
     }
     if (receivedNow > 0) {
-      if (receivedNow > due) throw new UserError(`The payment (${formatMoney(receivedNow)}) is more than the ${formatMoney(due)} due on this invoice.`);
-      recordPaymentTx(db, {
-        customerId: customer?.id ?? null,
-        amountPaise: receivedNow,
-        method: input.payment!.method,
-        reference: input.payment!.reference ?? '',
-        receivedOn: input.issueDate > todayIso() ? todayIso() : input.issueDate,
-        note: `With invoice ${number}`,
-        allocations: [{ invoiceId: id, amountPaise: receivedNow }],
-      });
+      if (receivedNow > due) throw new UserError(`${paymentsNow.length === 1 ? 'The payment' : 'The payments'} (${formatMoney(receivedNow)}) ${paymentsNow.length === 1 ? 'is' : 'are'} more than the ${formatMoney(due)} due on this invoice.`);
+      for (const p of paymentsNow) {
+        recordPaymentTx(db, {
+          customerId: customer?.id ?? null,
+          amountPaise: p.amountPaise,
+          method: p.method,
+          reference: p.reference ?? '',
+          accountId: p.accountId,
+          receivedOn: input.issueDate > todayIso() ? todayIso() : input.issueDate,
+          note: `With invoice ${number}`,
+          allocations: [{ invoiceId: id, amountPaise: p.amountPaise }],
+        });
+      }
     }
   });
   return getInvoice(db, id);

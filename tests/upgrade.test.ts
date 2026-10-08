@@ -198,6 +198,15 @@ describe('upgrading a book from before raw-material stock and places', () => {
     migrate(db);
     for (const t of ['production_orders', 'production_materials', 'production_receipts', 'loyalty_points', 'wishlist', 'credit_notes', 'users']) expect(db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get()).toEqual({ n: 0 });
     expect({ ...db.prepare("SELECT stock, barcode FROM variants WHERE id = 'v1'").get() }).toEqual({ stock: 7, barcode: '' });
-    expect((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(23);
+    expect((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(LATEST_SCHEMA_VERSION);
+  });
+  it('adds a sales team to a book with invoices already in it, leaving them credited to no one', () => {
+    const db = bookAtVersion7();
+    migrate(db, 23);
+    migrate(db);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM salespeople').get()).toEqual({ n: 0 });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM invoices').get()).toEqual({ n: 2 });
+    expect({ ...db.prepare("SELECT salesperson_id, salesperson_name, commission_percent FROM invoices WHERE id = 'i1'").get() }).toEqual({ salesperson_id: null, salesperson_name: '', commission_percent: 0 });
+    expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
   });
 });

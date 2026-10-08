@@ -71,11 +71,16 @@ import type {
   NoteSubject,
   CustomerInput,
   CustomerPurchase,
+  CustomerTaste,
   DashboardNow,
   DayBook,
   DayBookMode,
   MarginBy,
   QuotesReport,
+  SharedFile,
+  Salesperson,
+  SalespersonInput,
+  SalespeopleReport,
   PricePoint,
   MarginLine,
   MarginReport,
@@ -266,6 +271,8 @@ export interface Api {
   customersImport(rows: { row: number; value: CustomerInput }[]): Promise<CustomerImportResult>;
   /** What this customer has bought, by design, most recent first. */
   customerPurchases(id: string): Promise<CustomerPurchase[]>;
+  /** What this customer usually buys: favourite colours and sizes, and the usual price of a piece. */
+  customerTaste(id: string): Promise<CustomerTaste>;
   /** Folds a duplicate into the customer you keep: their invoices, payments and quotes move across, blank details are filled in, and the duplicate is archived. */
   customerMerge(keepId: string, duplicateId: string): Promise<Customer>;
 
@@ -314,6 +321,19 @@ export interface Api {
   invoiceNextNumber(issueDate: string, type?: InvoiceType): Promise<string>;
   /** Updates carrier, tracking and delivery progress on an issued invoice. */
   invoiceSetDelivery(id: string, update: DeliveryUpdate): Promise<Invoice>;
+  /** Credits an invoice to a person on the sales team (or to no one, with null). */
+  invoiceSetSoldBy(id: string, salespersonId: string | null): Promise<Invoice>;
+  /** Makes the invoice's PDF ready to send: saved in a folder of its own and copied, so it can be pasted into a chat or an email. Desktop app only. */
+  invoiceShareFile(id: string): Promise<SharedFile>;
+  /** Shows a PDF made by `invoiceShareFile` in its folder. Desktop app only. */
+  shareReveal(path: string): Promise<void>;
+  salespeopleList(): Promise<Salesperson[]>;
+  salespersonCreate(input: SalespersonInput): Promise<Salesperson>;
+  salespersonUpdate(id: string, input: SalespersonInput): Promise<Salesperson>;
+  salespersonArchive(id: string): Promise<void>;
+  salespersonRestore(id: string): Promise<Salesperson>;
+  /** What each person sold in the period, and the commission on it. */
+  reportSalespeople(range: { from: string; to: string }): Promise<SalespeopleReport>;
   /** Issues the invoice and takes the stock out, atomically. */
   invoiceCreate(input: InvoiceInput): Promise<Invoice>;
   /** Cancels an issued invoice and puts its stock back. The number is never reused. */

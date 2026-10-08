@@ -115,6 +115,14 @@ describe('unfinished invoice recovery', () => {
     expect(parseInvoiceDraft(withExtras)).toEqual(withExtras);
   });
 
+  it('keeps a percent discount on an item and the other parts of a split payment, and drops invalid ones', () => {
+    const saved = { ...good, lines: [{ variantId: 'v1', qty: '3', price: 100000, discount: 150000, discountPct: 50, rate: '', note: '' }], extras: [{ method: 'cash', amountPaise: 30000, reference: '', accountId: 'cash' }] };
+    expect(parseInvoiceDraft(saved)).toEqual({ ...saved, lines: [{ ...saved.lines[0], discount: 150000 }] });
+    const bad = parseInvoiceDraft({ ...saved, lines: [{ ...saved.lines[0], discountPct: 250 }], extras: [{ method: 'barter', amountPaise: 100 }, { method: 'upi', amountPaise: 0 }, 'x'] })!;
+    expect(bad.lines[0]!.discountPct).toBeUndefined();
+    expect(bad.extras).toBeUndefined();
+  });
+
   it('drops an item discount, rate or note that is not valid', () => {
     const d = parseInvoiceDraft({ ...good, lines: [{ variantId: 'v1', qty: '1', price: 1, discount: -5, rate: '12abc', note: 7 }, { variantId: 'v2', qty: '1', price: 1, rate: '5.255' }] });
     expect(d!.lines).toEqual([{ variantId: 'v1', qty: '1', price: 1, discount: 0, rate: '', note: '' }, { variantId: 'v2', qty: '1', price: 1, discount: 0, rate: '', note: '' }]);

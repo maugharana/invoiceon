@@ -119,6 +119,8 @@ export const OWNER_ONLY = new Set([
   'reportProfitLoss', 'reportMargin', 'reportMarginDrill', 'reportGst', 'reportGstr1', 'reportPurchases', 'gstNet', 'accountBook',
   // Money handed out, points given, stock written off or recounted, and money moved between accounts.
   'creditNoteRefund', 'weaverOrderPay', 'transferCreate', 'loyaltyAdjust', 'stockAdjust', 'stockTakeApply',
+  // Who sold what, and what they earn on it.
+  'salespersonCreate', 'salespersonUpdate', 'salespersonArchive', 'salespersonRestore', 'invoiceSetSoldBy', 'reportSalespeople',
 ]);
 
 /** Always open, so a person can sign in. */

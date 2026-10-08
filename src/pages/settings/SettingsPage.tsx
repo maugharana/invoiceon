@@ -1,4 +1,4 @@
-import { Bell, Building2, Tags, CloudUpload, History, MessageSquare, ClipboardList, CreditCard, Database, FileText, Percent, Settings2, Sparkles, Tag, UserCog, Wallet, type LucideIcon } from 'lucide-react';
+import { Bell, Building2, Users, Tags, CloudUpload, History, MessageSquare, ClipboardList, CreditCard, Database, FileText, Percent, Settings2, Sparkles, Tag, UserCog, Wallet, type LucideIcon } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useToast } from '../../components/Toast';
 import { Button, Card, ErrorNote, PageHeader, Spinner } from '../../components/ui';
@@ -8,6 +8,7 @@ import { useSession } from '../../lib/session';
 import type { SettingsSection } from '../../lib/router';
 import { paths } from '../../lib/router';
 import { PeopleSection } from './PeopleSection';
+import { SalesTeamSection } from './SalesTeamSection';
 import { ActivitySection } from './ActivitySection';
 import { BackupSection } from './BackupSection';
 import { BusinessProfileSection } from './BusinessProfileSection';
@@ -49,9 +50,20 @@ const SECTIONS: SectionInfo[] = [
   { id: 'backup', label: 'Backup & Restore', icon: CloudUpload, title: 'Backup & Restore', subtitle: 'Copies of your book on this computer, on a second disk and in Google Drive.', saves: false },
   { id: 'catalogue', label: 'Saree Choices', icon: Tags, title: 'Saree Choices', subtitle: 'The lists you pick from when adding a saree: fix a typo, merge two spellings, remove what you do not use.', saves: false },
   { id: 'people', label: 'People', icon: UserCog, title: 'People', subtitle: 'Who can use the book, and what each person may do.', saves: false },
+  { id: 'team', label: 'Sales team', icon: Users, title: 'Sales team', subtitle: 'The people who make sales, and what each earns on them.', saves: false },
   { id: 'preferences', label: 'Preferences', icon: Settings2, title: 'Preferences', subtitle: 'Defaults used across the app.', saves: true },
   { id: 'activity', label: 'Activity', icon: History, title: 'Activity', subtitle: 'A record of what was done in InvoiceOn and when.', saves: false },
   { id: 'plus', label: 'InvoiceOn Plus', icon: Sparkles, title: 'InvoiceOn Plus', subtitle: 'Sync, teams and access from anywhere: what is planned.', saves: false },
+];
+
+/** The sixteen sections, under headings so the list can be scanned. */
+const GROUPS: { label: string; ids: SettingsSection[] }[] = [
+  { label: 'Business', ids: ['business', 'tax', 'accounts', 'instructions', 'team'] },
+  { label: 'Documents', ids: ['invoice', 'proforma', 'messages'] },
+  { label: 'Lists', ids: ['expenses', 'catalogue'] },
+  { label: 'App', ids: ['notifications', 'preferences'] },
+  { label: 'Data and access', ids: ['data', 'backup', 'people', 'activity'] },
+  { label: 'More', ids: ['plus'] },
 ];
 
 function renderSection(id: SettingsSection, draft: Draft, set: SetDraft): ReactNode {
@@ -82,6 +94,8 @@ function renderSection(id: SettingsSection, draft: Draft, set: SetDraft): ReactN
       return <CatalogueSection />;
     case 'people':
       return <PeopleSection />;
+    case 'team':
+      return <SalesTeamSection />;
     case 'preferences':
       return <PreferencesSection draft={draft} set={set} />;
     case 'activity':
@@ -150,38 +164,57 @@ export function SettingsPage({ section }: { section: SettingsSection }) {
 
       <div className="flex items-start gap-8">
         <nav aria-label="Settings" className="sticky top-0 w-52 shrink-0">
-          <ul className="space-y-0.5">
-            {SECTIONS.map((s) => {
-              const active = s.id === section;
-              return (
-                <li key={s.id}>
-                  <a
-                    href={`#${paths.settingsSection(s.id)}`}
-                    aria-current={active ? 'page' : undefined}
-                    className={`flex h-10 items-center gap-3 border-l-2 px-3 transition-colors duration-150 ${active ? 'border-brand bg-brand-tint font-medium text-brand' : 'border-transparent text-ink-muted hover:bg-ink/5 hover:text-ink'}`}
-                  >
-                    <s.icon className="h-[18px] w-[18px] shrink-0" aria-hidden />
-                    <span className="truncate">{s.label}</span>
-                  </a>
-                </li>
-              );
-            })}
-          </ul>
+          {GROUPS.map((g, gi) => (
+            <div key={g.label} className={gi === 0 ? '' : 'mt-4'}>
+              <div className="px-3 pb-1 text-[11px] uppercase tracking-wider text-ink-muted/80">{g.label}</div>
+              <ul className="space-y-0.5">
+                {g.ids.map((id) => {
+                  const s = SECTIONS.find((x) => x.id === id)!;
+                  const active = s.id === section;
+                  return (
+                    <li key={s.id}>
+                      <a
+                        href={`#${paths.settingsSection(s.id)}`}
+                        aria-current={active ? 'page' : undefined}
+                        className={`flex h-9 items-center gap-3 border-l-2 px-3 transition-colors duration-150 ${active ? 'border-brand bg-brand-tint font-medium text-brand' : 'border-transparent text-ink-muted hover:bg-ink/5 hover:text-ink'}`}
+                      >
+                        <s.icon className="h-[18px] w-[18px] shrink-0" aria-hidden />
+                        <span className="truncate">{s.label}</span>
+                      </a>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
         </nav>
 
-        <Card className="min-w-0 flex-1 p-6">
-          {/* Keyed so each section eases in when you switch. */}
-          <div key={info.id} className="animate-fade-in">
-            <h2 className="text-xl tracking-tight">{info.title}</h2>
-            <p className="mb-6 mt-1 text-ink-muted">{info.subtitle}</p>
-            {error && (
-              <div className="mb-5">
-                <ErrorNote>{error}</ErrorNote>
-              </div>
-            )}
+        <div className="min-w-0 flex-1">
+          <Card className="p-6">
+            {/* Keyed so each section eases in when you switch. */}
+            <div key={info.id} className="animate-fade-in">
+              <h2 className="text-xl tracking-tight">{info.title}</h2>
+              <p className="mb-6 mt-1 text-ink-muted">{info.subtitle}</p>
+              {error && (
+                <div className="mb-5">
+                  <ErrorNote>{error}</ErrorNote>
+                </div>
+              )}
             {renderSection(info.id, draft, set)}
           </div>
         </Card>
+        {dirty && (
+          <div className="animate-fade-up sticky bottom-4 z-20 mt-4 flex items-center justify-between gap-4 rounded-xl border border-line bg-surface px-5 py-3 shadow-overlay print:hidden" role="status">
+            <span className="text-ink-muted">You have unsaved changes.</span>
+            <span className="flex items-center gap-2">
+              <Button onClick={() => settings.data && setDraft(toDraft(settings.data))}>Discard</Button>
+              <Button variant="primary" loading={saving} onClick={save}>
+                Save changes
+              </Button>
+            </span>
+          </div>
+        )}
+        </div>
       </div>
     </>
   );

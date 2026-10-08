@@ -161,7 +161,7 @@ export default function App() {
   if (route.name === 'print-invoices') return <PrintInvoicesPage ids={route.ids} />;
   return (
     <SessionGate>
-    <AppShell active={sectionOf(route)} pageKey={pageKey(route)} hideFab={route.name === 'invoice-new' || route.name === 'quick-bill' || route.name === 'proforma-new' || route.name === 'proforma-edit' || route.name === 'inventory-add' || route.name === 'inventory-names' || route.name === 'weaver-order-new' || route.name === 'weaver-order-edit' || route.name === 'stock-take'}>
+    <AppShell active={sectionOf(route)} pageKey={pageKey(route)}>
       {renderRoute(route)}
     </AppShell>
     </SessionGate>

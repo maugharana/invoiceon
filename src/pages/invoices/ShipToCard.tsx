@@ -95,7 +95,12 @@ export function ShipToCard({
       )}
       <div className="grid grid-cols-2 gap-3">
         <Field label="Transport / courier">
-          <Input value={transport} onChange={(e) => onTransport(e.target.value)} placeholder="Optional" />
+          <Input value={transport} onChange={(e) => onTransport(e.target.value)} placeholder="Pick or type — optional" list="transport-choices" />
+          <datalist id="transport-choices">
+            {['Self pickup', 'Hand delivery', 'Courier', 'Transport / lorry', 'India Post'].map((t) => (
+              <option key={t} value={t} />
+            ))}
+          </datalist>
         </Field>
         <Field label="Tracking / LR number">
           <Input value={trackingNo} onChange={(e) => onTrackingNo(e.target.value)} placeholder="Add later if not known" className="num" />

@@ -573,6 +573,61 @@ export interface CustomerPurchase {
   variants: string[];
 }
 
+/** What a customer usually buys, from their issued invoices: their favourite colours and sizes, and what a piece usually costs them. */
+export interface CustomerTaste {
+  /** Pieces bought in all. Zero for a customer with no purchases yet. */
+  pieces: number;
+  invoiceCount: number;
+  /** What one piece came to on average, before GST and before any discount. */
+  averagePiecePaise: Paise;
+  lastBoughtOn: string | null;
+  /** The colours they buy most, with how many pieces of each. Most first. */
+  colors: { name: string; pieces: number }[];
+  sizes: { name: string; pieces: number }[];
+}
+
+/** A document made ready to send: a PDF in a folder of its own, and on the clipboard when the computer allows it. */
+export interface SharedFile {
+  path: string;
+  /** The file is on the clipboard, so pasting into a chat or an email attaches it. */
+  copied: boolean;
+}
+
+// ── Sales team ──────────────────────────────────────────────────────────────
+export interface Salesperson {
+  id: string;
+  name: string;
+  /** Share of what they sell (before GST) that is theirs, as a percentage. */
+  commissionPercent: number;
+  /** No longer on the list for new bills. What they sold stays on record. */
+  archived: boolean;
+  /** Invoices still standing that carry their name. */
+  invoiceCount: number;
+}
+export interface SalespersonInput {
+  name: string;
+  commissionPercent: number;
+}
+export interface SalespersonReportRow {
+  /** Null for sales with nobody recorded. */
+  salespersonId: string | null;
+  name: string;
+  /** Their rate now, null for "No one recorded". Each bill carries the rate it was made at. */
+  commissionPercent: number | null;
+  invoices: number;
+  /** What they sold in the period, before GST. */
+  salesPaise: Paise;
+  /** Goods taken back in the period on what they sold, before GST. */
+  returnsPaise: Paise;
+  netPaise: Paise;
+  commissionPaise: Paise;
+}
+export interface SalespeopleReport {
+  range: { from: string; to: string };
+  rows: SalespersonReportRow[];
+  totals: { invoices: number; salesPaise: Paise; returnsPaise: Paise; netPaise: Paise; commissionPaise: Paise };
+}
+
 // ── Payments ────────────────────────────────────────────────────────────────
 export const PAYMENT_METHODS = ['cash', 'upi', 'bank', 'cheque', 'card', 'other'] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
@@ -816,7 +871,17 @@ export interface InvoiceSummary {
   status: InvoiceStatus;
 }
 
+/** The person credited with an invoice, and the commission rate their sale carries. */
+export interface InvoiceSoldBy {
+  /** Null when the invoice was recorded under a name only (the person has since been removed) or under nobody. */
+  id: string | null;
+  name: string;
+  commissionPercent: number;
+}
+
 export interface Invoice extends InvoiceSummary {
+  /** Who made the sale, if anyone was recorded. Not part of the tax document: it can be corrected after the invoice is issued. */
+  soldBy: InvoiceSoldBy | null;
   /**
    * The seller's details as they were when the invoice was issued. Content that matters legally or to the customer (address,
    * GSTIN, terms, where to pay) is frozen here; how it's dressed is `branding`, below.
@@ -873,7 +938,11 @@ export interface InvoiceInput {
   notes: string;
   lines: LineInput[];
   /** Money the customer hands over as the invoice is made — recorded in the same step as issuing it. */
-  payment?: { amountPaise: Paise; method: PaymentMethod; reference: string };
+  payment?: { amountPaise: Paise; method: PaymentMethod; reference: string; /** Which of the shop's accounts it went into (Settings > Payment accounts). */ accountId?: string };
+  /** The same, when several payments by different methods settle it together (part cash, part UPI). Used instead of `payment`. */
+  payments?: { amountPaise: Paise; method: PaymentMethod; reference: string; accountId?: string }[];
+  /** Who made the sale. Optional: not every shop records it. */
+  salespersonId?: string | null;
   /** How much of the customer's held advance to put toward this invoice. */
   applyAdvancePaise?: Paise;
   /** Loyalty points being spent. Their value must be part of the discount. */
@@ -916,6 +985,8 @@ export interface SaleVariant {
   sku: string;
   stock: number;
   sellPricePaise: Paise;
+  /** What one piece costs the shop (making or buying, plus materials). Used to warn before a bill goes below cost. */
+  unitCostPaise: Paise;
 }
 
 export interface DashboardSummary {
@@ -1321,17 +1392,20 @@ export interface ProformaRevision {
   lines: { designName: string; color: string; size: string; sku: string; qty: number; unitPricePaise: Paise; amountPaise: Paise }[];
 }
 
-/** A saved set of items to start new quotes from. */
+/**
+ * A saved set of items to start a bill or a quote from: a bundle. Each item can carry a discount, which is how a bundle sells at a
+ * price of its own.
+ */
 export interface QuoteTemplate {
   id: string;
   name: string;
   notes: string;
-  lines: { variantId: string; qty: number; unitPricePaise: Paise }[];
+  lines: { variantId: string; qty: number; unitPricePaise: Paise; /** Taken off this item, in paise. Absent in bundles saved before items could carry one. */ discountPaise?: Paise }[];
 }
 export interface QuoteTemplateInput {
   name: string;
   notes: string;
-  lines: { variantId: string; qty: number; unitPricePaise: Paise }[];
+  lines: { variantId: string; qty: number; unitPricePaise: Paise; discountPaise?: Paise }[];
 }
 
 export interface ProformaInput {

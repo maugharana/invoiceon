@@ -1,8 +1,8 @@
-import { AlertCircle, Clock, FileText, HandCoins, Hourglass, Plus, Receipt, SlidersHorizontal, Sparkles } from 'lucide-react';
+import { AlertCircle, ChevronDown, Clock, FileText, HandCoins, Hourglass, Plus, Receipt, SlidersHorizontal, Sparkles } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 import { todayIso } from '../../shared/gst';
 import { onboardingDone, onboardingSteps } from '../../shared/onboarding';
-import { defaultLayout, normaliseLayout, visibleSections, type DashboardLayout, type DashboardSectionId } from '../../shared/dashboardLayout';
+import { defaultLayout, normaliseLayout, splitSections, type DashboardLayout, type DashboardSectionId } from '../../shared/dashboardLayout';
 import { formatMoney } from '../../shared/money';
 import { COMPARE_LABEL, COMPARE_OPTIONS, PERIOD_LABEL, resolvePeriod, type CompareWith, type PeriodPreset } from '../../shared/periods';
 import { AgingChart, ChartCard, C_EXPENSES, C_INVOICED, C_RECEIVED, RankedBars, TrendChart } from '../components/charts';
@@ -36,6 +36,7 @@ const STORE_KEY = 'invoiceon.dashboard.period';
 const COMPARE_KEY = 'invoiceon.dashboard.compare';
 const LAYOUT_KEY = 'invoiceon.dashboard.layout';
 const ONBOARDING_KEY = 'invoiceon.onboarding.dismissed';
+const MORE_KEY = 'invoiceon.dashboard.more';
 
 function loadPeriod(): Period {
   try {
@@ -87,6 +88,15 @@ function briefing(o: DashboardOverview, lowStock: number, openQuotes: number): s
   return `${parts.join(' · ')}.`;
 }
 
+/** What each part under "More detail" is called in the one line that says what is inside. */
+const DETAIL_NAME: Partial<Record<DashboardSectionId, string>> = {
+  money: 'profit and GST',
+  speed: 'payment speed',
+  charts: 'charts',
+  insights: 'best sellers',
+  mix: 'how customers paid',
+};
+
 export function DashboardPage() {
   const { start } = useQuickCreate();
   const [period, setPeriodState] = useState<Period>(loadPeriod);
@@ -113,6 +123,22 @@ export function DashboardPage() {
     setLayoutState(l);
     try {
       localStorage.setItem(LAYOUT_KEY, JSON.stringify(l));
+    } catch {
+      /* remembering the choice is a nicety */
+    }
+  };
+  // The analysis sits under "More detail", closed until asked for. The choice is remembered.
+  const [showMore, setShowMoreState] = useState(() => {
+    try {
+      return localStorage.getItem(MORE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const setShowMore = (v: boolean) => {
+    setShowMoreState(v);
+    try {
+      localStorage.setItem(MORE_KEY, v ? '1' : '0');
     } catch {
       /* remembering the choice is a nicety */
     }
@@ -321,7 +347,10 @@ export function DashboardPage() {
   };
 
   // Until the first invoice, expense or payment exists most sections would only show zeros, so only the recent-activity row stays.
-  const shown = visibleSections(layout).filter((id) => !brandNew || id === 'activity');
+  const { main, detail } = splitSections(layout);
+  const shownMain = main.filter((id) => !brandNew || id === 'activity');
+  const shownDetail = brandNew ? [] : detail;
+  const detailNames = shownDetail.map((id) => DETAIL_NAME[id]).filter(Boolean).join(', ');
 
   return (
     <>
@@ -371,7 +400,7 @@ export function DashboardPage() {
           <EmptyState
             icon={<FileText className="h-6 w-6" />}
             title="Your dashboard fills in as you work"
-            body="Issue an invoice, record a payment or log an expense and the figures and charts appear here. The + button (bottom right) creates anything in one click; Ctrl K finds anything."
+            body="Issue an invoice, record a payment or log an expense and the figures and charts appear here. The arrow beside New invoice (top right) creates anything in one click; Ctrl K finds anything."
             actions={
               <>
                 <Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => start('invoice')}>
@@ -384,7 +413,7 @@ export function DashboardPage() {
         </Card>
       )}
 
-      {shown.length === 0 && !brandNew ? (
+      {shownMain.length === 0 && shownDetail.length === 0 && !brandNew ? (
         <Card>
           <EmptyState
             icon={<SlidersHorizontal className="h-6 w-6" />}
@@ -395,9 +424,24 @@ export function DashboardPage() {
         </Card>
       ) : (
         <div className="space-y-4">
-          {shown.map((id) => (
+          {shownMain.map((id) => (
             <div key={id}>{sections[id]}</div>
           ))}
+          {shownDetail.length > 0 && (
+            <>
+              <button
+                type="button"
+                onClick={() => setShowMore(!showMore)}
+                aria-expanded={showMore}
+                className="group flex w-full items-center gap-3 rounded-lg border border-line bg-surface px-5 py-3 text-left transition-colors duration-150 hover:border-ink/25"
+              >
+                <ChevronDown className={`h-4 w-4 shrink-0 text-ink-muted transition-transform duration-200 ${showMore ? 'rotate-180' : ''}`} aria-hidden />
+                <span className="font-medium">{showMore ? 'Hide detail' : 'More detail'}</span>
+                <span className="min-w-0 flex-1 truncate text-ink-muted">{detailNames}</span>
+              </button>
+              {showMore && shownDetail.map((id) => <div key={id}>{sections[id]}</div>)}
+            </>
+          )}
         </div>
       )}
 

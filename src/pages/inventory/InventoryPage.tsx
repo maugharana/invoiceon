@@ -6,6 +6,7 @@ import { formatDate, todayIso } from '../../../shared/gst';
 import { formatMoney } from '../../../shared/money';
 import { tagCounts } from '../../../shared/tags';
 import { TagChips } from '../../components/TagInput';
+import { Menu } from '../../components/Menu';
 import { Pager, SortableTh, sortBy, usePager, useSort } from '../../components/listTools';
 import { Button, Card, EmptyState, ErrorNote, Field, Figure, Money, MoneyInput, SearchInput, Segmented, Select, TableSkeleton, StockPill } from '../../components/ui';
 import { useToast } from '../../components/Toast';
@@ -123,37 +124,27 @@ export function InventoryPage({ initialFilter }: { initialFilter: Filter }) {
       actions={
         <>
           {!isEmptyInventory && (
-            <Button icon={<ClipboardCheck className="h-4 w-4" />} onClick={() => navigate(paths.stockTake)} title="Count what is on the shelf and fix the differences">
-              Stock-take
-            </Button>
-          )}
-          {!isEmptyInventory && (
-            <Button icon={<MapPin className="h-4 w-4" />} onClick={() => setPlaces(true)} title="Add a godown or showroom to keep stock in">
-              Places
-            </Button>
-          )}
-          {!isEmptyInventory && (
-            <Button icon={<Download className="h-4 w-4" />} disabled={shown.length === 0} onClick={() => void saveCsv(`designs-${todayIso()}.csv`, designsCsv(shown), 'Designs saved')} title="Save the designs shown as a spreadsheet">
-              Export CSV
-            </Button>
-          )}
-          {!isEmptyInventory && (
-            <Button
-              icon={<Globe className="h-4 w-4" />}
-              onClick={() =>
-                void (async () => {
-                  try {
-                    const [listings, shop] = await Promise.all([api.websiteListings(), api.getSettings()]);
-                    await saveCsv(`website-products-${todayIso()}.csv`, websiteCsv(listings, { name: shop.businessName }), 'Product file saved. Import it as drafts in your online shop.');
-                  } catch (err) {
-                    toast.error(errorMessage(err));
-                  }
-                })()
-              }
-              title="Every design as a product import for an online shop, as drafts"
-            >
-              Website CSV
-            </Button>
+            <Menu
+              label="More"
+              items={[
+                { label: 'Stock-take', icon: <ClipboardCheck className="h-4 w-4" />, onClick: () => navigate(paths.stockTake) },
+                { label: 'Places', icon: <MapPin className="h-4 w-4" />, onClick: () => setPlaces(true) },
+                { label: 'Export CSV', icon: <Download className="h-4 w-4" />, disabledReason: shown.length === 0 ? 'Nothing to export' : undefined, onClick: () => void saveCsv(`designs-${todayIso()}.csv`, designsCsv(shown), 'Designs saved') },
+                {
+                  label: 'Website CSV',
+                  icon: <Globe className="h-4 w-4" />,
+                  onClick: () =>
+                    void (async () => {
+                      try {
+                        const [listings, shop] = await Promise.all([api.websiteListings(), api.getSettings()]);
+                        await saveCsv(`website-products-${todayIso()}.csv`, websiteCsv(listings, { name: shop.businessName }), 'Product file saved. Import it as drafts in your online shop.');
+                      } catch (err) {
+                        toast.error(errorMessage(err));
+                      }
+                    })(),
+                },
+              ]}
+            />
           )}
           <Button onClick={() => setAdding(true)}>Add one design</Button>
           <Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => navigate(paths.addSarees)}>

@@ -5,7 +5,7 @@ import { formatDate, todayIso } from '../../../shared/gst';
 import { CHEQUE_STATUS_LABEL, PAYMENT_METHODS, PAYMENT_METHOD_LABEL, type DuesRow, type Payment, type PaymentMethod } from '../../../shared/types';
 import { ConfirmDialog } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
-import { DateRangeFilter, Pager, SortableTh, sortBy, usePager, useSort, type DateRangeValue } from '../../components/listTools';
+import { DateRangeFilter, FilterBar, Pager, SortableTh, sortBy, usePager, useSort, type DateRangeValue } from '../../components/listTools';
 import { Button, Card, EmptyState, ErrorNote, Field, Figure, IconButton, Input, Money, PageHeader, Pill, SearchInput, Segmented, Select, TableSkeleton } from '../../components/ui';
 import { api } from '../../lib/api';
 import { useQuery, useRefresh } from '../../lib/data';
@@ -48,9 +48,11 @@ export function PaymentsShell({ tab, children }: { tab: PaymentsTab; children: R
         title="Payments"
         subtitle="What you've received, and who still owes you."
         actions={
-          <Button icon={<Plus className="h-4 w-4" />} onClick={() => setRecording(true)}>
-            Record payment
-          </Button>
+          <>
+            <Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => setRecording(true)}>
+              Record payment
+            </Button>
+          </>
         }
       />
       {s && (
@@ -148,20 +150,27 @@ export function PaymentsPage() {
         </Card>
       ) : (
         <>
-          <div className="mb-4 flex items-center justify-between gap-4">
-            <SearchInput value={search} onChange={setSearch} placeholder="Search customer, reference or invoice" />
-            <div className="flex flex-wrap items-center justify-end gap-3">
-              <DateRangeFilter onChange={setDates} />
-              <div className="w-40">
-                <Select value={method} onChange={(e) => setMethod(e.target.value as '' | PaymentMethod)} aria-label="Method">
-                  <option value="">Any method</option>
-                  {PAYMENT_METHODS.map((m) => (
-                    <option key={m} value={m}>
-                      {PAYMENT_METHOD_LABEL[m]}
-                    </option>
-                  ))}
-                </Select>
-              </div>
+          <FilterBar
+            search={<SearchInput value={search} onChange={setSearch} placeholder="Search customer, reference or invoice" />}
+            filters={
+              <>
+                <DateRangeFilter onChange={setDates} />
+                <div className="w-40">
+                  <Select value={method} onChange={(e) => setMethod(e.target.value as '' | PaymentMethod)} aria-label="Method">
+                    <option value="">Any method</option>
+                    {PAYMENT_METHODS.map((m) => (
+                      <option key={m} value={m}>
+                        {PAYMENT_METHOD_LABEL[m]}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+                <Button className="ml-auto" icon={<Download className="h-4 w-4" />} disabled={sorted.length === 0} onClick={() => void saveCsv(`payments-${todayIso()}.csv`, paymentsCsv(sorted), 'Payments saved')}>
+                  Export CSV
+                </Button>
+              </>
+            }
+            status={
               <Segmented
                 label="Payment filter"
                 value={status}
@@ -174,11 +183,8 @@ export function PaymentsPage() {
                   { value: 'unreconciled', label: 'Not matched' },
                 ]}
               />
-              <Button icon={<Download className="h-4 w-4" />} disabled={sorted.length === 0} onClick={() => void saveCsv(`payments-${todayIso()}.csv`, paymentsCsv(sorted), 'Payments saved')}>
-                Export CSV
-              </Button>
-            </div>
-          </div>
+            }
+          />
           <Card className="overflow-x-auto">
             {payments.loading ? (
               <TableSkeleton />

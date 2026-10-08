@@ -1,9 +1,10 @@
-import { ChevronRight, Download, FileText, Plus, Printer, SearchX } from 'lucide-react';
+import { ChevronRight, Download, FileText, Notebook, Plus, Printer, SearchX } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { invoicesCsv } from '../../../shared/csv';
 import { formatDate, todayIso } from '../../../shared/gst';
-import { DateRangeFilter, Pager, SortableTh, sortBy, usePager, useSort, type DateRangeValue } from '../../components/listTools';
+import { DateRangeFilter, FilterBar, Pager, SortableTh, sortBy, usePager, useSort, type DateRangeValue } from '../../components/listTools';
 import { DELIVERY_STATUS_LABEL, type DeliveryStatus } from '../../../shared/types';
+import { Menu } from '../../components/Menu';
 import { Button, Card, EmptyState, ErrorNote, InvoicePill, Money, PageHeader, SearchInput, Segmented, Select, TableSkeleton, TypePill } from '../../components/ui';
 import { api } from '../../lib/api';
 import { useQuery } from '../../lib/data';
@@ -74,9 +75,6 @@ export function InvoicesPage({ initialStatus }: { initialStatus: Status }) {
               <Button onClick={() => navigate(paths.quickBill)} title="The counter screen: scan, press how they paid">
                 Quick bill
               </Button>
-              <Button onClick={() => navigate(paths.creditNotes)} title="Goods taken back from invoices">
-                Credit notes
-              </Button>
               {selected.size > 0 && (
                 <>
                   <Button icon={<Download className="h-4 w-4" />} onClick={() => void docs.savePdf(paths.printInvoices([...selected]), () => api.invoicesExportPdf([...selected]))} title="Save the ticked invoices together in one PDF, one per page">
@@ -87,9 +85,18 @@ export function InvoicesPage({ initialStatus }: { initialStatus: Status }) {
                   </Button>
                 </>
               )}
-            <Button icon={<Download className="h-4 w-4" />} disabled={toExport.length === 0} onClick={() => void saveCsv(`invoices-${todayIso()}.csv`, invoicesCsv(toExport), 'Invoices saved')} title={selected.size > 0 ? 'Save the ticked invoices as a spreadsheet' : 'Save everything the filters show as a spreadsheet'}>
-              {selected.size > 0 ? `Export ${selected.size} selected` : 'Export CSV'}
-            </Button>
+              <Menu
+                label="More"
+                items={[
+                  { label: 'Credit notes', icon: <Notebook className="h-4 w-4" />, onClick: () => navigate(paths.creditNotes) },
+                  {
+                    label: selected.size > 0 ? `Export ${selected.size} selected as CSV` : 'Export CSV',
+                    icon: <Download className="h-4 w-4" />,
+                    disabledReason: toExport.length === 0 ? 'Nothing to export' : undefined,
+                    onClick: () => void saveCsv(`invoices-${todayIso()}.csv`, invoicesCsv(toExport), 'Invoices saved'),
+                  },
+                ]}
+              />
             </>
           )
         }
@@ -111,28 +118,32 @@ export function InvoicesPage({ initialStatus }: { initialStatus: Status }) {
         </Card>
       ) : (
         <>
-          <div className="mb-4 flex items-center justify-between gap-4">
-            <SearchInput value={search} onChange={setSearch} placeholder="Search invoice number or customer" />
-            <div className="flex flex-wrap items-center justify-end gap-3">
-              <DateRangeFilter onChange={setDates} />
-              <Select value={delivery} onChange={(e) => setDelivery(e.target.value as '' | DeliveryStatus)} className="w-36" aria-label="Delivery">
-                <option value="">Any delivery</option>
-                {(['pending', 'dispatched', 'delivered'] as const).map((d) => (
-                  <option key={d} value={d}>
-                    {DELIVERY_STATUS_LABEL[d]}
-                  </option>
-                ))}
-              </Select>
-              <Segmented
-                label="Invoice type"
-                value={type}
-                onChange={setType}
-                options={[
-                  { value: 'all', label: 'All types' },
-                  { value: 'B2B', label: 'B2B' },
-                  { value: 'B2C', label: 'B2C' },
-                ]}
-              />
+          <FilterBar
+            search={<SearchInput value={search} onChange={setSearch} placeholder="Search invoice number or customer" />}
+            filters={
+              <>
+                <DateRangeFilter onChange={setDates} />
+                <Select value={delivery} onChange={(e) => setDelivery(e.target.value as '' | DeliveryStatus)} className="w-36" aria-label="Delivery">
+                  <option value="">Any delivery</option>
+                  {(['pending', 'dispatched', 'delivered'] as const).map((d) => (
+                    <option key={d} value={d}>
+                      {DELIVERY_STATUS_LABEL[d]}
+                    </option>
+                  ))}
+                </Select>
+                <Segmented
+                  label="Invoice type"
+                  value={type}
+                  onChange={setType}
+                  options={[
+                    { value: 'all', label: 'All types' },
+                    { value: 'B2B', label: 'B2B' },
+                    { value: 'B2C', label: 'B2C' },
+                  ]}
+                />
+              </>
+            }
+            status={
               <Segmented
                 label="Invoice status"
                 value={status}
@@ -144,8 +155,8 @@ export function InvoicesPage({ initialStatus }: { initialStatus: Status }) {
                   { value: 'cancelled', label: 'Cancelled' },
                 ]}
               />
-            </div>
-          </div>
+            }
+          />
 
           <Card className="overflow-x-auto">
             {invoices.loading ? (

@@ -895,6 +895,23 @@ CREATE TABLE users (
 ALTER TABLE audit_log ADD COLUMN actor TEXT NOT NULL DEFAULT '';
 `;
 
+const V24 = `
+-- The people who sell, kept apart from the people who sign in. An invoice remembers who sold it and the commission rate at that moment.
+CREATE TABLE salespeople (
+  id                 TEXT PRIMARY KEY,
+  name               TEXT NOT NULL,
+  commission_percent REAL NOT NULL DEFAULT 0 CHECK (commission_percent >= 0 AND commission_percent <= 100),
+  created_at         TEXT NOT NULL,
+  updated_at         TEXT NOT NULL,
+  deleted_at         TEXT
+);
+CREATE UNIQUE INDEX ux_salespeople_name ON salespeople (name COLLATE NOCASE) WHERE deleted_at IS NULL;
+ALTER TABLE invoices ADD COLUMN salesperson_id TEXT REFERENCES salespeople (id);
+ALTER TABLE invoices ADD COLUMN salesperson_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE invoices ADD COLUMN commission_percent REAL NOT NULL DEFAULT 0;
+CREATE INDEX ix_invoices_salesperson ON invoices (salesperson_id) WHERE salesperson_id IS NOT NULL;
+`;
+
 const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 1, sql: V1 },
   { version: 2, sql: V2 },
@@ -919,6 +936,7 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 21, sql: V21 },
   { version: 22, sql: V22 },
   { version: 23, sql: V23 },
+  { version: 24, sql: V24 },
 ];
 
 /** Brings a database up to date. `upTo` stops early at a version, which only the tests use, to build an older database to upgrade. */

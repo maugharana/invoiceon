@@ -3,6 +3,7 @@ import { openDb, type Db } from '../electron/db/connection';
 import * as customers from '../electron/services/customers';
 import * as inventory from '../electron/services/inventory';
 import * as invoices from '../electron/services/invoices';
+import * as payments from '../electron/services/payments';
 import { getSettings, saveSettings } from '../electron/services/settings';
 import { addDays, todayIso } from '../shared/gst';
 import type { CustomerInput, InvoiceInput } from '../shared/types';
@@ -23,6 +24,59 @@ const biz: CustomerInput = { name: 'Kanchan Sarees', type: 'B2B', phone: '', ema
 const customer = (over: Partial<CustomerInput> = {}) => customers.createCustomer(db, { ...biz, gstin: '09AAACH7409R1ZZ', ...over });
 const invoice = (over: Partial<InvoiceInput> = {}) =>
   invoices.createInvoice(db, { type: 'B2C', customerId: null, issueDate: today, dueDate: today, discountPaise: 0, notes: '', lines: [{ variantId, qty: 1, unitPricePaise: rupees(1000) }], ...over });
+
+describe('money handed over with the invoice', () => {
+  it('goes into the account chosen for it, and is refused if that account is not one of the shop accounts', () => {
+    saveSettings(db, { paymentAccounts: [{ id: 'acc-upi', name: 'Shop UPI', kind: 'upi', details: '' }] });
+    const inv = invoice({ payment: { amountPaise: rupees(1000), method: 'upi', reference: 'UTR1', accountId: 'acc-upi' } });
+    expect(inv.payments[0]).toMatchObject({ method: 'upi', reference: 'UTR1' });
+    expect(payments.getPayment(db, inv.payments[0]!.paymentId).accountId).toBe('acc-upi');
+    expect(() => invoice({ payment: { amountPaise: rupees(1000), method: 'upi', reference: '', accountId: 'nope' } })).toThrow(/account/);
+  });
+});
+
+describe('a bill with nothing to pay', () => {
+  it('accepts the old single payment of nothing (a free item) but still refuses a zero in the list of parts', () => {
+    const free = [{ variantId, qty: 1, unitPricePaise: 0 }];
+    const inv = invoice({ lines: free, payment: { amountPaise: 0, method: 'cash', reference: '' } });
+    expect(inv.totalPaise).toBe(0);
+    expect(inv.payments).toHaveLength(0);
+    expect(() => invoice({ lines: free, payments: [{ amountPaise: 0, method: 'cash', reference: '' }] })).toThrow(/Payment/);
+  });
+});
+
+describe('a bill paid in parts', () => {
+  it('records each part as its own payment, by its own method and account, and settles the invoice', () => {
+    saveSettings(db, { paymentAccounts: [{ id: 'cash', name: 'Cash drawer', kind: 'cash', details: '' }, { id: 'upi', name: 'Shop UPI', kind: 'upi', details: '' }] });
+    const inv = invoice({ payments: [{ amountPaise: rupees(400), method: 'cash', reference: '', accountId: 'cash' }, { amountPaise: rupees(650), method: 'upi', reference: 'UTR9', accountId: 'upi' }] }); // ₹1,050 with GST
+    expect(inv.paidPaise).toBe(rupees(1050));
+    expect(inv.status).toBe('paid');
+    expect(inv.payments.map((p) => [p.method, p.amountPaise, p.reference]).sort()).toEqual([['cash', rupees(400), ''], ['upi', rupees(650), 'UTR9']]);
+    expect(inv.payments.map((p) => payments.getPayment(db, p.paymentId).accountId).sort()).toEqual(['cash', 'upi']);
+  });
+
+  it('can leave part of it to pay later, and refuses parts that add up to more than the bill', () => {
+    const partly = invoice({ payments: [{ amountPaise: rupees(300), method: 'cash', reference: '' }, { amountPaise: rupees(200), method: 'upi', reference: '' }] });
+    expect(partly.paidPaise).toBe(rupees(500));
+    expect(partly.status).toBe('partial');
+    expect(partly.totalPaise - partly.paidPaise).toBe(rupees(550));
+    expect(() => invoice({ payments: [{ amountPaise: rupees(600), method: 'cash', reference: '' }, { amountPaise: rupees(600), method: 'upi', reference: '' }] })).toThrow(/more than the/);
+    expect(() => invoice({ payments: [{ amountPaise: 0, method: 'cash', reference: '' }] })).toThrow(/Payment/);
+    expect(() => invoice({ payments: Array.from({ length: 7 }, () => ({ amountPaise: 100, method: 'cash' as const, reference: '' })) })).toThrow(/up to 6/);
+  });
+
+  it('still takes a single payment the old way', () => {
+    expect(invoice({ payment: { amountPaise: rupees(1050), method: 'card', reference: '' } }).paidPaise).toBe(rupees(1050));
+  });
+});
+
+describe('what a piece costs, for the sale screen', () => {
+  it('comes with each piece on sale, counting making cost and materials, so a bill can be checked against cost', () => {
+    const d = inventory.createDesign(db, { code: 'MG-050', name: 'Kadhua', fabric: '', hsnCode: '5007', description: '', defaultPricePaise: rupees(5000) });
+    const v = inventory.createVariant(db, d.id, { color: 'Wine', size: '6 m', sellPricePaise: rupees(5000), baseCostPaise: rupees(3200), reorderLevel: 0, openingStock: 3, bom: [] });
+    expect(invoices.variantsForSale(db).find((x) => x.variantId === v.id)?.unitCostPaise).toBe(rupees(3200));
+  });
+});
 
 describe('numbering series', () => {
   it('uses one run for everything until a B2B prefix is set', () => {

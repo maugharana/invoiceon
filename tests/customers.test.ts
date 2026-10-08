@@ -84,6 +84,30 @@ describe('finding duplicates', () => {
   });
 });
 
+describe('what a customer usually buys', () => {
+  it('ranks their colours and sizes by pieces, and works out what a piece usually costs them', () => {
+    const { red, blue, green } = stocked();
+    const c = customer();
+    sell(c.id, red.id, 3, 1000, 40);
+    sell(c.id, blue.id, 1, 1200, 10);
+    sell(c.id, green.id, 2, 500, 25);
+    sell(customer({ name: 'Someone else' }).id, blue.id, 9);
+    const t = customers.customerTaste(db, c.id);
+    expect(t.colors).toEqual([{ name: 'Red', pieces: 3 }, { name: 'Green', pieces: 2 }, { name: 'Blue', pieces: 1 }]);
+    expect(t.sizes).toEqual([{ name: '6 m', pieces: 4 }, { name: '5.5 m', pieces: 2 }]);
+    expect(t).toMatchObject({ pieces: 6, invoiceCount: 3, lastBoughtOn: addDays(today, -10), averagePiecePaise: Math.round(rupees(5200) / 6) });
+  });
+
+  it('counts only invoices that stand, and is empty for a customer who has bought nothing', () => {
+    const { red } = stocked();
+    const c = customer();
+    expect(customers.customerTaste(db, c.id)).toEqual({ pieces: 0, invoiceCount: 0, averagePiecePaise: 0, lastBoughtOn: null, colors: [], sizes: [] });
+    invoices.cancelInvoice(db, sell(c.id, red.id, 2).id, '');
+    expect(customers.customerTaste(db, c.id).pieces).toBe(0);
+    expect(() => customers.customerTaste(db, 'nope')).toThrow(/no longer exists/);
+  });
+});
+
 describe('what a customer has bought', () => {
   it('adds up each design, with its colours and when it was last bought, newest first', () => {
     const { red, blue, green } = stocked();

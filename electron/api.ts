@@ -33,6 +33,7 @@ import * as photos from './services/photos';
 import * as proformas from './services/proformas';
 import * as purchases from './services/purchases';
 import * as receivables from './services/receivables';
+import * as salespeople from './services/salespeople';
 import * as reports from './services/reports';
 import { loadSampleData } from './services/seed';
 import * as settings from './services/settings';
@@ -55,6 +56,10 @@ export interface Host {
   /** Asks for a backup file to open; null if cancelled. */
   pickFile?(title: string): Promise<string | null>;
   pickFolder?(title: string): Promise<string | null>;
+  /** Makes a document's PDF ready to send: writes it into a folder of its own and puts the file on the clipboard where it can. */
+  shareDocument?(route: string, fileName: string): Promise<{ path: string; copied: boolean }>;
+  /** Shows a file made by `shareDocument` in the file manager. */
+  revealFile?(path: string): Promise<void>;
   /** Opens another window on the same book. */
   openWindow?(): Promise<void>;
   /** Closes the app and opens it again, so a prepared restore can be applied. */
@@ -232,6 +237,7 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
     customerCreate: async (input) => customers.createCustomer(db, input),
     customerUpdate: async (id, input) => customers.updateCustomer(db, id, input),
     customerPurchases: async (id) => customers.customerPurchases(db, id),
+    customerTaste: async (id) => customers.customerTaste(db, id),
     customerMerge: async (keepId, duplicateId) => customers.mergeCustomers(db, keepId, duplicateId),
 
     notesList: async (subjectType, subjectId) => notes.listNotes(db, subjectType, subjectId),
@@ -267,6 +273,23 @@ function buildApi(db: Db, host?: Host, dataDir?: string, driveOverrides?: backup
     invoiceGet: async (id) => invoices.getInvoice(db, id),
     invoiceNextNumber: async (date, type) => invoices.nextInvoiceNumber(db, date, type),
     invoiceSetDelivery: async (id, update) => invoices.setDelivery(db, id, update),
+    invoiceSetSoldBy: async (id, salespersonId) => invoices.setSoldBy(db, id, salespersonId ?? null),
+    invoiceShareFile: async (id) => {
+      if (!host?.shareDocument) throw new UserError(DESKTOP_ONLY);
+      const inv = invoices.getInvoice(db, id);
+      if (inv.status === 'cancelled') throw new UserError('This invoice is cancelled, so there is nothing to send.');
+      return host.shareDocument(`/print/invoice/${encodeURIComponent(id)}`, `Invoice ${inv.number.replace(/[\\/:*?"<>|]/g, '-')}.pdf`);
+    },
+    shareReveal: async (path) => {
+      if (!host?.revealFile) throw new UserError(DESKTOP_ONLY);
+      return host.revealFile(String(path));
+    },
+    salespeopleList: async () => salespeople.listSalespeople(db),
+    salespersonCreate: async (input) => salespeople.createSalesperson(db, input),
+    salespersonUpdate: async (id, input) => salespeople.updateSalesperson(db, id, input),
+    salespersonArchive: async (id) => salespeople.archiveSalesperson(db, id),
+    salespersonRestore: async (id) => salespeople.restoreSalesperson(db, id),
+    reportSalespeople: async (range) => salespeople.salespeopleReport(db, range),
     invoiceCreate: async (input) => invoices.createInvoice(db, input),
     invoiceCancel: async (id, reason) => invoices.cancelInvoice(db, id, reason),
     paymentGet: async (id) => payments.getPayment(db, id),

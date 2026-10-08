@@ -20,6 +20,30 @@ export interface QueryState<T> {
   loading: boolean;
 }
 
+/**
+ * Like useQuery, but fetched once when the screen opens (and again only when `deps` change), not after every write anywhere in the
+ * app. For long, rarely-changing lists a screen only needs a snapshot of, so typing on it does not reload them each time.
+ */
+export function useQueryOnce<T>(fetcher: () => Promise<T>, deps: readonly unknown[] = []): QueryState<T> {
+  const [state, setState] = useState<QueryState<T>>({ data: undefined, error: null, loading: true });
+  const fetcherRef = useRef(fetcher);
+  fetcherRef.current = fetcher;
+
+  useEffect(() => {
+    let cancelled = false;
+    fetcherRef
+      .current()
+      .then((data) => !cancelled && setState({ data, error: null, loading: false }))
+      .catch((err) => !cancelled && setState((s) => ({ data: s.data, error: errorMessage(err), loading: false })));
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+
+  return state;
+}
+
 export function useQuery<T>(fetcher: () => Promise<T>, deps: readonly unknown[] = []): QueryState<T> {
   const { version } = useContext(DataContext);
   const [state, setState] = useState<QueryState<T>>({ data: undefined, error: null, loading: true });

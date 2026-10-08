@@ -3,7 +3,7 @@ import { formatMoney } from '../../shared/money';
 import { matchesAll } from '../../shared/search';
 import { normalizeTags } from '../../shared/tags';
 import { STATE_NAMES, stateFromGstin } from '../../shared/states';
-import type { Customer, CustomerAddress, CustomerContact, CustomerInput, CustomerPurchase } from '../../shared/types';
+import type { Customer, CustomerAddress, CustomerContact, CustomerInput, CustomerPurchase, CustomerTaste } from '../../shared/types';
 import { all, get, run, tx, type Db } from '../db/connection';
 import { UserError, newId, nowIso, optionalText, requireText } from './common';
 
@@ -233,6 +233,39 @@ export function customerPurchases(db: Db, customerId: string): CustomerPurchase[
   return [...byDesign.values()]
     .map(({ row, invoices }) => ({ ...row, invoiceCount: invoices.size }))
     .sort((a, b) => b.lastBoughtOn.localeCompare(a.lastBoughtOn) || a.designName.localeCompare(b.designName));
+}
+
+/**
+ * What a customer usually buys: the colours and sizes they have taken most, and what a piece typically costs them. It is worked
+ * from their issued invoices, so a cancelled invoice counts for nothing.
+ */
+export function customerTaste(db: Db, customerId: string): CustomerTaste {
+  getCustomer(db, customerId);
+  const lines = all<{ color: string; size: string; qty: number; amount_paise: number; invoice_id: string; issue_date: string }>(
+    db,
+    "SELECT l.color, l.size, l.qty, l.amount_paise, i.id AS invoice_id, i.issue_date FROM invoice_lines l JOIN invoices i ON i.id = l.invoice_id WHERE i.customer_id = ? AND i.status = 'issued'",
+    customerId,
+  );
+  const tally = (pick: (l: (typeof lines)[number]) => string) => {
+    const counts = new Map<string, { name: string; pieces: number }>();
+    for (const l of lines) {
+      const name = pick(l).trim();
+      if (!name) continue;
+      const entry = counts.get(name.toLowerCase()) ?? { name, pieces: 0 };
+      entry.pieces += l.qty;
+      counts.set(name.toLowerCase(), entry);
+    }
+    return [...counts.values()].sort((a, b) => b.pieces - a.pieces || a.name.localeCompare(b.name));
+  };
+  const pieces = lines.reduce((sum, l) => sum + l.qty, 0);
+  return {
+    pieces,
+    invoiceCount: new Set(lines.map((l) => l.invoice_id)).size,
+    averagePiecePaise: pieces > 0 ? Math.round(lines.reduce((sum, l) => sum + l.amount_paise, 0) / pieces) : 0,
+    lastBoughtOn: lines.reduce<string | null>((latest, l) => (latest === null || l.issue_date > latest ? l.issue_date : latest), null),
+    colors: tally((l) => l.color).slice(0, 5),
+    sizes: tally((l) => l.size).slice(0, 3),
+  };
 }
 
 /**

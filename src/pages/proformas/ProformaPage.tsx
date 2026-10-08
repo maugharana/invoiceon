@@ -116,7 +116,7 @@ export function ProformaPage({ id }: { id: string }) {
               label="More"
               items={[
                 { label: 'Duplicate', icon: <Copy className="h-4 w-4" />, onClick: () => navigate(paths.duplicateProforma(id)) },
-                { label: 'Save as a template', icon: <BookmarkPlus className="h-4 w-4" />, onClick: () => setDialog('template') },
+                { label: 'Save as a bundle', icon: <BookmarkPlus className="h-4 w-4" />, onClick: () => setDialog('template') },
                 { label: 'Earlier versions', icon: <History className="h-4 w-4" />, onClick: () => setDialog('versions'), disabledReason: revisions.data && revisions.data.length === 0 ? 'This quote has not been changed' : undefined },
                 ...(live && p.customerId ? [{ label: 'Take a deposit', icon: <HandCoins className="h-4 w-4" />, onClick: () => setDialog('deposit') }] : []),
                 ...(live && p.stage !== 'accepted' && p.status !== 'partial' ? [{ label: 'Mark accepted', icon: <ThumbsUp className="h-4 w-4" />, onClick: () => void setStage('accepted') }] : []),

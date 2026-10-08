@@ -207,6 +207,16 @@ describe('quote templates', () => {
     expect(() => proformas.deleteTemplate(db, t.id)).toThrow(/no longer exists/);
   });
 
+  it('keeps a discount on each item, which is how a bundle has a price of its own, and still reads templates saved without one', () => {
+    const t = proformas.saveTemplate(db, { name: 'Wedding bundle', notes: '', lines: [{ variantId: red, qty: 2, unitPricePaise: rupees(1000), discountPaise: rupees(150) }, { variantId: blue, qty: 1, unitPricePaise: rupees(900) }] });
+    expect(t.lines).toEqual([{ variantId: red, qty: 2, unitPricePaise: rupees(1000), discountPaise: rupees(150) }, { variantId: blue, qty: 1, unitPricePaise: rupees(900) }]);
+    expect(proformas.listTemplates(db)[0]!.lines[0]!.discountPaise).toBe(rupees(150));
+    db.exec(`UPDATE quote_templates SET lines_json = '[{"variantId":"${red}","qty":1,"unitPricePaise":100000}]'`);
+    expect(proformas.listTemplates(db)[0]!.lines).toEqual([{ variantId: red, qty: 1, unitPricePaise: 100000 }]);
+    expect(() => proformas.saveTemplate(db, { name: 'x', notes: '', lines: [{ variantId: red, qty: 1, unitPricePaise: rupees(1000), discountPaise: rupees(1001) }] })).toThrow(/more than the item/);
+    expect(() => proformas.saveTemplate(db, { name: 'x', notes: '', lines: [{ variantId: red, qty: 1, unitPricePaise: rupees(1000), discountPaise: -1 }] })).toThrow(/more than the item/);
+  });
+
   it('needs a name, items, and items that exist', () => {
     expect(() => proformas.saveTemplate(db, { name: ' ', notes: '', lines: [{ variantId: red, qty: 1, unitPricePaise: 1 }] })).toThrow(/name/);
     expect(() => proformas.saveTemplate(db, { name: 'x', notes: '', lines: [] })).toThrow(/at least one/);

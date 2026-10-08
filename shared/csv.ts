@@ -1,7 +1,7 @@
 import { INVOICE_STATUS_LABEL } from './gst';
 import { STOCK_STATUS_LABEL } from './stock';
 import type { WebsiteListing } from './websiteText';
-import type { AccountBook, Customer, DayBook, DesignSummary, PurchasesReport, QuotesReport, DuesReport, Expense, ExpensesBreakdown, MarginReport, MoversReport, ProfitAndLoss, StockMovementReport, StockMovementRow, GstReport, InvoiceSummary, Payment, ProformaSummary, SalesReport, StockReport } from './types';
+import type { SalespeopleReport, AccountBook, Customer, DayBook, DesignSummary, PurchasesReport, QuotesReport, DuesReport, Expense, ExpensesBreakdown, MarginReport, MoversReport, ProfitAndLoss, StockMovementReport, StockMovementRow, GstReport, InvoiceSummary, Payment, ProformaSummary, SalesReport, StockReport } from './types';
 import { MARGIN_BY_LABEL, PAYMENT_METHOD_LABEL, PROFORMA_STATUS_LABEL } from './types';
 
 type Row = (string | number)[];
@@ -223,6 +223,16 @@ export function accountBookCsv(b: AccountBook): string {
   }
   rows.push([], ['All accounts', '', '', '', '', '', rs(b.totalClosingPaise)]);
   return toCsv(rows);
+}
+
+export function salespeopleCsv(r: SalespeopleReport): string {
+  return toCsv([
+    ['Sold by', `${r.range.from} to ${r.range.to}`],
+    [],
+    ['Salesperson', 'Commission rate %', 'Invoices', 'Sold before GST', 'Goods taken back', 'Net sales', 'Commission'],
+    ...r.rows.map((x) => [x.name, x.commissionPercent === null ? '' : x.commissionPercent, x.invoices, rs(x.salesPaise), rs(x.returnsPaise), rs(x.netPaise), rs(x.commissionPaise)]),
+    ['Total', '', r.totals.invoices, rs(r.totals.salesPaise), rs(r.totals.returnsPaise), rs(r.totals.netPaise), rs(r.totals.commissionPaise)],
+  ]);
 }
 
 export function quotesCsv(r: QuotesReport): string {
