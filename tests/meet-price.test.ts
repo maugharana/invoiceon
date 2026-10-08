@@ -103,5 +103,7 @@ describe('round figures and what a bill costs', () => {
     expect(billCost([{ qty: 2, unitCostPaise: rupees(600) }, { qty: 1, unitCostPaise: rupees(300) }])).toEqual({ costPaise: rupees(1500), known: true });
     expect(billCost([{ qty: 2, unitCostPaise: rupees(600) }, { qty: 1, unitCostPaise: null }]).known).toBe(false);
     expect(billCost([]).known).toBe(false);
+    // A cost of nothing is a cost never entered, so it is not trusted as a real zero.
+    expect(billCost([{ qty: 1, unitCostPaise: 0 }, { qty: 1, unitCostPaise: rupees(300) }]).known).toBe(false);
   });
 });

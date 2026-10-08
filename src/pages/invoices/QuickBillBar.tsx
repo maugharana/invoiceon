@@ -67,7 +67,8 @@ export function QuickBillBar({ variants, customers, team, quote, onApply }: { va
     const variantById = new Map(variants.map((v) => [v.variantId, v]));
     const customer = plan.customer && customerChoice ? (customers.find((c) => c.id === customerChoice) ?? null) : null;
     onApply({
-      items: live.map(({ it, i }) => ({ variant: variantById.get(itemChoice[i]!)!, qty: it.qty, pricePaise: it.pricePaise })),
+      // An item whose piece has since gone from the list is left out rather than breaking the bill.
+      items: live.flatMap(({ it, i }) => { const variant = variantById.get(itemChoice[i]!); return variant ? [{ variant, qty: it.qty, pricePaise: it.pricePaise }] : []; }),
       customer,
       walkIn: plan.walkIn || (!!plan.customer && plan.customer.candidates.length === 0),
       walkInName: plan.customer && plan.customer.candidates.length === 0 ? plan.customer.text : null,

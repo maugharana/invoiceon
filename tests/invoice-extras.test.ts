@@ -35,6 +35,16 @@ describe('money handed over with the invoice', () => {
   });
 });
 
+describe('a bill with nothing to pay', () => {
+  it('accepts the old single payment of nothing (a free item) but still refuses a zero in the list of parts', () => {
+    const free = [{ variantId, qty: 1, unitPricePaise: 0 }];
+    const inv = invoice({ lines: free, payment: { amountPaise: 0, method: 'cash', reference: '' } });
+    expect(inv.totalPaise).toBe(0);
+    expect(inv.payments).toHaveLength(0);
+    expect(() => invoice({ lines: free, payments: [{ amountPaise: 0, method: 'cash', reference: '' }] })).toThrow(/Payment/);
+  });
+});
+
 describe('a bill paid in parts', () => {
   it('records each part as its own payment, by its own method and account, and settles the invoice', () => {
     saveSettings(db, { paymentAccounts: [{ id: 'cash', name: 'Cash drawer', kind: 'cash', details: '' }, { id: 'upi', name: 'Shop UPI', kind: 'upi', details: '' }] });

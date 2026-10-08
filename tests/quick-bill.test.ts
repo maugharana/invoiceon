@@ -63,6 +63,23 @@ describe('reading a line', () => {
     for (const later of ['pay later', 'unpaid', 'on credit', 'udhaar', 'credit', 'will pay later']) expect(pay(later)).toEqual({ mode: 'later' });
   });
 
+  it('keeps the item when the comma before the payment is forgotten, and reads the amount after the word', () => {
+    const p = parseQuickBill('2 kadhua ivory paid 5000 upi');
+    expect(p.items).toEqual([{ text: 'kadhua ivory', qty: 2, pricePaise: null }]);
+    expect(p.payment).toEqual({ mode: 'paid', method: 'upi', amountPaise: rupees(5000) });
+    const q = parseQuickBill('kadhua wine 10% off paid cash');
+    expect(q.plain).toEqual(['kadhua wine']);
+    expect(q.discount).toEqual({ kind: 'percent', percent: 10 });
+    expect(q.payment).toMatchObject({ mode: 'paid', method: 'cash' });
+    expect(parseQuickBill('5000 paid upi').payment).toEqual({ mode: 'paid', method: 'upi', amountPaise: rupees(5000) });
+  });
+
+  it('does not take "got" or "gave" for a payment', () => {
+    const p = parseQuickBill('customer got 2 kadhua ivory');
+    expect(p.payment).toBeNull();
+    expect(parseQuickBill('gave 2 chanderi lemon').payment).toBeNull();
+  });
+
   it('reads discounts as a share or an amount, and ignores a percentage that is not a discount', () => {
     const d = (s: string) => parseQuickBill(s).discount;
     expect(d('10% off')).toEqual({ kind: 'percent', percent: 10 });

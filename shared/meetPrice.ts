@@ -84,7 +84,7 @@ export function billCost(lines: { qty: number; unitCostPaise: Paise | null }[]):
   let costPaise = 0;
   let known = lines.length > 0;
   for (const l of lines) {
-    if (l.unitCostPaise === null) known = false;
+    if (l.unitCostPaise === null || l.unitCostPaise <= 0) known = false; // a cost of nothing is a cost never entered
     else costPaise += l.qty * l.unitCostPaise;
   }
   return { costPaise, known };

@@ -1,6 +1,7 @@
 import { ChevronUp, Plus, Search, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { suggestAccount } from '../../../shared/accountChoice';
+import { fixedDiscountTooBig, lineDiscountPaise, percentOf } from '../../../shared/billLines';
 import { checkCredit, dueDateFromTerms } from '../../../shared/credit';
 import { addDays, computeInvoice, formatDate, isIsoDate, isValidRate, resolveRate, todayIso } from '../../../shared/gst';
 import { formatMoney, mulPaise } from '../../../shared/money';
@@ -13,7 +14,7 @@ import { PAYMENT_METHOD_LABEL, type Customer, type Invoice, type InvoiceType, ty
 import { useToast } from '../../components/Toast';
 import { Button, Card, ErrorNote, Input, Money, MoneyInput, PageHeader, Select, Textarea } from '../../components/ui';
 import { api, errorMessage } from '../../lib/api';
-import { useQuery, useRefresh } from '../../lib/data';
+import { useQuery, useQueryOnce, useRefresh } from '../../lib/data';
 import { plural, toNumber } from '../../lib/format';
 import { navigate, paths, type AdvancePreset } from '../../lib/router';
 import { useSession } from '../../lib/session';
@@ -339,13 +340,13 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
     const t = setTimeout(() => {
       try {
         if (lines.length === 0 && !customerId) localStorage.removeItem(DRAFT_KEY);
-        else localStorage.setItem(DRAFT_KEY, JSON.stringify({ savedAt: new Date().toISOString(), type, customerId, buyerName, issueDate, dueDate, discountPaise: discount, notes, lines, receivedPaise: received, payMethod }));
+        else localStorage.setItem(DRAFT_KEY, JSON.stringify({ savedAt: new Date().toISOString(), type, customerId, buyerName, issueDate, dueDate, discountPaise: discount, notes, lines, receivedPaise: received, payMethod, ...(extras.length > 0 ? { extras } : {}) }));
       } catch {
         /* a convenience, not a record */
       }
     }, 500);
     return () => clearTimeout(t);
-  }, [draftable, draft, type, customerId, buyerName, issueDate, dueDate, discount, notes, lines, received, payMethod]);
+  }, [draftable, draft, type, customerId, buyerName, issueDate, dueDate, discount, notes, lines, received, payMethod, extras]);
   /** Fills the form from a saved bill: the unfinished one found on arrival, or one picked up from "On hold". */
   function applyDraft(d: InvoiceDraft) {
     if (!variants.data) return;
@@ -360,12 +361,12 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
     }
     setDiscount(d.discountPaise);
     setNotes(d.notes);
-    setLines(d.lines.filter((l) => known.has(l.variantId)).map((l) => ({ ...newLine(l.variantId, l.qty, l.price), discount: l.discount ?? 0, rate: l.rate ?? '', note: l.note ?? '' })));
+    setLines(d.lines.filter((l) => known.has(l.variantId)).map((l) => ({ ...newLine(l.variantId, l.qty, l.price), discount: l.discount ?? 0, discountPct: l.discountPct ?? null, rate: l.rate ?? '', note: l.note ?? '' })));
     setReceived(d.receivedPaise);
     setPayMethod(d.payMethod);
     setPayMode(d.receivedPaise > 0 ? d.payMethod : 'later');
     setPayFull(false);
-    setExtras([]);
+    setExtras((d.extras ?? []).map((e) => ({ ...e, id: String((extraId.current += 1)) })));
   }
   function restoreDraft() {
     if (!draft || !variants.data) return;
@@ -376,7 +377,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
   const [showHeld, setShowHeld] = useState(false);
   const heldCount = useQuery(() => (quote || editId ? Promise.resolve([]) : api.heldList('invoice')), [quote, editId]);
   /** The bill as it stands, in the form saved drafts and held bills share. */
-  const currentDraft = (): InvoiceDraft => ({ savedAt: new Date().toISOString(), type, customerId, buyerName, issueDate, dueDate, discountPaise: discount, notes, lines, receivedPaise: received, payMethod });
+  const currentDraft = (): InvoiceDraft => ({ savedAt: new Date().toISOString(), type, customerId, buyerName, issueDate, dueDate, discountPaise: discount, notes, lines, receivedPaise: received, payMethod, ...(extras.length > 0 ? { extras: extras.map(({ method, amountPaise, reference, accountId }) => ({ method, amountPaise, reference, accountId })) } : {}) });
   function discardDraft() {
     clearDraft();
     setDraft(null);
@@ -428,10 +429,10 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
       /* no memory to read */
     }
   }, [team, soldBy]);
-  const coverQuery = useQuery(() => api.designCovers());
+  const coverQuery = useQueryOnce(() => api.designCovers());
   const covers = coverQuery.data ?? {};
   // Tap-to-choose helpers: the people billed most recently, and what the chosen customer has bought before.
-  const recentInvoices = useQuery(() => (editId ? Promise.resolve([]) : api.invoicesList()), [editId]);
+  const recentInvoices = useQueryOnce(() => (editId ? Promise.resolve([]) : api.invoicesList()), [editId]);
   const purchases = useQuery(() => (customerId ? api.customerPurchases(customerId) : Promise.resolve([])), [customerId]);
   const sellable = useMemo(() => {
     const loaded = variants.data ?? [];
@@ -474,7 +475,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
 
   // Due date follows the invoice type and date until the user picks one themselves.
   useEffect(() => {
-    if (dueTouched.current || !settings.data) return;
+    if (dueTouched.current || !settings.data || !isIsoDate(issueDate)) return;
     // A customer with agreed payment terms gets their own due date; everyone else follows the shop's default for the type.
     const byTerms = quote ? null : dueDateFromTerms(issueDate, customer?.paymentTermsDays);
     setDueDate(quote ? addDays(issueDate, settings.data.proformaValidDays) : (byTerms ?? (type === 'B2B' ? addDays(issueDate, settings.data.defaultDueDays) : issueDate)));
@@ -498,7 +499,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
     const qty = toNumber(l.qty);
     const validQty = Number.isInteger(qty) && qty >= 1;
     const amount = validQty ? mulPaise(qty, l.price) : 0;
-    const discount = l.discountPct !== null ? Math.round((amount * l.discountPct) / 100) : Math.min(l.discount, amount);
+    const discount = lineDiscountPaise(amount, { discountPaise: l.discount, discountPct: l.discountPct });
     const typed = l.rate.trim() === '' ? null : Number(l.rate);
     const typedValid = typed === null || isValidRate(typed);
     const worked = (override: number | null) => resolveRate({ override, designRate: v?.gstRatePercent ?? null, qty: validQty ? qty : 1, netPaise: amount - discount }, shop);
@@ -549,7 +550,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
   if (type === 'B2B' && customer && !customer.gstin) problems.push(`${customer.name} has no GSTIN — add it, or bill as B2C.`);
   if (effectiveDiscount > totals.subtotalPaise - totals.lineDiscountPaise) problems.push('The discount is more than the subtotal.');
   if (rows.some((r) => !r.typedValid)) problems.push('Check the GST rate on an item: it should be a number from 0 to 100.');
-  if (rows.some((r) => r.line.discount > r.amount)) problems.push("An item's discount is more than the item.");
+  if (rows.some((r) => fixedDiscountTooBig(r.amount, { discountPaise: r.line.discount, discountPct: r.line.discountPct }))) problems.push("An item's discount is more than the item.");
   if (sellerGstinMissing) problems.push('Add your GSTIN in Settings first.');
   const canSubmit = problems.length === 0 && !saving;
 
@@ -611,7 +612,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
         else next.push(newLine(it.variant.variantId, String(it.qty), it.pricePaise ?? it.variant.sellPricePaise));
       }
       // A percentage is on every item, so it keeps up if a quantity changes.
-      return percent === null ? next : next.map((l) => ({ ...l, discountPct: percent, discount: Math.round(((toNumber(l.qty) || 0) * l.price * percent) / 100) }));
+      return percent === null ? next : next.map((l) => ({ ...l, discountPct: percent, discount: percentOf((toNumber(l.qty) || 0) * l.price, percent) }));
     });
     if (a.discount?.kind === 'amount') setDiscount(a.discount.paise);
     if (!quote && a.payment) {
@@ -628,7 +629,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
     if (a.dueDays !== null) {
       dueTouched.current = true;
       setPickDue(false);
-      setDueDate(addDays(issueDate, a.dueDays));
+      setDueDate(addDays(isIsoDate(issueDate) ? issueDate : todayIso(), a.dueDays));
     }
     if (a.note) setNotes(a.note);
     toast.success('Filled in. Check the bill, then issue it.');
@@ -654,7 +655,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
   };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && !document.querySelector('[role="dialog"]')) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && !e.repeat && !document.querySelector('[role="dialog"]')) {
         e.preventDefault();
         submitNow.current();
       }
@@ -903,7 +904,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
                       discountPaise={r.discount}
                       pct={r.line.discountPct}
                       label={name}
-                      onPick={(p) => set({ discountPct: p, discount: p === null ? 0 : Math.round((r.amount * p) / 100) })}
+                      onPick={(p) => set({ discountPct: p, discount: p === null ? 0 : percentOf(r.amount, p) })}
                     />
                     <div className="w-24 pt-1.5 text-right">
                       <Money paise={r.amount - r.discount} />
@@ -961,7 +962,7 @@ export function NewInvoicePage({ presetCustomerId, advance, copyFrom = null, edi
                   if (e.target.value === 'custom') setPickDue(true);
                   else {
                     setPickDue(false);
-                    setDueDate(addDays(issueDate, Number(e.target.value)));
+                    setDueDate(addDays(isIsoDate(issueDate) ? issueDate : todayIso(), Number(e.target.value)));
                   }
                 }}
                 aria-label={quote ? 'Valid until' : 'Payment due'}

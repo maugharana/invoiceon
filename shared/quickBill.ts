@@ -85,11 +85,33 @@ function itemFrom(part: string): QuickItemText | null {
   return { text, qty: qty ?? 1, pricePaise: qty === null && pricePaise === null ? null : pricePaise };
 }
 
+/**
+ * "2 kadhua ivory paid 5000 upi" with the comma forgotten is two things: the item, and the payment. A payment word (or a "10%") that comes after
+ * other words starts a new piece, so the item is kept and the amount is read from after the word, not from the "2" before it.
+ */
+function splitAtPayment(seg: string): string[] {
+  const parts: string[] = [];
+  let from = 0;
+  for (const m of seg.matchAll(/\s(?:(?:paid|pays|paying|received|advance)\b|(?=\d+(?:\.\d+)?\s*(?:%|percent|per ?cent)))/gi)) {
+    if (/[a-z]/i.test(seg.slice(from, m.index))) {
+      parts.push(seg.slice(from, m.index));
+      from = m.index;
+    }
+  }
+  parts.push(seg.slice(from));
+  return parts;
+}
+
 /** Reads one line into its parts. It never fails: what it cannot read is returned in `unknown`. */
 export function parseQuickBill(line: string): QuickParsed {
   const out: QuickParsed = { items: [], plain: [], customer: null, walkIn: false, discount: null, payment: null, soldBy: null, dueDays: null, note: null, unknown: [] };
   // A comma inside an amount ("5,000") is not a break between parts.
-  const segments = String(line ?? '').replace(/(\d),(\d{3})(?!\d)/g, '$1$2').split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean);
+  const segments = String(line ?? '')
+    .replace(/(\d),(\d{3})(?!\d)/g, '$1$2')
+    .split(/[,;\n]+/)
+    .flatMap(splitAtPayment)
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   for (const seg of segments) {
     const low = seg.toLowerCase();
@@ -108,9 +130,9 @@ export function parseQuickBill(line: string): QuickParsed {
       out.payment = { mode: 'later' };
       continue;
     }
-    if (/\b(paid|pays|paying|received|got|payment|advance|gave|given)\b/.test(low)) {
+    if (/\b(paid|pays|paying|received|payment|advance)\b/.test(low)) {
       const method = methodIn(low);
-      const withoutWords = low.replace(/\b(paid|pays|paying|received|got|payment|advance|gave|given|in|by|via|through|with|on|full|fully|completely|all|of|it|the|rs|inr)\b/g, ' ');
+      const withoutWords = low.replace(/\b(paid|pays|paying|received|payment|advance|in|by|via|through|with|on|full|fully|completely|all|of|it|the|rs|inr)\b/g, ' ');
       const amount = parseAmount(withoutWords);
       out.payment = { mode: 'paid', method, amountPaise: amount };
       continue;

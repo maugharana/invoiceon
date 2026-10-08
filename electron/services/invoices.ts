@@ -427,7 +427,8 @@ export function createInvoice(db: Db, input: InvoiceInput, opts: { exceptQuoteId
   const { type, customer, buyer, placeOfSupply, intraState, discount, notes } = checkDocument(db, settings, input);
 
   // Money handed over as the invoice is made: one payment, or several by different methods (part cash, part UPI).
-  const handed = input.payments ?? (input.payment ? [input.payment] : []);
+  // A single legacy `payment` of nothing (a ₹0 bill) means no payment; a zero in a `payments` list is still refused.
+  const handed = input.payments ?? (input.payment && input.payment.amountPaise !== 0 ? [input.payment] : []);
   if (!Array.isArray(handed) || handed.length > MAX_SPLIT_PAYMENTS) throw new UserError(`An invoice can be paid by up to ${MAX_SPLIT_PAYMENTS} payments at once.`);
   const paymentsNow = handed.map((p) => ({ ...p, amountPaise: requireInt(p.amountPaise, 'Payment', { min: 1, max: MAX_PAISE }) }));
   const receivedNow = paymentsNow.reduce((s, p) => s + p.amountPaise, 0);
